@@ -146,6 +146,21 @@
   #top.show ~ #mapHit{display:block}
   #mapWrap{padding:0;background:#0d0f12;z-index:18}
   #mapView{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #talk{background:rgba(80,160,255,.3);border-color:rgba(140,190,255,.8);display:none}
+  #dlg{position:fixed;left:0;right:0;bottom:0;z-index:16;display:none;
+    padding:30px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
+    background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.65) 40%)}
+  #dlg.show{display:block}
+  .dbox{max-width:780px;margin:0 auto;background:#1c1e23;border:1px solid #3a3e46;border-radius:16px;display:flex;gap:12px;padding:12px;
+    box-shadow:0 10px 40px rgba(0,0,0,.5);max-height:70vh;overflow:auto;touch-action:pan-y}
+  #dPortrait{width:60px;height:60px;border-radius:50%;flex:none}
+  .dmain{flex:1;min-width:0}
+  #dName{font-weight:900;color:#ffb300;font-size:14px;letter-spacing:.5px}
+  #dSub{font-size:12px;opacity:.65;font-style:italic;margin-top:2px}
+  #dText{font-size:15px;line-height:1.4;margin:5px 0 9px;white-space:pre-line}
+  #dChoices{display:flex;flex-wrap:wrap;gap:6px}
+  #dChoices button{padding:10px 12px;border-radius:10px;border:0;background:#2a2d34;color:#fff;font-weight:700;font-size:14px;text-align:left}
+  #dChoices button.pri{background:#ffb300;color:#111}
 </style>
 </head>
 <body>
@@ -161,6 +176,7 @@
 
 <div id="ui">
   <div id="stick"><div id="knob"></div></div>
+  <div class="btn" id="talk">💬</div>
   <div class="btn" id="nitro">N₂O</div>
   <div class="btn" id="act">WYSIĄDŹ</div>
   <div class="btn" id="hb">RĘCZNY</div>
@@ -170,7 +186,7 @@
 
 <div id="start">
   <h1>JAZDA<br><span>W MIEŚCIE</span></h1>
-  <div class="sub">Etap 4 · nowe, większe miasto</div>
+  <div class="sub">Etap 4 · życie w mieście</div>
   <button class="bigbtn" id="play">GRAJ</button>
   <div class="rowbtns">
     <button class="smallbtn" id="setBtn">⚙ USTAWIENIA</button>
@@ -185,6 +201,7 @@
     <div class="pbody">
       <button class="mbtn pri" id="pResume">WZNÓW</button>
       <button class="mbtn" id="pSet">⚙ USTAWIENIA</button>
+      <button class="mbtn" id="pAbort" style="display:none">PRZERWIJ ZLECENIE</button>
       <button class="mbtn" id="pRespawn">NOWE AUTO NA STARCIE</button>
       <button class="mbtn" id="pInst" style="display:none">⬇ ZAINSTALUJ NA PULPICIE</button>
       <button class="mbtn" id="pTitle">EKRAN STARTOWY</button>
@@ -212,6 +229,18 @@
       <b>iPhone / iPad (Safari):</b> stuknij „Udostępnij” (kwadrat ze strzałką), potem „Do ekranu początkowego”.<br><br>
       <b>Android (Chrome):</b> menu ⋮ → „Zainstaluj aplikację”.<br>
       <b>Android (Edge):</b> menu ⋯ → „Dodaj do telefonu”.
+    </div>
+  </div>
+</div>
+
+<div id="dlg">
+  <div class="dbox">
+    <canvas id="dPortrait" width="112" height="112"></canvas>
+    <div class="dmain">
+      <div id="dName"></div>
+      <div id="dSub"></div>
+      <div id="dText"></div>
+      <div id="dChoices"></div>
     </div>
   </div>
 </div>
@@ -948,6 +977,7 @@ function loadSave(){
   if (!s.cur || !VT[s.cur.type]) s.cur = defaultCfg("sport", "#e8a317");
   s.cur = Object.assign(defaultCfg(s.cur.type, s.cur.col), s.cur);
   if (!Array.isArray(s.col)) s.col = [];
+  if (!s.quests || typeof s.quests !== "object") s.quests = {};
   s.col = s.col.filter(c => c && VT[c.type]).map(c => Object.assign(defaultCfg(c.type, c.col), c));
   return s;
 }
@@ -1008,7 +1038,9 @@ addEventListener("keydown", e => {
       if (e.code === "KeyR") respawn();
       if (e.code === "KeyE" || e.code === "KeyF" || e.code === "Enter") actionBtn();
       if (e.code === "KeyQ") radioNext();
+      if (e.code === "KeyT") tryTalk();
     }
+    if (state === "talk" && /^Digit[1-5]$/.test(e.code)){ const b = $("dChoices").children[+e.code.slice(5) - 1]; if (b) b.click(); }
     if (e.code === "KeyM") toggleMute();
     if (e.code === "Tab"){ if (state === "play") openMap(); else if (state === "map") closeMap(); }
     if (e.code === "Escape" || e.code === "KeyP"){
@@ -1077,7 +1109,8 @@ const CTRL = {
   brake: { w: 78, h: 78, x: 136, b: 18, side: "R", fs: 11 },
   hb:    { w: 66, h: 66, x: 40, b: 142, side: "R", fs: 11 },
   act:   { w: 64, h: 64, x: 140, b: 112, side: "R", fs: 10 },
-  nitro: { w: 60, h: 60, x: 226, b: 34, side: "R", fs: 13 }
+  nitro: { w: 60, h: 60, x: 226, b: 34, side: "R", fs: 13 },
+  talk:  { w: 64, h: 64, x: 214, b: 112, side: "R", fs: 26 }
 };
 function layoutControls(){
   const k = { s: 0.8, m: 1, l: 1.2 }[SET.btnSize] || 1;
@@ -1104,11 +1137,13 @@ function updateControlLabels(){
   let near = false;
   if (mode === "foot") near = !!nearestCar();
   const hasN = mode === "car" && player.veh.cfg.nitro > 0;
-  const key = mode + near + hasN;
+  const hasT = !!talkTarget();
+  const key = mode + near + hasN + hasT;
   if (key === lastMode) return;
   lastMode = key;
-  $("nitro").style.display = hasN ? "" : "none";
-  $("radioBtn").style.display = mode === "car" ? "" : "none";
+  $("nitro").style.display = hasN ? "flex" : "none";
+  $("talk").style.display = hasT ? "flex" : "none";
+  $("radioBtn").style.display = mode === "car" ? "flex" : "none";
   if (mode === "foot"){
     $("gas").textContent = "IDŹ"; $("brake").textContent = "COFNIJ"; $("hb").style.display = "none";
     $("act").textContent = "WSIĄDŹ"; $("act").classList.toggle("dim", !near);
@@ -1311,6 +1346,16 @@ function updateCity(dt, dark){
   if (cityT.siren <= 0){ cityT.siren = (35 + Math.random() * 50) * (1 - dark * 0.5); siren(); }
   if (cityT.dog <= 0){ cityT.dog = 25 + Math.random() * 40; bark(); }
   if (cityT.horn <= 0){ cityT.horn = 8 + Math.random() * 18; if (SET.traffic > 0) honk(0, 0, true); }
+  if (ev && ev.type === "busker" && ev.ped && state === "play"){
+    const a = att(ev.ped.x, ev.ped.y);
+    if (a > 0.05){
+      cityT.busk = (cityT.busk || 0) - dt;
+      if (cityT.busk <= 0){
+        cityT.busk = ev.fast ? 0.14 : 0.27;
+        tone(mtof(57 + [0, 3, 5, 7, 10, 12, 15][(Math.random() * 7) | 0]), actx.currentTime, 0.4, "triangle", 0.07 * a, cityBus);
+      }
+    }
+  }
   if (player.mode === "foot" && player.foot.moving && state === "play"){
     cityT.step -= dt;
     if (cityT.step <= 0){ stepSound(); cityT.step = pin.thr ? 0.28 : 0.45; }
@@ -1994,6 +2039,7 @@ function startFlee(p, tx, ty){
   p.fleeT = 1 + Math.random() * 0.8; p.state = "flee";
 }
 function startReturn(p){
+  if (p.home){ p.tx = p.home[0]; p.ty = p.home[1]; p.state = "return"; return; }
   p.bx = clamp(Math.floor((p.x / T - OFF) / P), 0, NB - 1); p.by = clamp(Math.floor((p.y / T - OFF) / P), 0, NB - 1);
   if (zoneOf(p.bx, p.by) === "river") p.bx = p.x < (RX0 + RX1) / 2 ? RIVER_BX - 1 : RIVER_BX + 1;
   p.s = ringS(p.bx, p.by, p.x, p.y);
@@ -2012,6 +2058,7 @@ function moveTo(p, tx, ty, sp, dt){
   return false;
 }
 function updatePed(p, dt){
+  if (p.kind) return updateAnimal(p, dt);
   p.t += dt;
   if (p.state === "dead"){
     p.deadT -= dt;
@@ -2033,6 +2080,12 @@ function updatePed(p, dt){
   }
   p.moving = true;
   switch (p.state){
+    case "stand": {
+      p.moving = false;
+      const pp = playerPos();
+      if (Math.hypot(pp.x - p.x, pp.y - p.y) < 130) p.a = Math.atan2(pp.y - p.y, pp.x - p.x);
+      break;
+    }
     case "walk": {
       const prevSeg = Math.floor(p.s / RL);
       p.s += p.dir * p.spd * dt;
@@ -2061,7 +2114,7 @@ function updatePed(p, dt){
       if (p.fleeT <= 0) startReturn(p);
       break;
     case "return":
-      if (moveTo(p, p.tx, p.ty, 60, dt)) p.state = "walk";
+      if (moveTo(p, p.tx, p.ty, 60, dt)) p.state = p.home ? "stand" : "walk";
       pushCircle(p, 6);
       break;
   }
@@ -2239,13 +2292,14 @@ function manageSpawns(dt){
   for (let i = peds.length - 1; i >= 0; i--){
     const p = peds[i];
     const d = Math.hypot(p.x - pp.x, p.y - pp.y);
-    if ((p.state === "dead" && p.deadT <= 0) || (d > 1600 && !onScreen(p.x, p.y, 40))){ peds.splice(i, 1); continue; }
-    if (p.state !== "dead") nPed++;
+    if ((p.state === "dead" && p.deadT <= 0) || (d > 1600 && !p.fixed && !onScreen(p.x, p.y, 40))){ peds.splice(i, 1); continue; }
+    if (p.state !== "dead" && !p.fixed && !p.kind) nPed++;
   }
+  ensureQuestChars();
   const wantPed = [0, 14, 28, 46][SET.peds] || 0;
   if (nPed < wantPed){ trySpawnPed(pp); if (nPed < wantPed - 5) trySpawnPed(pp); }
   if (nPed > wantPed){
-    for (let i = peds.length - 1; i >= 0; i--){ if (!onScreen(peds[i].x, peds[i].y, 40)){ peds.splice(i, 1); break; } }
+    for (let i = peds.length - 1; i >= 0; i--){ if (!peds[i].fixed && !peds[i].kind && !onScreen(peds[i].x, peds[i].y, 40)){ peds.splice(i, 1); break; } }
   }
 }
 
@@ -2297,7 +2351,7 @@ function update(dt){
   for (const p of peds){
     if (Math.abs(p.x - pp.x) > 1500 || Math.abs(p.y - pp.y) > 1500) continue;
     updatePed(p, dt);
-    if (p.state !== "dead") pedVsVehicles(p, false);
+    if (p.state !== "dead" && !p.kind) pedVsVehicles(p, false);
   }
 
   // gracz pieszo
@@ -2316,7 +2370,7 @@ function update(dt){
     player.deadT -= dt;
     if (player.deadT <= 0) respawn();
   }
-  if (state === "play"){ economy(dt); checkGarage(); }
+  if (state === "play"){ economy(dt); checkGarage(); missionUpdate(dt); eventsUpdate(dt); }
   managePickups(dt);
   updateFx(dt);
 }
@@ -2452,9 +2506,15 @@ function drawVehicle(v){
   ctx.save();
   ctx.translate(v.x, v.y); ctx.rotate(v.a);
   drawCarBody(ctx, v, false);
+  if (v.hazard && Math.sin(gameTime * 9) > 0){
+    const t = VT[v.type], hl = t.len / 2 - 1, hw = t.wid / 2 - 1;
+    ctx.fillStyle = "#ffb020";
+    for (const [x, y] of [[hl, -hw], [hl, hw], [-hl, -hw], [-hl, hw]]){ ctx.beginPath(); ctx.arc(x, y, 2.6, 0, Math.PI * 2); ctx.fill(); }
+  }
   ctx.restore();
 }
 function drawPed(p, isPlayer){
+  if (p.kind) return drawAnimal(p);
   ctx.save();
   ctx.translate(p.x, p.y); ctx.rotate(p.a);
   if (p.state === "dead"){
@@ -2904,9 +2964,29 @@ function render(){
     ctx.fillStyle = "rgba(210,210,210," + (0.35 * p.life / p.max).toFixed(3) + ")";
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
   }
+  // znacznik celu zlecenia
+  if (mission && mission.target && inV(mission.target[0], mission.target[1], 80)){
+    const [tx, ty] = mission.target, pr = 34 + Math.sin(gameTime * 5) * 6;
+    ctx.strokeStyle = "rgba(255,179,0,.9)"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(tx, ty, pr, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,179,0,.18)"; ctx.fill();
+    ctx.fillStyle = "#ffb300";
+    const yy = ty - pr - 14 - Math.abs(Math.sin(gameTime * 4)) * 8;
+    ctx.beginPath(); ctx.moveTo(tx - 9, yy - 10); ctx.lineTo(tx + 9, yy - 10); ctx.lineTo(tx, yy + 2); ctx.closePath(); ctx.fill();
+  }
+  if (ev && ev.item && inV(ev.item.x, ev.item.y, 30)){
+    ctx.fillStyle = "#6d4c41"; ctx.fillRect(ev.item.x - 5, ev.item.y - 3.5, 10, 7);
+    ctx.fillStyle = "rgba(255,179,0,.3)"; ctx.beginPath(); ctx.arc(ev.item.x, ev.item.y, 12 + Math.sin(gameTime * 5) * 2, 0, Math.PI * 2); ctx.fill();
+  }
   // gotówka
   for (const k of pickups){
     if (!inV(k.x, k.y, 30)) continue;
+    if (k.special){
+      ctx.fillStyle = "rgba(255,200,40,.3)"; ctx.beginPath(); ctx.arc(k.x, k.y, 20 + Math.sin(k.t * 4) * 3, 0, Math.PI * 2); ctx.fill();
+      ctx.font = "20px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("🎁", k.x, k.y - Math.abs(Math.sin(k.t * 3)) * 4);
+      continue;
+    }
     const bb = Math.sin(k.t * 4) * 2;
     ctx.fillStyle = "rgba(92,214,92,.22)"; ctx.beginPath(); ctx.arc(k.x, k.y, 16 + bb, 0, Math.PI * 2); ctx.fill();
     ctx.save(); ctx.translate(k.x, k.y); ctx.rotate(k.t * 0.8);
@@ -2919,6 +2999,19 @@ function render(){
   for (const v of vehicles) if (inV(v.x, v.y, 40)) drawVehicle(v);
   for (const p of peds) if (p.state !== "dead" && inV(p.x, p.y, 20)) drawPed(p, false);
   if (player.mode === "foot") drawPed(player.foot, true);
+  ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const p of peds){
+    if (p.state === "dead" || !inV(p.x, p.y, 30)) continue;
+    const ic = pedIcon(p);
+    if (!ic) continue;
+    const yy = p.y - 22 + Math.sin(gameTime * 4 + p.x) * 2.5;
+    ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.arc(p.x, yy, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillText(ic, p.x, yy + 1);
+  }
+  if (ev && ev.item && inV(ev.item.x, ev.item.y, 30)){
+    ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.arc(ev.item.x, ev.item.y - 20, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillText("👛", ev.item.x, ev.item.y - 19);
+  }
   ctx.fillStyle = "#2b2d31";
   for (const l of lamps){ if (!inV(l[0], l[1], 10)) continue; ctx.beginPath(); ctx.arc(l[0], l[1], 4, 0, Math.PI * 2); ctx.fill(); }
   for (const p of parts){
@@ -2927,6 +3020,7 @@ function render(){
     if (p.k === 1){ ctx.fillStyle = "rgba(255," + (180 + ((Math.random() * 60) | 0)) + ",60," + a.toFixed(2) + ")"; ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3); }
     else if (p.k === 2){ ctx.fillStyle = "rgba(255," + ((90 + a * 140) | 0) + ",20," + (0.85 * a).toFixed(2) + ")"; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
     else if (p.k === 5){ ctx.fillStyle = "rgba(150,210,255," + (0.9 * a).toFixed(2) + ")"; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+    else if (p.k === 6){ ctx.fillStyle = "rgba(255,255,255," + a.toFixed(2) + ")"; ctx.font = "bold 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText("♪", p.x, p.y); }
     else { ctx.fillStyle = "rgba(25,25,25," + a.toFixed(2) + ")"; ctx.fillRect(p.x - 2, p.y - 2, 4, 3); }
   }
   // drzewa
@@ -3071,6 +3165,46 @@ function drawHUD(h){
     ctx.fillText("📻 " + STATIONS[player.veh.radio].name, 14, 74);
     ctx.textAlign = "center";
   }
+  // zlecenie
+  if (mission){
+    const st = mission.steps[mission.step], lines = ["📋 " + mission.def.title, st ? st.text : ""];
+    if (mission.def.time && mission.timerOn){ const t = Math.max(0, mission.time); lines.push("⏱ " + Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0")); }
+    if (mission.def.fragile && mission.tracking) lines.push((mission.def.passenger ? "😌 Nastrój pasażera: " : "📦 Stan towaru: ") + Math.max(0, Math.round(100 - mission.dmg / mission.def.fragile * 100)) + "%");
+    if (mission.carry) lines.push(mission.carry === "cat" ? "🐈 Niesiesz kota" : "🐕 Prowadzisz psa");
+    ctx.font = "800 12px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    let bwid = 0; for (const l of lines) bwid = Math.max(bwid, ctx.measureText(l).width);
+    const bx0 = 12, by0 = 86;
+    ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, bx0, by0, bwid + 18, lines.length * 17 + 10, 8); ctx.fill();
+    lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? "#ffb300" : (l.startsWith("⏱") && mission.time < 15 ? "#ff6b5e" : "#fff"); ctx.fillText(l, bx0 + 9, by0 + 19 + i * 17); });
+    if (mission.target){
+      const [tx, ty] = mission.target, sx2 = W / 2 + (tx - camX) * zoom, sy2 = H / 2 + (ty - camY) * zoom, mg = 40;
+      if (sx2 < mg || sx2 > W - mg || sy2 < mg || sy2 > H - mg){
+        const ang = Math.atan2(sy2 - H / 2, sx2 - W / 2), dx = Math.cos(ang), dy = Math.sin(ang);
+        const kx = Math.abs(dx) > 1e-4 ? (W / 2 - mg) / Math.abs(dx) : 1e9, ky = Math.abs(dy) > 1e-4 ? (H / 2 - mg) / Math.abs(dy) : 1e9;
+        const kk = Math.min(kx, ky), ax = W / 2 + dx * kk, ay = H / 2 + dy * kk;
+        ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang);
+        ctx.fillStyle = "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-8, -12); ctx.lineTo(-3, 0); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.restore();
+        const pp = playerPos(), dist = Math.round(Math.hypot(tx - pp.x, ty - pp.y) / 10);
+        ctx.font = "900 12px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(dist + " m", ax - dx * 26 + 1, ay - dy * 26 + 5);
+        ctx.fillStyle = "#ffb300"; ctx.fillText(dist + " m", ax - dx * 26, ay - dy * 26 + 4);
+      }
+    }
+    ctx.textAlign = "center";
+  }
+  if (ev && ev.repair >= 0){
+    const f = clamp(ev.repair / 4, 0, 1);
+    ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(W / 2 - 82, H * 0.62, 164, 26);
+    ctx.fillStyle = "#ffb300"; ctx.fillRect(W / 2 - 78, H * 0.62 + 18, 156 * f, 4);
+    ctx.font = "800 12px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    ctx.fillText(f > 0 ? "🔧 Naprawiam... " + Math.round(f * 100) + "%" : "🔧 Stań przy aucie", W / 2, H * 0.62 + 14);
+  }
+  if (!isTouch && state === "play" && talkTarget()){
+    ctx.font = "800 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(0,0,0,.6)";
+    ctx.fillRect(W / 2 - 80, H - 46, 160, 24); ctx.fillStyle = "#9fd4ff"; ctx.fillText("💬 T – porozmawiaj", W / 2, H - 29);
+  }
   // radar (fragment mapy wokół gracza)
   const sz = Math.min(130, Math.min(W, H) * 0.3);
   const mx = W - sz - 14, my = 14;
@@ -3088,6 +3222,14 @@ function drawHUD(h){
     for (const k of pickups){ const q = toR(k.x, k.y); ctx.fillRect(q[0] - 1.5, q[1] - 1.5, 3, 3); }
     ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     for (const o of pois){ const q = toR(o.x, o.y); if (q[0] > mx - 8 && q[0] < mx + sz + 8 && q[1] > my - 8 && q[1] < my + sz + 8) ctx.fillText(o.icon, q[0], q[1]); }
+    for (const k of pickups) if (k.special){ const q = toR(k.x, k.y); ctx.fillText("🎁", q[0], q[1]); }
+    for (const c of QCHARS) if (c.ped && pedIcon(c.ped)){ const q = toR(c.ped.x, c.ped.y); ctx.fillText("❗", q[0], q[1]); }
+    if (ev){ const a = evAnchor(); if (a){ const q = toR(a.x, a.y); ctx.fillText(ev.item ? "👛" : (ev.ped && ev.ped.icon) || "•", q[0], q[1]); } }
+    if (mission && mission.target){
+      const q = toR(clamp(mission.target[0], pp.x - RAD * 0.94, pp.x + RAD * 0.94), clamp(mission.target[1], pp.y - RAD * 0.94, pp.y + RAD * 0.94));
+      ctx.fillStyle = "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(q[0], q[1], 4.5 + Math.sin(gameTime * 6), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
     ctx.translate(mx + sz / 2, my + sz / 2); ctx.rotate(player.mode === "car" ? player.veh.a : player.foot.a);
     ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -5); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -3179,6 +3321,7 @@ $("sWipe").addEventListener("click", () => {
   location.reload();
 });
 function openPause(){
+  $("pAbort").style.display = mission ? "" : "none";
   state = "pause";
   $("pause").classList.add("show");
 }
@@ -3200,8 +3343,8 @@ $("pTitle").addEventListener("click", () => {
 
 const isTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
 $("hint").innerHTML = isTouch
-  ? "Lewy kciuk: skręcanie · Prawy: gaz, hamulec / wsteczny, ręczny do driftu.<br>Żółty przycisk: wysiadanie i wsiadanie · dotknij radaru, aby otworzyć mapę miasta."
-  : "Strzałki / WASD: jazda · Spacja: ręczny · Shift: nitro · E: wysiądź / wsiądź<br>Q: radio · Tab: mapa · P lub Esc: menu · R: nowe auto · M: dźwięk";
+  ? "Lewy kciuk: skręcanie · Prawy: gaz, hamulec / wsteczny, ręczny do driftu.<br>Żółty: wysiadanie i wsiadanie · Niebieski 💬: rozmowa · ❗ nad głową: zlecenie · radar: mapa miasta."
+  : "Strzałki / WASD: jazda · Spacja: ręczny · Shift: nitro · E: wysiądź / wsiądź · T: rozmowa<br>Q: radio · Tab: mapa · P lub Esc: menu · R: nowe auto · M: dźwięk";
 
 const isStandalone = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -3306,14 +3449,14 @@ function managePickups(dt){
     const rad = player.mode === "car" ? 30 : 18;
     for (let i = pickups.length - 1; i >= 0; i--){
       const k = pickups[i];
-      if (Math.hypot(k.x - pp.x, k.y - pp.y) < rad){ addMoney(k.val, "GOTÓWKA"); pickups.splice(i, 1); }
+      if (Math.hypot(k.x - pp.x, k.y - pp.y) < rad){ addMoney(k.val, k.special ? "ZNALEZISKO 🎁" : "GOTÓWKA"); pickups.splice(i, 1); }
     }
   }
   if (pickT > 0) return;
   pickT = 0.5;
-  for (let i = pickups.length - 1; i >= 0; i--) if (Math.hypot(pickups[i].x - pp.x, pickups[i].y - pp.y) > 2200) pickups.splice(i, 1);
-  if (!SET.cash){ pickups.length = 0; return; }
-  if (pickups.length >= 10) return;
+  for (let i = pickups.length - 1; i >= 0; i--) if (!pickups[i].special && Math.hypot(pickups[i].x - pp.x, pickups[i].y - pp.y) > 2200) pickups.splice(i, 1);
+  if (!SET.cash){ for (let i = pickups.length - 1; i >= 0; i--) if (!pickups[i].special) pickups.splice(i, 1); return; }
+  if (pickups.filter(k => !k.special).length >= 10) return;
   for (let tries = 0; tries < 5; tries++){
     let x, y;
     if (Math.random() < 0.6){
@@ -3852,6 +3995,9 @@ function drawMapView(){
   g.fillStyle = "#ffd75a"; g.fillText("OBWODNICA", rq[0], rq[1] - size * 0.02);
   g.font = Math.max(11, size * 0.03).toFixed(0) + "px system-ui, sans-serif";
   for (const o of pois){ const q = toM(o.x, o.y); g.fillText(o.icon, q[0], q[1]); }
+  for (const k of pickups) if (k.special){ const q = toM(k.x, k.y); g.fillText("🎁", q[0], q[1]); }
+  for (const c of QCHARS) if (c.ped && pedIcon(c.ped)){ const q = toM(c.ped.x, c.ped.y); g.fillText("❗", q[0], q[1]); }
+  if (mission && mission.target){ const q = toM(mission.target[0], mission.target[1]); g.fillStyle = "#ffb300"; g.beginPath(); g.arc(q[0], q[1], 6, 0, Math.PI * 2); g.fill(); }
   g.fillStyle = "#5cd65c";
   for (const k of pickups){ const q = toM(k.x, k.y); g.fillRect(q[0] - 2, q[1] - 2, 4, 4); }
   const pp = playerPos(), q = toM(pp.x, pp.y), a = player.mode === "car" ? player.veh.a : player.foot.a;
@@ -3864,10 +4010,661 @@ function drawMapView(){
   g.textAlign = "left"; g.font = "900 15px system-ui, sans-serif"; g.fillStyle = "#fff";
   g.fillText("MAPA MIASTA", 16, 22);
   g.font = "600 12px system-ui, sans-serif"; g.fillStyle = "rgba(255,255,255,.65)";
-  const leg = ["🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
+  const leg = ["❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
   if (w - size > 260) leg.forEach((t, i) => g.fillText(t, 16, 48 + i * 20));
   g.textAlign = "center"; g.fillText("dotknij, aby wrócić do gry", w / 2, h - 12);
 }
+// =====================================================================
+// ŻYCIE W MIEŚCIE: ROZMOWY, POSTACIE ZE ZLECENIAMI, ZDARZENIA
+// =====================================================================
+const pick = a => a[(Math.random() * a.length) | 0];
+const NAMES_M = ["Adam","Bartek","Krzysiek","Tomek","Paweł","Michał","Janusz","Grzegorz","Marcin","Kuba","Rafał","Wojtek","Staszek","Mirek","Damian","Łukasz"];
+const NAMES_F = ["Ania","Kasia","Magda","Ola","Basia","Ewa","Gosia","Zosia","Iwona","Natalia","Ula","Jola","Agnieszka","Monika","Dorota","Weronika"];
+const TRAITS = ["friendly", "friendly", "grumpy", "shy", "talkative", "rich"];
+function pedName(p){
+  if (!p.name){ p.fem = Math.random() < 0.5; p.name = pick(p.fem ? NAMES_F : NAMES_M); }
+  return p.name;
+}
+const who = p => ({ name: pedName(p), col: p.col, hair: p.hair, fem: p.fem, role: p.role });
+
+const GREET = {
+  friendly: ["Dzień dobry! Piękny dzień, prawda?", "O, cześć! Nie widziałem cię tu wcześniej.", "Hej! Szukasz czegoś?", "Siema! Co tam słychać?"],
+  grumpy: ["Czego?", "Nie mam drobnych.", "Znowu ktoś mi zawraca głowę...", "Szybko, bo autobus mi ucieka."],
+  shy: ["Eee... dzień dobry?", "Przepraszam, ja tylko przechodzę...", "O... cześć.", "Mhm?"],
+  talkative: ["Słyszałeś najnowsze? Ach, nieważne, powiem ci wszystko!", "Ale korki dziś, mówię ci, masakra!", "Hej ty! Mam ci tyle do opowiedzenia!", "Wiesz, że mój szwagier ma taki sam samochód jak ty?"],
+  rich: ["Mmm, tak? Czym mogę służyć?", "Proszę się streszczać, mam spotkanie.", "Ładne auto masz? Ja mam trzy.", "Czy my się znamy?"]
+};
+const PL = {
+  nice: ["Dzień dobry! Jak leci?", "Cześć! Miłego dnia życzę.", "Hej, wszystko w porządku?", "Ładna dziś pogoda, co?"],
+  rude: ["Co się tak gapisz?", "Zejdź mi z chodnika.", "Ładna fryzura. Sam się ścinałeś?", "Nudzisz mnie."],
+  joke: ["Dlaczego auto nie gra w karty? Bo ma cztery koła i ani jednego asa!",
+    "Wiesz, co mówi kierowca do bałwana? Spadaj, bo cię rozjadę... w kwietniu!",
+    "Policjant pyta: ile pan wypił? – Nic! – A te butelki? – To pasażera, ale on już wysiadł.",
+    "Po czym poznać mechanika na weselu? Tańczy tylko na podnośniku.",
+    "Mój samochód jest tak stary, że ma w nawigacji dinozaury."]
+};
+const REACT = {
+  friendly: {
+    nice: ["Wszystko dobrze, dzięki! Ty też uważaj na siebie na drodze.", "A dobrze, dobrze. Idealna pogoda na przejażdżkę."],
+    rude: ["Ej, nie trzeba tak od razu... Idę stąd.", "Ale chamsko. Nara."],
+    joke: ["Hahaha! Dobre! Masz, kup sobie kawę.", "Hehe, ten znam, ale i tak śmieszny. Trzymaj drobne za humor!"],
+    gossip: ["Jasne, coś tam słyszałem..."] },
+  grumpy: {
+    nice: ["Leci jak zwykle. Źle.", "Jak ma lecieć? Podatki, korki, deszcz..."],
+    rude: ["Sam się gapisz! Spadaj!", "Zaraz zawołam straż miejską!"],
+    joke: ["Nie śmieszne.", "Słyszałem lepsze na pogrzebie."],
+    gossip: ["A co mnie to obchodzi...", "No dobra, jedno ci powiem..."] },
+  shy: {
+    nice: ["D-dobrze, dziękuję... Miło, że ktoś zagadał.", "Mhm, w porządku. Dzięki."],
+    rude: ["P-przepraszam! Już idę!", "Aaa!"],
+    joke: ["Hihi... to było nawet zabawne.", "*cichy chichot*"],
+    gossip: ["No... słyszałam coś, ale nie mów, że ode mnie."] },
+  talkative: {
+    nice: ["Leci świetnie! Wczoraj byłem u ciotki, a ona mówi, że... a zresztą, słuchaj tego!", "Cudownie! A wiesz co jeszcze?"],
+    rude: ["No wiesz co?! Tak się nie rozmawia! Hmpf!", "Ale niegrzeczny! Opowiem o tym wszystkim sąsiadom!"],
+    joke: ["HAHAHA! Muszę to opowiedzieć szwagrowi! Masz, za dobry humor.", "Bueheheh! Dobre! Proszę, napiwek dla komika."],
+    gossip: ["O, plotki to moja specjalność!"] },
+  rich: {
+    nice: ["Uprzejmy człowiek, rzadkość w tym mieście. Proszę, drobny upominek.", "Miło. Proszę przyjąć ode mnie tę drobnostkę."],
+    rude: ["Ochrona! A, nie mam tu ochrony... Odejdę sam.", "Bezczelność."],
+    joke: ["Hm. Zabawne... dla kogoś.", "Mój komik bierze za to więcej."],
+    gossip: ["W moich kręgach mówi się, że..."] }
+};
+const EFFECT = {
+  friendly: { nice: "rumor30", rude: "leave", joke: "tip", gossip: "rumor" },
+  grumpy: { nice: "none", rude: "leave", joke: "none", gossip: "rumor40" },
+  shy: { nice: "rumor30", rude: "flee", joke: "none", gossip: "rumor70" },
+  talkative: { nice: "rumor", rude: "leave", joke: "tip", gossip: "rumor" },
+  rich: { nice: "bigtip", rude: "leave", joke: "none", gossip: "rumor" }
+};
+const FLAVOR = [
+  "Na obwodnicy da się wyciągnąć ponad 250 km/h, jak się ma nitro. Ale ostrożnie na zakrętach!",
+  "Pod dworcem stoi masa taksówek. Mówią, że brakuje kierowców.",
+  "W garażach można zrobić z rzęcha prawdziwą bestię. Neon pod autem robi robotę w nocy.",
+  "Na Starówce jest najstarszy ratusz w okolicy. Ładny, ale parkować tam nie ma gdzie.",
+  "W strefie przemysłowej podobno ktoś ściga się nocami między halami.",
+  "Ten szpital ma lądowisko na dachu. Podobno kiedyś wylądował tam nawet burmistrz.",
+  "Mówią, że jak się drifta bokiem, to w mieście płacą za widowisko. Dziwne miasto.",
+  "Na rondach trzeba uważać, ludzie jeżdżą tam jak szaleni.",
+  "Nad rzeką najlepiej wygląda zachód słońca. Polecam przejażdżkę wieczorem.",
+  "Słyszałem, że kebab koło dworca jest najlepszy w mieście. Albo jedyny."
+];
+function blockAt(x, y){ return [clamp(Math.floor((x / T - OFF) / P), 0, NB - 1), clamp(Math.floor((y / T - OFF) / P), 0, NB - 1)]; }
+const spotOf = (bx, by) => [GT(bx * P + 8.5), GT(by * P + 13.5)];
+const curbSpot = (bx, by, fx) => [GT(bx * P + 4 + (fx === undefined ? 0.3 : fx) * 9), GT((by + 1) * P) + 14];
+const sideSpot = (bx, by, fx) => [GT(bx * P + 4 + fx * 9), GT(by * P + 13.5)];
+const spotNearPoi = o => { const b = blockAt(o.x, o.y); return spotOf(b[0], b[1]); };
+function makeRumor(){
+  const r = Math.random();
+  if (r < 0.45 && pois.length){
+    const o = pick(pois), b = blockAt(o.x, o.y);
+    if (zoneOf(b[0], b[1]) !== "river"){
+      const pt = ringPoint(b[0], b[1], Math.random() * 4 * RL);
+      pickups.push({ x: pt[0], y: pt[1], val: 250 + ((Math.random() * 8) | 0) * 50, t: 0, special: true });
+      return pick(["Ponoć ktoś zgubił kopertę z kasą niedaleko tego miejsca: ", "Kumpel mówił, że przy tym miejscu leży schowana paczka z forsą: ",
+        "Słyszałem, że jakiś roztargniony biznesmen zgubił pieniądze koło: "]) + o.name + ". Masz to zaznaczone na mapie 🎁";
+    }
+  }
+  if (r < 0.7){
+    const qc = QCHARS.find(c => questStage(c) < c.missions.length);
+    if (qc) return qc.name + " (" + qc.where + ") szuka kogoś do pomocy. Ma ❗ nad głową, nie przegapisz.";
+  }
+  return pick(FLAVOR);
+}
+
+// ---------- okno rozmowy ----------
+function drawPortrait(w){
+  const cv = $("dPortrait"), g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 112, 112);
+  g.fillStyle = "#2a2d34"; g.beginPath(); g.arc(56, 56, 56, 0, Math.PI * 2); g.fill();
+  g.save(); g.beginPath(); g.arc(56, 56, 56, 0, Math.PI * 2); g.clip();
+  if (w.item){
+    g.font = "58px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(w.item, 56, 60);
+    g.restore(); return;
+  }
+  g.fillStyle = w.col || "#5bc0de"; g.beginPath(); g.ellipse(56, 114, 44, 36, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#e0b48c"; g.fillRect(48, 64, 16, 16);
+  g.beginPath(); g.arc(56, 50, 22, 0, Math.PI * 2); g.fill();
+  g.fillStyle = w.hair || "#3b2a1a";
+  g.beginPath(); g.arc(56, 45, 23, Math.PI, 0); g.fill();
+  if (w.fem){ g.fillRect(33, 44, 9, 30); g.fillRect(70, 44, 9, 30); }
+  g.fillStyle = "#222"; g.beginPath(); g.arc(48, 52, 2.6, 0, Math.PI * 2); g.arc(64, 52, 2.6, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = "#7a4a3a"; g.lineWidth = 2; g.beginPath(); g.arc(56, 58, 7, 0.2 * Math.PI, 0.8 * Math.PI); g.stroke();
+  g.restore();
+}
+function showDialog(w, text, choices, sub){
+  state = "talk";
+  $("dlg").classList.add("show");
+  $("dName").textContent = (w.name || "") + (w.role ? " · " + w.role : "");
+  $("dSub").textContent = sub || "";
+  $("dText").textContent = text;
+  drawPortrait(w);
+  const box = $("dChoices"); box.innerHTML = "";
+  (choices && choices.length ? choices : [{ t: "OK" }]).forEach((c, i) => {
+    const b = document.createElement("button");
+    b.textContent = (isTouch ? "" : (i + 1) + ". ") + c.t;
+    if (c.pri) b.className = "pri";
+    b.addEventListener("click", () => { uiClick(); if (c.fn) c.fn(); else closeDialog(); });
+    box.appendChild(b);
+  });
+}
+function closeDialog(){
+  $("dlg").classList.remove("show");
+  if (state === "talk"){ state = "play"; last = performance.now(); }
+  lastMode = "";
+}
+
+// ---------- rozmowy z przechodniami ----------
+function talkPed(p){
+  pedName(p);
+  if (!p.trait) p.trait = pick(TRAITS);
+  const pp = playerPos();
+  p.a = Math.atan2(pp.y - p.y, pp.x - p.x);
+  if (p.talked){
+    showDialog(who(p), pick(["Już rozmawialiśmy. Miłego dnia!", "Znowu ty? No cześć.", "Wszystko już powiedziałem.", "Nie mam już nic do dodania."]), [{ t: "👋 Na razie" }]);
+    return;
+  }
+  showDialog(who(p), pick(GREET[p.trait]), [
+    { t: "😊 " + pick(PL.nice), fn: () => react(p, "nice", null) },
+    { t: "😏 " + pick(PL.rude), fn: () => react(p, "rude", null) },
+    { t: "😂 Opowiedz żart", fn: () => react(p, "joke", pick(PL.joke)) },
+    { t: "🗣️ Co słychać w mieście?", fn: () => react(p, "gossip", null) },
+    { t: "👋 Nieważne, cześć", fn: closeDialog }
+  ]);
+}
+function react(p, kind, said){
+  p.talked = true;
+  const eff = EFFECT[p.trait][kind], roll = Math.random();
+  let txt = pick(REACT[p.trait][kind]);
+  const wantRumor = eff === "rumor" || (eff === "rumor30" && roll < 0.3) || (eff === "rumor40" && roll < 0.4) || (eff === "rumor70" && roll < 0.7);
+  if (wantRumor) txt += "\n\n" + makeRumor();
+  else if (kind === "gossip") txt = pick(["Nic ciekawego nie słyszałem, sorry.", "Cisza w mieście. Nuda."]);
+  let after = null;
+  if (eff === "tip") addMoney(5 + Math.random() * 25, "NAPIWEK");
+  if (eff === "bigtip") addMoney(30 + Math.random() * 60, "NAPIWEK");
+  if (eff === "leave") after = () => { p.dir = -p.dir; p.flipT = 2; };
+  if (eff === "flee") after = () => { const pp = playerPos(); startFlee(p, pp.x, pp.y); };
+  showDialog(who(p), txt, [{ t: "👋 Dzięki, na razie", fn: () => { closeDialog(); if (after) after(); } }], said ? "Ty: „" + said + "”" : "");
+}
+
+// ---------- postacie ze zleceniami ----------
+const QCHARS = [
+  { id: "zbyszek", name: "Zbyszek", role: "mechanik", where: "garaż na Osiedlu Zachód", col: "#34495e", hair: "#3b2a1a",
+    home: () => sideSpot(2, 5, 0.04), done: ["Ręce mam w smarze, ale dla ciebie zawsze czas! Dzięki za wszystko."],
+    missions: [
+      { title: "Części z Marketu", reward: 350, fragile: 45,
+        intro: "Cześć, młody! Skoczysz mi po części do Marketu przy rzece? Tylko jedź ostrożnie – w środku są szklane reflektory.",
+        steps: [{ t: "goto", at: () => spotOf(7, 7), car: true, text: "Odbierz części z Marketu", done: "📦 Części załadowane – jedź ostrożnie!" },
+                { t: "goto", at: () => QC.zbyszek.home(), car: true, text: "Zawieź części Zbyszkowi" }],
+        outro: "Wszystko całe! Złota rączka z ciebie. Trzymaj za fatygę." },
+      { title: "Jazda testowa", reward: 600, time: 95,
+        intro: "Podrasowałem silnik w czerwonym sporciaku. Przejedź nim kółko przez centrum i powiedz, jak chodzi. Masz półtorej minuty od startu.",
+        steps: [{ t: "getcar", at: () => curbSpot(2, 5, 0.65), cfg: { type: "sport", col: "#c0392b", eng: 3, gbx: 2, tires: 2, stripes: "center", stripeCol: "#ffffff" }, text: "Wsiądź do czerwonego sportowego auta" },
+                { t: "goto", at: () => [nodePos(4), nodePos(4)], mcar: true, r: 95, timer: true, text: "Punkt kontrolny 1/4" },
+                { t: "goto", at: () => [nodePos(7), nodePos(4)], mcar: true, r: 95, text: "Punkt kontrolny 2/4" },
+                { t: "goto", at: () => [nodePos(7), nodePos(7)], mcar: true, r: 95, text: "Punkt kontrolny 3/4" },
+                { t: "goto", at: () => [nodePos(4), nodePos(7)], mcar: true, r: 95, text: "Punkt kontrolny 4/4" },
+                { t: "goto", at: () => QC.zbyszek.home(), mcar: true, text: "Wróć do Zbyszka" }],
+        outro: "Ha! Silnik chodzi jak marzenie! Możesz się nim jeszcze dziś pobawić." },
+      { title: "Klasyk z przemysłówki", reward: 500, fragile: 35, giveCar: true,
+        intro: "Kumpel sprzedaje starego muscle cara w Strefie przemysłowej. Przyprowadź go do mnie w jednym kawałku, a będzie twój!",
+        steps: [{ t: "getcar", at: () => curbSpot(10, 8, 0.4), cfg: { type: "muscle", col: "#1a1a1a", stripes: "race", stripeCol: "#ffb300", rims: "chrome" }, text: "Znajdź muscle cara w Strefie przemysłowej" },
+                { t: "goto", at: () => QC.zbyszek.home(), mcar: true, text: "Przyprowadź go do Zbyszka – bez rys!" }],
+        outro: "Piękny! Dopisałem go do twojej kolekcji w garażu. Jest twój!" }
+    ] },
+  { id: "halina", name: "Pani Halina", role: "emerytka", where: "Rynek na Starówce", col: "#8e44ad", hair: "#dddddd", fem: true,
+    home: () => sideSpot(1, 1, 0.3), done: ["Jesteś złotym dzieckiem. Wpadnij kiedyś na pierogi!"],
+    missions: [
+      { title: "Do apteki", passenger: true, reward: 250, fragile: 30, gentle: true,
+        intro: "Dzień dobry, kochaniutki. Zawieziesz mnie do apteki na Osiedlu Zachód? Tylko powolutku, bo mam słabe serce.",
+        steps: [{ t: "goto", at: () => spotOf(0, 8), car: true, text: "Zawieź panią Halinę do apteki", drop: true }],
+        outro: "Dziękuję, złotko! Jechałeś jak po maśle. Masz tu coś na cukierki." },
+      { title: "Kot Filemon", reward: 300,
+        intro: "Mój Filemon uciekł do parku obok Starówki! Złapiesz go? On się boi samochodów, musisz pieszo.",
+        steps: [{ t: "catch", at: () => blockC(3, 4), animal: "cat", text: "Złap kota w parku (pieszo)" },
+                { t: "goto", at: () => QC.halina.home(), r: 60, text: "Odnieś Filemona pani Halinie" }],
+        outro: "Filemonku! Dziękuję ci, dziecko. Proszę, to za fatygę." },
+      { title: "Na mszę", passenger: true, reward: 500, time: 120,
+        intro: "Spóźnię się na mszę do kościoła na Osiedlu Południe! Zdążysz w dwie minuty?",
+        steps: [{ t: "goto", at: () => spotOf(6, 10), car: true, text: "Zawieź panią Halinę do kościoła", drop: true }],
+        outro: "Zdążyliśmy! Niech ci to wynagrodzą niebiosa... i ja też, trzymaj." }
+    ] },
+  { id: "marek", name: "Marek", role: "kurier", where: "Dworzec", col: "#d35400", hair: "#111111",
+    home: () => sideSpot(7, 4, 0.15), done: ["Jak będziesz chciał etat w firmie kurierskiej, dzwoń!"],
+    missions: [
+      { title: "Pilna paczka", reward: 350, time: 70,
+        intro: "Stary, ratuj! Pilna paczka do szpitala, a mój skuter padł. Masz 70 sekund.",
+        steps: [{ t: "goto", at: () => spotOf(3, 7), car: true, text: "Dowieź paczkę do szpitala" }],
+        outro: "(Marek przez telefon) Doszło na czas! Szef się nawet nie zorientował. Dzięki!" },
+      { title: "Trzy adresy", reward: 750, time: 190,
+        intro: "Mam trzy przesyłki: szkoła, market na Osiedlu Wschód i stadion. Trzy minuty na wszystko. Dasz radę?",
+        steps: [{ t: "goto", at: () => spotOf(2, 9), car: true, text: "Przesyłka 1/3: Szkoła" },
+                { t: "goto", at: () => spotOf(9, 5), car: true, text: "Przesyłka 2/3: Market" },
+                { t: "goto", at: () => spotOf(10, 0), car: true, text: "Przesyłka 3/3: Stadion" }],
+        outro: "(Marek przez telefon) Rekord firmy! Jesteś szybszy niż nasze drony." },
+      { title: "Kruchy towar", reward: 900, fragile: 20, time: 160,
+        intro: "Ostatnia przesyłka: porcelana do magazynu w Strefie przemysłowej. Jedno mocniejsze uderzenie i po zabawie.",
+        steps: [{ t: "goto", at: () => spotOf(10, 10), car: true, text: "Zawieź porcelanę do magazynu" }],
+        outro: "(Marek przez telefon) Cała porcelana w jednym kawałku! Jesteś mistrzem." }
+    ] },
+  { id: "wiesiek", name: "Wiesiek", role: "szef magazynu", where: "Strefa przemysłowa", col: "#1e5631", hair: "#555555",
+    home: () => sideSpot(9, 8, 0.3), done: ["Najlepszy kierowca w mieście, mówię wszystkim!"],
+    missions: [
+      { title: "Dostawczak", reward: 400,
+        intro: "Potrzebuję dostawczaka pod Market na Osiedlu Wschód. Stoi tu, przy krawężniku. Przyprowadź go tam.",
+        steps: [{ t: "getcar", at: () => curbSpot(9, 8, 0.7), cfg: { type: "van", col: "#ecf0f1" }, text: "Wsiądź do białego dostawczaka" },
+                { t: "goto", at: () => spotOf(9, 5), mcar: true, text: "Zawieź dostawczak pod Market" }],
+        outro: "(Wiesiek przez telefon) Dostawa odebrana, dobra robota!" },
+      { title: "Kółko po obwodnicy", reward: 900, time: 200,
+        intro: "Sprawdźmy, ile wyciągasz. Objedź obwodnicę przez cztery punkty w niecałe cztery minuty.",
+        steps: [{ t: "goto", at: () => ringPt(RSEG + RLEN / 2, 0), car: true, r: 150, text: "Obwodnica: punkt 1/4 (wschód)" },
+                { t: "goto", at: () => ringPt(RSEG * 2 + RLEN / 2, 0), car: true, r: 150, text: "Obwodnica: punkt 2/4 (południe)" },
+                { t: "goto", at: () => ringPt(RSEG * 3 + RLEN / 2, 0), car: true, r: 150, text: "Obwodnica: punkt 3/4 (zachód)" },
+                { t: "goto", at: () => ringPt(RLEN / 2, 0), car: true, r: 150, text: "Obwodnica: punkt 4/4 (północ)" }],
+        outro: "(Wiesiek przez telefon) Szacunek! Niezły z ciebie kierowca." },
+      { title: "Nocna dostawa", reward: 1300, fragile: 30, time: 130,
+        intro: "Mam elektronikę dla dworca. Weź dostawczaka, jedź szybko i bez stłuczek – dwie minuty z kawałkiem.",
+        steps: [{ t: "getcar", at: () => curbSpot(9, 8, 0.7), cfg: { type: "van", col: "#2c3e50" }, text: "Wsiądź do granatowego dostawczaka" },
+                { t: "goto", at: () => spotOf(7, 4), mcar: true, timer: true, text: "Zawieź elektronikę na Dworzec" }],
+        outro: "(Wiesiek przez telefon) Wszystko doszło całe. Jesteś najlepszym kierowcą w mieście!" }
+    ] }
+];
+const QC = {};
+for (const c of QCHARS) QC[c.id] = c;
+const questStage = c => (SAVE.quests && SAVE.quests[c.id]) || 0;
+const charWho = c => ({ name: c.name, role: c.role, col: c.col, hair: c.hair, fem: c.fem });
+function makeStand(x, y, o){
+  const p = makePed(0, 0, 0);
+  p.x = x; p.y = y; p.state = "stand"; p.home = [x, y]; p.fixed = true;
+  Object.assign(p, o || {});
+  return p;
+}
+function makeAnimal(kind, x, y, home, rad){
+  const p = makePed(0, 0, 0);
+  Object.assign(p, { x, y, kind, home, rad, state: "wander", fixed: true, wt: 0, wa: Math.random() * 6.28, ws: 40,
+    col: kind === "cat" ? pick(["#e67e22", "#7f8c8d", "#2c2c2c", "#f0e0c0"]) : pick(["#8d5a32", "#c9a35b", "#3b2a1a", "#eeeeee"]) });
+  return p;
+}
+function ensureQuestChars(){
+  for (const c of QCHARS){
+    if (c.ped && peds.includes(c.ped)) continue;
+    if (mission && mission.ped === c.ped && mission.ped) continue;
+    const h = c.home();
+    if (c.ped && onScreen(h[0], h[1], 60)) continue;
+    c.ped = makeStand(h[0], h[1], { npc: c.id, name: c.name, col: c.col, hair: c.hair, fem: !!c.fem, trait: "friendly" });
+  }
+}
+function talkQuest(c){
+  const w = charWho(c), stg = questStage(c);
+  if (mission){
+    showDialog(w, mission.src === c ? "No i co, załatwione? Śmigaj!" : "Najpierw skończ to, co masz na głowie. Potem pogadamy.", [{ t: "👌 OK" }]);
+    return;
+  }
+  if (stg >= c.missions.length){ showDialog(w, pick(c.done), [{ t: "👋 Na razie" }]); return; }
+  const m = c.missions[stg];
+  showDialog(w, m.intro, [
+    { t: "✅ Biorę to (" + fmt(m.reward) + ")", pri: true, fn: () => { closeDialog(); startMission(m, c, c.ped); } },
+    { t: "⏳ Nie teraz", fn: closeDialog }
+  ], "Zlecenie " + (stg + 1) + "/" + c.missions.length + ": " + m.title);
+}
+
+// ---------- zlecenia ----------
+let mission = null;
+const OUCH = ["Uważaj!", "Ała! Patrz, jak jedziesz!", "Jezus Maria!", "Spokojnie, kierowco!", "Moje serce!"];
+function startMission(def, src, ped){
+  const steps = def.steps.slice();
+  if (def.passenger) steps.unshift({ t: "board", text: "Podjedź autem po pasażera" });
+  mission = { def, steps, step: 0, src, ped, time: def.time || 0, timerOn: !steps.some(s => s.timer),
+    dmg: 0, lastVeh: null, lastHp: 0, boarded: false, car: null, carry: null, animal: null, comT: 0, calm: 1,
+    tracking: !steps.some(s => s.t === "getcar"), target: null };
+  popup("ZLECENIE: " + def.title, "#ffb300");
+  enterStep();
+}
+function enterStep(){
+  const m = mission, st = m.steps[m.step];
+  if (!st) return;
+  if (st.timer) m.timerOn = true;
+  if (st.t === "getcar" && !m.car){
+    const at = st.at();
+    clearAround(at[0], at[1], 55);
+    m.car = makeVehicle(Object.assign(defaultCfg(st.cfg.type), st.cfg), at[0], at[1], st.ang || 0);
+  }
+  if (st.t === "catch"){
+    if (st.existing) m.animal = st.existing;
+    else {
+      const at = st.at();
+      m.animal = makeAnimal(st.animal, at[0] + 40, at[1] - 30, at, 210);
+    }
+    m.animal.mission = true;
+  }
+}
+function nextStep(){
+  mission.step++;
+  if (mission.step >= mission.steps.length) completeMission();
+  else enterStep();
+}
+function stepTarget(st){
+  const m = mission;
+  if (st.t === "board") return [m.ped.x, m.ped.y];
+  if (st.t === "getcar") return [m.car.x, m.car.y];
+  if (st.t === "catch") return [m.animal.x, m.animal.y];
+  return st.at();
+}
+function missionCleanup(m){
+  if (m.def.cleanup) m.def.cleanup(m);
+  if (m.animal){ const i = peds.indexOf(m.animal); if (i >= 0) peds.splice(i, 1); }
+}
+function completeMission(){
+  const m = mission;
+  mission = null;
+  let reward = m.def.reward;
+  if (m.def.gentle) reward = Math.round(reward * (0.6 + 0.4 * clamp(m.calm, 0, 1)));
+  if (m.def.fragile) reward += Math.round(m.def.reward * 0.3 * Math.max(0, 1 - m.dmg / m.def.fragile));
+  if (m.def.time && m.timerOn) reward += Math.round(Math.max(0, m.time) * 2);
+  addMoney(reward, "ZLECENIE");
+  if (m.src && m.src.missions) SAVE.quests[m.src.id] = (SAVE.quests[m.src.id] || 0) + 1;
+  if (m.def.giveCar && m.car && SAVE.col.length < 8){
+    const cfg = cloneCfg(m.car.cfg); cfg.cid = newCid();
+    SAVE.col.push(cfg); m.car.cfg.cid = cfg.cid;
+  }
+  persist();
+  missionCleanup(m);
+  if (actx){ const t = actx.currentTime; tone(660, t, 0.15, "triangle", 0.1); tone(880, t + 0.12, 0.15, "triangle", 0.1); tone(1320, t + 0.24, 0.35, "triangle", 0.1); }
+  const w = m.src && m.src.missions ? charWho(m.src) : (m.def.who || { name: "" });
+  const outro = typeof m.def.outro === "function" ? m.def.outro(m) : (m.def.outro || "Dzięki!");
+  showDialog(w, outro, [{ t: "👍 Spoko", pri: true }], "✔ Zlecenie wykonane · +" + fmt(reward));
+}
+function failMission(msg){
+  const m = mission;
+  mission = null;
+  popup("✖ " + msg, "#ff4136");
+  toast("Zlecenie nieudane: " + msg + (m.src && m.src.missions ? " Możesz spróbować ponownie." : ""), 3000);
+  missionCleanup(m);
+  if (actx){ const t = actx.currentTime; tone(440, t, 0.2, "square", 0.05); tone(330, t + 0.18, 0.35, "square", 0.05); }
+}
+function missionUpdate(dt){
+  if (!mission) return;
+  const m = mission, def = m.def;
+  if (player.mode === "dead") return failMission("Zlecenie przepadło.");
+  if (m.timerOn && def.time){ m.time -= dt; if (m.time <= 0) return failMission("Koniec czasu!"); }
+  m.comT -= dt;
+  if (player.mode === "car"){
+    const v = player.veh;
+    if (m.lastVeh === v){
+      const d = m.lastHp - v.hp;
+      if (d > 0.5){
+        if (m.tracking) m.dmg += d;
+        if (m.boarded && m.comT <= 0){ popup("„" + pick(OUCH) + "”", "#ffd2a0"); m.comT = 3; m.calm -= 0.2; }
+      }
+    }
+    m.lastVeh = v; m.lastHp = v.hp;
+  }
+  if (def.fragile && m.dmg > def.fragile) return failMission(def.passenger ? "Pasażer ma dość twojej jazdy!" : "Towar się potłukł!");
+  if (m.boarded){
+    if (player.mode !== "car") return failMission("Pasażer wysiadł obrażony.");
+    const sp = Math.hypot(player.veh.vx, player.veh.vy);
+    if (def.gentle && sp > 300){ m.calm -= dt * 0.15; if (m.comT <= 0){ popup("„Wolniej, proszę!”", "#ffd2a0"); m.comT = 4; } }
+  }
+  if (m.car && m.car.wreck) return failMission("Auto zostało zniszczone.");
+  if (m.ped && !m.boarded && m.ped.state === "dead") return failMission("Nie ma już komu pomagać...");
+  if (m.animal && !m.animal.caught && m.animal.state === "dead") return failMission("Zwierzak nie przeżył...");
+  const st = m.steps[m.step];
+  if (!st) return completeMission();
+  const pp = playerPos(), tgt = stepTarget(st);
+  m.target = tgt;
+  if (st.t === "board"){
+    if (player.mode === "car" && Math.hypot(m.ped.x - pp.x, m.ped.y - pp.y) < 80 && Math.hypot(player.veh.vx, player.veh.vy) < 90){
+      m.boarded = true; m.tracking = true;
+      const i = peds.indexOf(m.ped); if (i >= 0) peds.splice(i, 1);
+      popup("🚕 Pasażer wsiadł", "#ffb300");
+      nextStep();
+    }
+  } else if (st.t === "goto"){
+    if (st.car && player.mode !== "car") return;
+    if (st.mcar && (player.mode !== "car" || player.veh !== m.car)) return;
+    if (Math.hypot(tgt[0] - pp.x, tgt[1] - pp.y) < (st.r || 85)){
+      if (st.done) popup(st.done, "#ffb300");
+      if (st.drop && m.boarded){
+        m.boarded = false;
+        const p = m.ped;
+        if (!p.npc){ p.x = tgt[0]; p.y = tgt[1]; p.icon = null; p.fixed = false; p.home = null; p.state = "walk"; peds.push(p); startReturn(p); }
+        m.ped = null;
+      }
+      nextStep();
+    }
+  } else if (st.t === "getcar"){
+    if (player.mode === "car" && player.veh === m.car){ m.tracking = true; m.lastVeh = null; nextStep(); }
+  } else if (st.t === "catch"){
+    if (m.animal.caught){ m.carry = m.animal.kind; nextStep(); }
+  }
+}
+function updateAnimal(p, dt){
+  p.t += dt;
+  if (p.state === "dead") return;
+  const pp = playerPos(), d = Math.hypot(p.x - pp.x, p.y - pp.y);
+  let sp, ang;
+  if (d < 100 && player.mode === "foot"){
+    ang = Math.atan2(p.y - pp.y, p.x - pp.x) + Math.sin(p.t * 3) * 0.7;
+    sp = p.kind === "dog" ? 126 : 118;
+  } else {
+    p.wt -= dt;
+    if (p.wt <= 0){ p.wt = 1 + Math.random() * 2; p.wa = Math.random() * Math.PI * 2; p.ws = Math.random() < 0.3 ? 0 : 45; }
+    ang = p.wa; sp = p.ws;
+  }
+  const hx = p.home[0] - p.x, hy = p.home[1] - p.y;
+  if (Math.hypot(hx, hy) > p.rad){ ang = Math.atan2(hy, hx); sp = Math.max(sp, 70); }
+  p.a = ang; p.moving = sp > 0;
+  p.x += Math.cos(ang) * sp * dt; p.y += Math.sin(ang) * sp * dt;
+  if (pushCircle(p, 6)) p.wa += Math.PI / 2;
+  if (p.mission && player.mode === "foot" && d < 17){
+    p.caught = true;
+    const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1);
+    popup(p.kind === "cat" ? "🐈 Złapany!" : "🐕 Złapany!", "#ffb300");
+    if (actx) tone(1200, actx.currentTime, 0.12, "sine", 0.08);
+  }
+}
+function drawAnimal(p){
+  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a);
+  const dog = p.kind === "dog", L = dog ? 9 : 6.5, sw = p.moving ? Math.sin(p.t * 18) * 2 : 0;
+  ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(2, 3, L + 2, L * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = p.col; ctx.lineWidth = dog ? 2.4 : 1.8; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(-L, 0); ctx.lineTo(-L - 6, Math.sin(p.t * (dog ? 14 : 5)) * 3); ctx.stroke();
+  ctx.fillStyle = shade(p.col, -0.25);
+  ctx.fillRect(L * 0.4 + sw, -L * 0.55, 2.5, 2); ctx.fillRect(L * 0.4 - sw, L * 0.45, 2.5, 2);
+  ctx.fillRect(-L * 0.6 - sw, -L * 0.55, 2.5, 2); ctx.fillRect(-L * 0.6 + sw, L * 0.45, 2.5, 2);
+  ctx.fillStyle = p.col; ctx.beginPath(); ctx.ellipse(0, 0, L, L * 0.48, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(L + 2, 0, dog ? 3.8 : 3, 0, Math.PI * 2); ctx.fill();
+  if (!dog){
+    ctx.beginPath(); ctx.moveTo(L + 1, -2); ctx.lineTo(L + 3, -5); ctx.lineTo(L + 4, -1.5); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(L + 1, 2); ctx.lineTo(L + 3, 5); ctx.lineTo(L + 4, 1.5); ctx.fill();
+  } else { ctx.fillStyle = shade(p.col, -0.35); ctx.fillRect(L, -4.5, 3, 2.5); ctx.fillRect(L, 2, 3, 2.5); }
+  ctx.restore();
+}
+
+// ---------- drobne zdarzenia ----------
+let ev = null, evT = 30;
+function cityPoint(minD, maxD){
+  const pp = playerPos();
+  for (let i = 0; i < 14; i++){
+    const bx = clamp(Math.floor((pp.x / T - OFF) / P) + ((Math.random() * 5) | 0) - 2, 0, NB - 1);
+    const by = clamp(Math.floor((pp.y / T - OFF) / P) + ((Math.random() * 5) | 0) - 2, 0, NB - 1);
+    if (zoneOf(bx, by) === "river") continue;
+    const pt = ringPoint(bx, by, Math.random() * 4 * RL), d = Math.hypot(pt[0] - pp.x, pt[1] - pp.y);
+    if (d < minD || d > maxD || onScreen(pt[0], pt[1], 30)) continue;
+    return { x: pt[0], y: pt[1] };
+  }
+  return null;
+}
+function freeEventPed(p){
+  if (!p || p.state === "dead") return;
+  if (mission && mission.ped === p) return;
+  p.icon = null; p.fixed = false; p.home = null; p.evRole = null;
+  if (peds.includes(p)) startReturn(p);
+}
+function endEvent(){
+  if (!ev) return;
+  if (ev.ped) freeEventPed(ev.ped);
+  if (ev.car) ev.car.hazard = false;
+  if (ev.dog && !(mission && mission.animal === ev.dog)){ const i = peds.indexOf(ev.dog); if (i >= 0) peds.splice(i, 1); }
+  ev = null;
+}
+function spawnEvent(type){
+  const pp = playerPos();
+  if (type === "ride"){
+    const c = cityPoint(350, 900); if (!c) return;
+    ev = { type, t: 150, ped: makeStand(c.x, c.y, { icon: "✋", evRole: "ride" }) };
+  } else if (type === "breakdown"){
+    const cand = vehicles.filter(v => !v.driver && !v.wreck && v.active && !v.hazard && v !== player.veh && !v.cfg.cid &&
+      Math.hypot(v.x - pp.x, v.y - pp.y) > 350 && Math.hypot(v.x - pp.x, v.y - pp.y) < 900 && !onScreen(v.x, v.y, 40) &&
+      v.x > GT(0) && v.x < GT(MT) && v.y > GT(0) && v.y < GT(MT));
+    if (!cand.length) return;
+    const v = pick(cand), c = Math.cos(v.a), s = Math.sin(v.a), off = VT[v.type].wid / 2 + 12;
+    let px = v.x - s * off, py = v.y + c * off;
+    if (pointBlocked(px, py, 6) || getGW(px, py) === G_ROAD){ px = v.x + s * off; py = v.y - c * off; }
+    v.hazard = true;
+    ev = { type, t: 180, car: v, repair: -1, ped: makeStand(px, py, { icon: "🔧", evRole: "breakdown" }) };
+  } else if (type === "wallet"){
+    const c = cityPoint(300, 800); if (!c) return;
+    ev = { type, t: 150, item: { x: c.x, y: c.y } };
+  } else if (type === "dog"){
+    const c = cityPoint(350, 900); if (!c) return;
+    const owner = makeStand(c.x, c.y, { icon: "😟", evRole: "dog" });
+    ev = { type, t: 180, ped: owner, dog: makeAnimal("dog", c.x + 60, c.y + 30, [c.x, c.y], 230), shT: 0 };
+  } else if (type === "busker"){
+    const c = cityPoint(300, 800); if (!c) return;
+    ev = { type, t: 180, fast: false, ped: makeStand(c.x, c.y, { icon: "🎸", evRole: "busker", col: "#6d4c41" }) };
+  }
+}
+function evAnchor(){ return ev ? (ev.ped || ev.item) : null; }
+function eventsUpdate(dt){
+  if (ev){
+    ev.t -= dt;
+    const a = evAnchor(), pp = playerPos();
+    if (ev.t <= 0 || !a || Math.hypot(a.x - pp.x, a.y - pp.y) > 2300 || (ev.ped && ev.ped.state === "dead")){ endEvent(); return; }
+    const d = Math.hypot(a.x - pp.x, a.y - pp.y);
+    if (ev.type === "ride" && !ev.asked && player.mode === "car" && d < 75 && Math.hypot(player.veh.vx, player.veh.vy) < 80){ ev.asked = true; talkRide(ev.ped); }
+    else if (ev.type === "wallet" && d < (player.mode === "car" ? 34 : 24)) walletDialog();
+    else if (ev.type === "breakdown" && ev.repair >= 0){
+      if (player.mode === "foot" && Math.hypot(ev.car.x - pp.x, ev.car.y - pp.y) < 60){
+        ev.repair += dt;
+        if (Math.random() < dt * 8) addPart(ev.car.x + (Math.random() - 0.5) * 20, ev.car.y + (Math.random() - 0.5) * 10, 0, 0, 0.3, 2, 1);
+        if (ev.repair >= 4){
+          const p = ev.ped;
+          addMoney(70 + Math.random() * 80, "POMOC");
+          ev.car.hazard = false;
+          endEvent();
+          showDialog(who(p), pick(["Działa! Wielkie dzięki, ratujesz mi dzień!", "Zapalił! Złoty z ciebie człowiek, trzymaj za pomoc."]), [{ t: "👍 Nie ma sprawy" }]);
+        }
+      }
+    } else if (ev.type === "dog" && d < 320){
+      ev.shT -= dt;
+      if (ev.shT <= 0){ ev.shT = 6; popup("„Burek! Wracaj! Ktoś pomoże?!”", "#ffd2a0"); }
+    } else if (ev.type === "busker" && d < 400 && Math.random() < dt * 3){
+      addPart(ev.ped.x + (Math.random() - 0.5) * 16, ev.ped.y - 12, (Math.random() - 0.5) * 20, -22, 1.6, 0, 6);
+    }
+    return;
+  }
+  evT -= dt;
+  if (evT > 0 || mission) return;
+  evT = 45 + Math.random() * 45;
+  const pp = playerPos();
+  if (pp.x < GT(0) || pp.x > GT(MT) || pp.y < GT(0) || pp.y > GT(MT)) return;
+  spawnEvent(pick(["ride", "ride", "breakdown", "wallet", "dog", "busker"]));
+}
+function talkRide(p){
+  const far = pois.filter(o => { const d = Math.hypot(o.x - p.x, o.y - p.y); return d > 800 && d < 3200; });
+  const o = far.length ? pick(far) : pick(pois);
+  showDialog(who(p), pick(["Hej! Podwieziesz mnie pod: ", "Ratunku, spóźnię się! Zawieziesz mnie pod: ", "Taksówki ani widu. Podrzucisz mnie pod: "]) + o.name + "? Zapłacę!", [
+    { t: "🚗 Wsiadaj!", pri: true, fn: () => {
+      closeDialog();
+      const w = who(p), d = Math.hypot(o.x - p.x, o.y - p.y);
+      ev.ped = null; ev = null;
+      startMission({ title: "Podwózka: " + o.name, passenger: true, reward: Math.round(40 + d / 22),
+        steps: [{ t: "goto", at: () => spotNearPoi(o), car: true, text: "Zawieź pasażera: " + o.name, drop: true }],
+        outro: pick(["Dzięki, szefie! Reszty nie trzeba.", "Super jazda! Trzymaj.", "Ufff, dojechaliśmy. Dzięki wielkie!"]), who: w }, null, p);
+    } },
+    { t: "🙅 Nie dziś", fn: () => { closeDialog(); endEvent(); } }
+  ]);
+}
+function walletDialog(){
+  const item = ev.item;
+  ev.item = null;
+  showDialog({ name: "Znalezisko", item: "👛" }, "Na chodniku leży portfel. W środku dokumenty i $80 w gotówce.", [
+    { t: "🤝 Oddam właścicielowi", pri: true, fn: () => {
+      closeDialog();
+      ev = null;
+      const c = cityPoint(400, 900) || { x: item.x + 300, y: item.y };
+      const owner = makeStand(c.x, c.y, { icon: "❓" });
+      startMission({ title: "Zguba", reward: 150, who: who(owner),
+        steps: [{ t: "goto", at: () => [owner.x, owner.y], r: 55, text: "Oddaj portfel właścicielowi (❓)" }],
+        outro: () => "Mój portfel! Myślałem, że już po nim. Dziękuję, masz znaleźne! A w podzięce powiem ci coś: " + makeRumor(),
+        cleanup: () => freeEventPed(owner) }, null, null);
+    } },
+    { t: "💰 Zatrzymam kasę", fn: () => { closeDialog(); addMoney(80, "PORTFEL"); ev = null; } }
+  ]);
+}
+const EV_TALK = {
+  ride: p => { if (player.mode === "car") talkRide(p); else showDialog(who(p), "Szukam podwózki, ale ty jesteś pieszo... Podjedź autem, to pogadamy!", [{ t: "👌 OK" }]); },
+  breakdown: p => {
+    if (ev.repair >= 0){ showDialog(who(p), "Stań przy aucie, zaraz odpalimy!", [{ t: "👌 OK" }]); return; }
+    showDialog(who(p), pick(["Auto mi padło. Chyba akumulator... Pomożesz?", "Nie odpala i nie odpala! Znasz się na tym?"]), [
+      { t: "🔧 Pomogę", pri: true, fn: () => { closeDialog(); if (ev) ev.repair = 0; popup("Stań przy aucie i poczekaj chwilę", "#ffb300"); } },
+      { t: "⏳ Nie mam czasu", fn: closeDialog }]);
+  },
+  dog: p => {
+    showDialog(who(p), "Mój Burek mi zwiał! Pomożesz go złapać? Boi się aut, trzeba pieszo.", [
+      { t: "🐕 Jasne, łapię go!", pri: true, fn: () => {
+        closeDialog();
+        const owner = ev.ped, dog = ev.dog;
+        ev = null;
+        startMission({ title: "Złap psa", reward: 150, who: who(owner),
+          steps: [{ t: "catch", existing: dog, text: "Złap psa (pieszo)" }, { t: "goto", at: () => [owner.x, owner.y], r: 55, text: "Odprowadź psa do właściciela" }],
+          outro: "Burek! Ty łobuzie! Dziękuję ci bardzo, proszę, to dla ciebie.", cleanup: () => freeEventPed(owner) }, null, null);
+      } },
+      { t: "⏳ Nie teraz", fn: closeDialog }]);
+  },
+  busker: p => {
+    showDialog(who(p), pick(["♪ La la la... Hej! Rzucisz grosza dla artysty?", "Dzięki, że słuchasz! Jakieś życzenia?"]), [
+      { t: "🪙 Rzuć $5", pri: true, fn: () => {
+        if (SAVE.money < 5){ closeDialog(); toast("Nie masz nawet pięciu dolców..."); return; }
+        SAVE.money -= 5; saveDirty = true; cashSound();
+        showDialog(who(p), "Dzięki, przyjacielu! W zamian ciekawostka: " + makeRumor(), [{ t: "👍 Dzięki" }]);
+      } },
+      { t: "🎶 Zagraj coś szybszego", fn: () => { if (ev) ev.fast = true; showDialog(who(p), "No to jazda! ♪♪♪", [{ t: "🤘" }]); } },
+      { t: "👋 Pa", fn: closeDialog }]);
+  }
+};
+function talkTarget(){
+  if (state !== "play" || player.mode === "dead") return null;
+  const car = player.mode === "car";
+  if (car && Math.hypot(player.veh.vx, player.veh.vy) > 60) return null;
+  const pp = playerPos();
+  let best = null, bd = car ? 62 : 36;
+  for (const p of peds){
+    if (p.state === "dead" || p.state === "flee" || p.kind) continue;
+    if (car && !p.npc && !p.evRole) continue;
+    const d = Math.hypot(p.x - pp.x, p.y - pp.y);
+    if (d < bd){ bd = d; best = p; }
+  }
+  return best;
+}
+function tryTalk(){
+  const p = talkTarget();
+  if (!p) return;
+  if (p.npc) talkQuest(QC[p.npc]);
+  else if (p.evRole && ev && ev.ped === p && EV_TALK[ev.type]) EV_TALK[ev.type](p);
+  else talkPed(p);
+}
+function pedIcon(p){
+  if (p.npc){
+    const c = QC[p.npc];
+    return (questStage(c) < c.missions.length && !(mission && mission.src === c)) ? "❗" : null;
+  }
+  return p.icon || null;
+}
+$("talk").addEventListener("pointerdown", e => { e.preventDefault(); if (SET.vibrate && navigator.vibrate) navigator.vibrate(10); tryTalk(); });
+$("pAbort").addEventListener("click", () => { closePause(); if (mission) failMission("Przerwano zlecenie."); });
+
 // =====================================================================
 // START
 // =====================================================================
@@ -3879,7 +4676,7 @@ function frame(t){
   const dt = Math.min(0.033, Math.max(0, (t - last) / 1000));
   last = t;
   readInput();
-  if (state !== "pause" && state !== "garage" && state !== "map") update(dt);
+  if (state !== "pause" && state !== "garage" && state !== "map" && state !== "talk") update(dt);
   if (state === "play") for (let i = popups.length - 1; i >= 0; i--){ popups[i].t -= dt; if (popups[i].t <= 0) popups.splice(i, 1); }
   if (state === "garage") drawGaragePreview(dt);
   else if (state === "map") drawMapView();
