@@ -1,5 +1,5 @@
 // Jazda w mieście – service worker (działanie offline + instalacja)
-const CACHE = "jazda-v10";
+const CACHE = "jazda-v11";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

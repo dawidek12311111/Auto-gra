@@ -198,7 +198,7 @@
 
 <div id="start">
   <h1>JAZDA<br><span>W MIEŚCIE</span></h1>
-  <div class="sub">Etap 5 · praca, pojazdy, wnętrza i mieszkania</div>
+  <div class="sub">Etap 6 · żywe miasto i pogoda</div>
   <button class="bigbtn" id="play">GRAJ</button>
   <div class="rowbtns">
     <button class="smallbtn" id="setBtn">⚙ USTAWIENIA</button>
@@ -307,6 +307,7 @@ const SDEF = [
   { sec: "Grafika" },
   { k: "quality", label: "Jakość", type: "seg", opts: [["low","Niska"],["mid","Średnia"],["high","Wysoka"]], def: "high" },
   { k: "daynight", label: "Pora dnia", type: "seg", opts: [["cycle","Cykl doby"],["day","Zawsze dzień"],["night","Zawsze noc"]], def: "cycle" },
+  { k: "weather", label: "Pogoda", type: "seg", opts: [["cycle","Zmienna"],["clear","Słońce"],["cloudy","Chmury"],["rain","Deszcz"],["storm","Burza"],["fog","Mgła"]], def: "cycle" },
   { k: "dayLen", label: "Długość doby", type: "range", min: 2, max: 30, def: 8, unit: " min" },
   { k: "skids", label: "Ślady opon", type: "toggle", def: true },
   { k: "shake", label: "Wstrząsy ekranu", type: "toggle", def: true },
@@ -1068,6 +1069,8 @@ function loadSave(){
   if (typeof s.bank !== "number") s.bank = 0;
   if (!Array.isArray(s.homes)) s.homes = [];
   if (!s.outfit) s.outfit = { col: "#2c3e50", hair: "#3b2a1a" };
+  if (!Array.isArray(s.friends)) s.friends = [];
+  if (typeof s.rep !== "number") s.rep = 0;
   s.col = s.col.filter(c => c && VT[c.type]).map(c => Object.assign(defaultCfg(c.type, c.col), c));
   return s;
 }
@@ -1749,7 +1752,7 @@ function drive(v, inp, dt){
   if (inp.hb) vF *= Math.exp(-0.9 * dt);
   const g0 = t.grip + 0.55 * m.tires + 0.25 * m.susp;
   const grip = v.wreck ? 4 : inp.hb ? 1.0 + 0.1 * m.tires : (braking && Math.abs(vF) > 250 ? 3.5 + 0.3 * m.tires : g0);
-  vR *= Math.exp(-grip * dt);
+  vR *= Math.exp(-(t.boat ? grip : grip * (1 - 0.28 * WX.wet)) * dt);
   v.vx = fx * vF + rx * vR; v.vy = fy * vF + ry * vR;
   const sf = clamp(vF / 110, -1, 1) * (1 - 0.5 * Math.min(1, Math.abs(vF) / maxF));
   v.a += (v.steer * 2.8 * v.steerMul * (t.steerK || 1) * sf * (inp.hb ? 1.7 : 1) + v.spin) * dt;
@@ -1850,6 +1853,7 @@ function collidePair(A, B){
     }
   }
   if (imp > 40){ onVehicleHit(A, imp, hx, hy, B); onVehicleHit(B, imp, hx, hy, A); }
+  if (imp > 120 && A.driver === "ai" && B.driver === "ai" && A.ai && B.ai && !A.ai.ring && !B.ai.ring) startIncident(A, B, hx, hy);
 }
 
 function addDent(v, hx, hy){
@@ -1981,7 +1985,7 @@ function aiSetupTo(v){
   const ai = v.ai;
   ai.d = ai.nd; ai.i += DIRS[ai.d][0]; ai.j += DIRS[ai.d][1];
   ai.nd = chooseNd(ai.i, ai.j, ai.d);
-  ai.phase = "to"; ai.turning = false;
+  ai.phase = "to"; ai.turning = false; ai.rr = Math.random();
   ai.wps = [lanePt(ai.i, ai.j, ai.d, -92)];
 }
 function aheadLimit(v, fx, fy, range){
@@ -2067,22 +2071,23 @@ function aiInput(v, dt){
   if (ai.phase === "to"){
     if (ai.nd !== ai.d && dist < 160) target = 95;
     const ls = lightState(ai.i, ai.j, ai.d);
-    if ((ls === 2 || (ls === 1 && dist > 50)) && dist < 190){
+    if ((ls === 2 || (ls === 1 && dist > 50)) && dist < 190 && !(ai.pers === "emerg" || (ai.pers === "pirate" && ai.rr < 0.55))){
       target = Math.min(target, Math.max(0, (dist - 6) * 1.5)); ai.waiting = true;
     }
   } else if (ai.turning) target = 95;
   if (Math.abs(diff) > 0.7) target = Math.min(target, 80);
-  target = Math.min(target, aheadLimit(v, fx, fy));
-  if (player.mode === "car" && player.veh.siren){
-    const pv = player.veh, dx = v.x - pv.x, dy = v.y - pv.y;
-    if (dx * dx + dy * dy < 280 * 280 && dx * Math.cos(pv.a) + dy * Math.sin(pv.a) > 0) target = Math.min(target, 35);
+  target = Math.min(target, aheadLimit(v, fx, fy) * (ai.pers === "pirate" ? 1.4 : 1));
+  for (const sv of SIRENS){
+    if (sv === v) continue;
+    const dx = v.x - sv.x, dy = v.y - sv.y;
+    if (dx * dx + dy * dy < 280 * 280 && dx * Math.cos(sv.a) + dy * Math.sin(sv.a) > 0) target = Math.min(target, 35);
   }
   const sp = v.vx * fx + v.vy * fy;
   if (target < 4){ inp.brk = true; inp.hold = true; }
   else if (sp < target - 8) inp.thr = true;
   else if (sp > target + 20){ inp.brk = true; inp.hold = true; }
   if (ai.blockedByPlayer && sp < 25) ai.blockT += dt; else ai.blockT = 0;
-  if ((ai.blockT > 1.2 || ai.angry > 0) && ai.honkT <= 0){ honk(v.x, v.y); ai.honkT = 2.5 + Math.random() * 2; }
+  if ((ai.blockT > (ai.pers === "pirate" ? 0.5 : 1.2) || ai.angry > 0) && ai.honkT <= 0){ honk(v.x, v.y); ai.honkT = 2.5 + Math.random() * 2; }
   if (ai.angry > 0) ai.angry -= dt;
   if (sp < 5 && !ai.waiting) ai.stuckT += dt; else ai.stuckT = 0;
   return inp;
@@ -2162,6 +2167,10 @@ function killPed(p, vx, vy){
   if (p.state === "dead") return;
   p.state = "dead"; p.deadT = 30; p.vx = vx; p.vy = vy; p.a = Math.atan2(vy, vx) + (Math.random() - 0.5);
   thud(p.x, p.y);
+  if (p.bench){ p.bench.sit = null; p.bench = null; }
+  crowdReact(p.x, p.y, "😱", 240, false);
+  const wit = peds.find(q => q !== p && q.state !== "dead" && !q.kind && Math.hypot(q.x - p.x, q.y - p.y) < 240);
+  if (wit) say(wit, pick(["Wypadek! Wezwijcie karetkę!", "O Boże!", "Potrącił człowieka!", "Ratunku!"]), 2.5);
 }
 function moveTo(p, tx, ty, sp, dt){
   const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
@@ -2179,6 +2188,7 @@ function updatePed(p, dt){
     if (Math.abs(p.vx) + Math.abs(p.vy) > 5) pushCircle(p, 6);
     return;
   }
+  if (pedExtraUpdate(p, dt)) return;
   p.flipT -= dt;
   if (p.state !== "flee"){
     hashQuery(VH, p.x, p.y, 110, TMP_P);
@@ -2187,7 +2197,11 @@ function updatePed(p, dt){
       if (sp < 140) continue;
       const ux = v.vx / sp, uy = v.vy / sp, rx = p.x - v.x, ry = p.y - v.y;
       const al = rx * ux + ry * uy, lat = Math.abs(-rx * uy + ry * ux);
-      if (al > 0 && al < 120 && lat < 30){ startFlee(p, v.x, v.y); break; }
+      if (al > 0 && al < 120 && lat < 30){
+        startFlee(p, v.x, v.y);
+        if (v === player.veh){ emote(p, pick(["😱", "😨", "😡"])); if (shoutT <= 0){ shoutT = 4; say(p, pick(["Wolniej, piracie!", "Uważaj!!", "Ludzie, co za wariat!", "Chodnik to nie droga!"]), 2); } }
+        break;
+      }
     }
   }
   p.moving = true;
@@ -2326,15 +2340,17 @@ function trySpawnAI(pp){
     let ok = true;
     for (const v of vehicles){ if (Math.abs(v.x - x) < 70 && Math.abs(v.y - y) < 70){ ok = false; break; } }
     if (!ok) continue;
-    const tp = pickType(Math.random());
+    const fl = spawnFlavor(), tp = fl.tp;
     const cfg = defaultCfg(tp);
     if (Math.random() < 0.15) cfg.finish = "metal";
+    if (fl.pers === "pirate" && Math.random() < 0.5){ cfg.stripes = pick(["race", "center"]); cfg.spoiler = 1 + ((Math.random() * 3) | 0); cfg.neon = Math.random() < 0.4 ? pick(["#00e5ff", "#ff2bd6", "#39ff14"]) : null; }
     const v = makeVehicle(cfg, x, y, Math.atan2(DIRS[d][1], DIRS[d][0]));
     v.vx = DIRS[d][0] * 140; v.vy = DIRS[d][1] * 140;
     v.driver = "ai";
+    if (fl.siren) v.siren = true;
     v.ai = { i, j, d, nd: chooseNd(i, j, d), phase: "to", turning: false, wps: [lanePt(i, j, d, -92)],
       hitT: 0, blockT: 0, honkT: 0, stuckT: 0, waiting: false, blockedByPlayer: false, angry: 0,
-      cruise: 150 + Math.random() * 50 };
+      cruise: cruiseFor(fl.pers, tp), pers: fl.pers, rr: Math.random() };
     return;
   }
 }
@@ -2347,7 +2363,8 @@ function trySpawnPed(pp){
     const pt = ringPoint(bx, by, s);
     const dist = Math.hypot(pt[0] - pp.x, pt[1] - pp.y);
     if (dist < 350 || dist > 1300 || onScreen(pt[0], pt[1], 40)) continue;
-    makePed(bx, by, s);
+    if (Math.random() < 0.3 && spawnSpecialPed(pp)) return;
+    decoratePed(makePed(bx, by, s));
     return;
   }
 }
@@ -2393,7 +2410,7 @@ function manageSpawns(dt){
     for (const w of wrecks){ const d = Math.hypot(w.x - pp.x, w.y - pp.y); if (d > fd && !onScreen(w.x, w.y, 80)){ fd = d; far = w; } }
     if (far) vehicles.splice(vehicles.indexOf(far), 1);
   }
-  const wantAI = [0, 10, 18, 28][SET.traffic] || 0;
+  const wantAI = Math.round(([0, 14, 26, 40][SET.traffic] || 0) * timeFactor() * (1 - 0.15 * WX.rain));
   if (nAI < wantAI) trySpawnAI(pp);
   if (Math.abs(ringDist(pp.x, pp.y)) < 1100 && nRing < ([0, 5, 8, 12][SET.traffic] || 0)) trySpawnRing(pp);
   if (nAI > wantAI){
@@ -2411,7 +2428,8 @@ function manageSpawns(dt){
   }
   ensureQuestChars();
   ensureClerk();
-  const wantPed = [0, 14, 28, 46][SET.peds] || 0;
+  ensureVendors();
+  const wantPed = Math.round(([0, 24, 44, 66][SET.peds] || 0) * pedFactor());
   if (nPed < wantPed){ trySpawnPed(pp); if (nPed < wantPed - 5) trySpawnPed(pp); }
   if (nPed > wantPed){
     for (let i = peds.length - 1; i >= 0; i--){ if (!peds[i].fixed && !peds[i].kind && !onScreen(peds[i].x, peds[i].y, 40)){ peds.splice(i, 1); break; } }
@@ -2435,6 +2453,7 @@ function update(dt){
   }
   hashBuild(VH, ACT);
   hashBuild(PH, peds, p => p.state !== "dead");
+  aliveUpdate(dt);
 
   if (player.mode === "car"){ player.veh.steerMul = SET.steerSens / 100; player.veh.pmul = buffs.coffee > 0 ? 1.08 : 1; }
   lifeUpdate(dt);
@@ -2663,7 +2682,7 @@ function drawPed(p, isPlayer){
     ctx.restore();
     return;
   }
-  const sw = p.moving ? Math.sin(p.t * (p.state === "flee" || isPlayer ? 14 : 9)) * 3.2 : 0;
+  const sw = p.moving ? Math.sin(p.t * (p.state === "flee" || isPlayer || p.jog ? 14 : 9)) * 3.2 : 0;
   ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(2, 3, 5, 7, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "#2a2a30";
   ctx.fillRect(sw - 2, -4.5, 4, 3); ctx.fillRect(-sw - 2, 1.5, 4, 3);
@@ -2930,7 +2949,7 @@ function render(){
   const vw = W / zoom, vh = H / zoom;
   const x0 = camX - vw / 2 - 60, y0 = camY - vh / 2 - 60, x1 = camX + vw / 2 + 60, y1 = camY + vh / 2 + 60;
   const inV = (x, y, m) => x > x0 - m && x < x1 + m && y > y0 - m && y < y1 + m;
-  const h = hourNow(), dark = darkness(h), hq = SET.quality === "high";
+  const h = hourNow(), dark = Math.max(darkness(h), WX.gloom), hq = SET.quality === "high";
 
   // podłoże
   const tx0 = clamp(Math.floor(x0 / T), 0, MW - 1), tx1 = clamp(Math.floor(x1 / T), 0, MW - 1);
@@ -3105,6 +3124,7 @@ function render(){
   drawBusStops(inV);
   drawWorkWorld(inV);
   drawDoors(inV);
+  drawLifeWorld(inV);
   drawRaceWorld(inV);
   // znacznik celu zlecenia
   if (mission && mission.target && inV(mission.target[0], mission.target[1], 80)){
@@ -3140,6 +3160,8 @@ function render(){
   for (const p of peds) if (p.state === "dead" && inV(p.x, p.y, 20)) drawPed(p, false);
   for (const v of vehicles) if (inV(v.x, v.y, 40)) drawVehicle(v);
   for (const p of peds) if (p.state !== "dead" && inV(p.x, p.y, 20)) drawPed(p, false);
+  for (const p of peds) if (p.state !== "dead" && !p.kind && inV(p.x, p.y, 30)) drawPedExtras(p);
+  drawBalloon();
   if (player.mode === "foot") drawPed(player.foot, true);
   ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of peds){
@@ -3179,18 +3201,22 @@ function render(){
     drawBuilding(b, camX, camY, dark, hq);
   }
   drawFires(inV);
+  drawBubbles(inV);
   // ciemny dym nad dachami
   for (const p of parts){
     if (p.k !== 3 || !inV(p.x, p.y, 30)) continue;
     ctx.fillStyle = "rgba(40,40,40," + (0.42 * p.life / p.max).toFixed(2) + ")";
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
   }
-  if (dark > 0.02 && dark < 0.98){
+  drawWeatherWorld(inV, x0, y0, x1, y1);
+  if (dark > 0.02 && dark < 0.98 && WX.gloom < 0.1){
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.fillStyle = "rgba(255,130,50," + (0.12 * Math.sin(Math.PI * dark)).toFixed(3) + ")";
     ctx.fillRect(0, 0, W, H);
   }
   if (dark > 0.02) drawLighting(dark, vx, vy, inV);
+  drawClubNeon(vx, vy, inV);
+  drawWeatherScreen(dark);
   drawHUD(h);
 }
 
@@ -3348,6 +3374,7 @@ function drawHUD(h){
   drawRaceHUD();
   drawBusHUD();
   drawWorkHUD();
+  drawLifeHUD();
   if (!isTouch && state === "play" && talkTarget()){
     ctx.font = "800 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(0,0,0,.6)";
     ctx.fillRect(W / 2 - 80, H - 46, 160, 24); ctx.fillStyle = "#9fd4ff"; ctx.fillText("💬 T – porozmawiaj", W / 2, H - 29);
@@ -3378,6 +3405,11 @@ function drawHUD(h){
       ctx.fillStyle = "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(q[0], q[1], 4.5 + Math.sin(gameTime * 6), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
+    if (NAV){
+      const q = toR(clamp(NAV.x, pp.x - RAD * 0.94, pp.x + RAD * 0.94), clamp(NAV.y, pp.y - RAD * 0.94, pp.y + RAD * 0.94));
+      ctx.fillStyle = "#5bc0de"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(q[0], q[1], 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
     for (const f of raceFlags) if (!race){ const q = toR(f.x, f.y); if (q[0] > mx - 8 && q[0] < mx + sz + 8 && q[1] > my - 8 && q[1] < my + sz + 8) ctx.fillText("🏁", q[0], q[1]); }
     if (race){
       ctx.fillStyle = "#ff4136";
@@ -3405,7 +3437,7 @@ function drawHUD(h){
   let ry = SET.minimap ? my + sz + 36 : 30;
   if (SET.clock){
     const hh = Math.floor(h), mi = Math.floor((h - hh) * 60);
-    const txt = (hh < 10 ? "0" : "") + hh + ":" + (mi < 10 ? "0" : "") + mi;
+    const txt = (WX.type === "clear" && darkness(h) > 0.5 ? "🌙" : WXTYPES[WX.type].icon) + " " + (hh < 10 ? "0" : "") + hh + ":" + (mi < 10 ? "0" : "") + mi;
     ctx.font = "800 15px system-ui, sans-serif";
     ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillText(txt, W - 13, ry + 1);
     ctx.fillStyle = "#fff"; ctx.fillText(txt, W - 14, ry);
@@ -3585,7 +3617,11 @@ function economy(dt){
     drift.score += (v.slip / 80) * (sp / 250) * dt * 10;
   } else if (drift.active){
     drift.idle += dt;
-    if (drift.idle > 0.7){ if (drift.score >= 4) addMoney(drift.score, "DRIFT"); drift.score = 0; drift.active = false; }
+    if (drift.idle > 0.7){
+      if (drift.score >= 4) addMoney(drift.score, "DRIFT");
+      if (drift.score >= 15 && crowdReact(v.x, v.y, "👏", 280, true) >= 2) popup("👏 Publiczność bije brawo!", "#ffd27a");
+      drift.score = 0; drift.active = false;
+    }
   }
   // prędkość
   if (sp > 330){ speedRun.on = true; speedRun.idle = 0; speedRun.cash += dt * (sp - 300) / 22; }
@@ -4388,6 +4424,7 @@ function talkPed(p){
   if (!p.trait) p.trait = pick(TRAITS);
   const pp = playerPos();
   p.a = Math.atan2(pp.y - p.y, pp.x - p.x);
+  if (p.friendIdx !== undefined) return friendDialog(p);
   if (p.talked){
     showDialog(who(p), pick(["Już rozmawialiśmy. Miłego dnia!", "Znowu ty? No cześć.", "Wszystko już powiedziałem.", "Nie mam już nic do dodania."]), [{ t: "👋 Na razie" }]);
     return;
@@ -4396,13 +4433,14 @@ function talkPed(p){
     { t: "😊 " + pick(PL.nice), fn: () => react(p, "nice", null) },
     { t: "😏 " + pick(PL.rude), fn: () => react(p, "rude", null) },
     { t: "😂 Opowiedz żart", fn: () => react(p, "joke", pick(PL.joke)) },
-    { t: "🗣️ Co słychać w mieście?", fn: () => react(p, "gossip", null) },
-    { t: "👋 Nieważne, cześć", fn: closeDialog }
-  ]);
+    { t: "🗣️ Co słychać w mieście?", fn: () => react(p, "gossip", null) }
+  ].concat(smallInteractions(p), [{ t: "👋 Nieważne, cześć", fn: closeDialog }]));
 }
 function react(p, kind, said){
   p.talked = true;
   const eff = EFFECT[p.trait][kind], roll = Math.random();
+  if ((kind === "nice" || kind === "joke") && !["leave", "flee", "none"].includes(eff)) addFriend(p, 1);
+  if (kind === "rude") addRep(-1);
   let txt = pick(REACT[p.trait][kind]);
   const wantRumor = eff === "rumor" || (eff === "rumor30" && roll < 0.3) || (eff === "rumor40" && roll < 0.4) || (eff === "rumor70" && roll < 0.7);
   if (wantRumor) txt += "\n\n" + makeRumor();
@@ -4674,6 +4712,8 @@ function missionUpdate(dt){
   }
 }
 function updateAnimal(p, dt){
+  if (p.owner && updateDog(p, dt)) return;
+  if (p.emoT > 0) p.emoT -= dt;
   p.t += dt;
   if (p.state === "dead") return;
   const pp = playerPos(), d = Math.hypot(p.x - pp.x, p.y - pp.y);
@@ -4887,6 +4927,8 @@ function tryTalk(){
   const p = talkTarget();
   if (!p) return;
   if (p.rental) return rentalDialog();
+  if (p.vendor) return vendorDialog(p);
+  if (p.incident) return incidentDialog(p);
   if (p.npc) talkQuest(QC[p.npc]);
   else if (p.evRole && ev && ev.ped === p && EV_TALK[ev.type]) EV_TALK[ev.type](p);
   else talkPed(p);
@@ -5891,21 +5933,23 @@ function drawWorkHUD(){
 let sirenNode = null;
 function updateSiren(){
   if (!actx) return;
-  const on = state === "play" && player.mode === "car" && !!player.veh.siren;
+  const mine = state === "play" && player.mode === "car" && !!player.veh.siren;
+  let g = mine ? 0.03 : 0, near = null;
+  if (state === "play") for (const sv of SIRENS){ if (sv === player.veh) continue; const a = att(sv.x, sv.y) * 0.025; if (a > g){ g = a; near = sv; } }
   if (!sirenNode){
-    if (!on) return;
+    if (g <= 0.001) return;
     const o = actx.createOscillator(); o.type = "square"; o.frequency.value = 760;
     const lfo = actx.createOscillator(); lfo.type = "square"; lfo.frequency.value = 1.4;
     const lg = actx.createGain(); lg.gain.value = 150; lfo.connect(lg); lg.connect(o.frequency);
     const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 1900;
-    const g = actx.createGain(); g.gain.value = 0;
-    o.connect(f); f.connect(g); g.connect(sfxBus); o.start(); lfo.start();
-    sirenNode = { g, lfo };
+    const gn = actx.createGain(); gn.gain.value = 0;
+    o.connect(f); f.connect(gn); gn.connect(sfxBus); o.start(); lfo.start();
+    sirenNode = { g: gn, lfo };
   }
-  const fire = player.mode === "car" && player.veh.type === "firetruck";
+  const src = mine ? player.veh : near, fire = src && src.type === "firetruck";
   sirenNode.lfo.type = fire ? "triangle" : "square";
   sirenNode.lfo.frequency.setTargetAtTime(fire ? 0.5 : 1.4, actx.currentTime, 0.1);
-  sirenNode.g.gain.setTargetAtTime(on ? 0.03 : 0, actx.currentTime, 0.05);
+  sirenNode.g.gain.setTargetAtTime(g, actx.currentTime, 0.05);
 }
 function drawBeacons(g, v){
   if (!v.siren || v.wreck) return;
@@ -6124,7 +6168,7 @@ function buildInterior(){
     body.appendChild(el("h4", "", "🏆 Twoje statystyki"));
     const st = SAVE.stats;
     body.appendChild(el("div", "note", "Wygrane wyścigi: " + (st.wins || 0) + " · Kursy taxi: " + (st.fares || 0) + " · Prace: " + (st.jobs || 0) +
-      " · Przystanki autobusu: " + (st.busStops || 0) + " · Auta w kolekcji: " + SAVE.col.length + " · Mieszkania: " + SAVE.homes.length + "/3"));
+      " · Przystanki autobusu: " + (st.busStops || 0) + " · Auta w kolekcji: " + SAVE.col.length + " · Mieszkania: " + SAVE.homes.length + "/3" + " · Reputacja w mieście: " + (SAVE.rep || 0) + " · Znajomi: " + SAVE.friends.length));
     status(); return;
   }
   const S2 = SHOPS_IN[d.kind];
@@ -6309,6 +6353,614 @@ function lifeUpdate(dt){
   if (buffs.coffee > 0) buffs.coffee = Math.max(0, buffs.coffee - dt);
   if (SAVE.bank > 0){ SAVE.bank += Math.min(SAVE.bank, 50000) * 0.01 / 60 * dt; saveDirty = true; }
   if (state === "play") checkDoors();
+}
+
+// =====================================================================
+// POGODA
+// =====================================================================
+const WXTYPES = {
+  clear:  { rain: 0, fog: 0, gloom: 0, icon: "☀️", name: "Słonecznie" },
+  cloudy: { rain: 0, fog: 0, gloom: 0.14, icon: "☁️", name: "Pochmurno" },
+  rain:   { rain: 0.6, fog: 0.06, gloom: 0.3, icon: "🌧️", name: "Deszcz" },
+  storm:  { rain: 1, fog: 0.1, gloom: 0.5, icon: "⛈️", name: "Burza" },
+  fog:    { rain: 0, fog: 0.75, gloom: 0.18, icon: "🌫️", name: "Mgła" }
+};
+const WX = { type: "clear", next: 140, rain: 0, fog: 0, gloom: 0, wet: 0, flash: 0, thunderT: 8, drops: [] };
+const SIRENS = [];
+const PUDDLES = [];
+(function(){
+  let s = 777;
+  const r = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (let i = 0; i < 2600 && PUDDLES.length < 520; i++){
+    const x = GT(0) + r() * (GT(MT) - GT(0)), y = GT(0) + r() * (GT(MT) - GT(0));
+    if (getGW(x, y) !== G_ROAD) continue;
+    PUDDLES.push([x, y, 10 + r() * 22, 6 + r() * 10, r() * 3]);
+  }
+})();
+const SPR_CLOUD = makeSprite(128, "rgba(0,0,0,0.9)", "rgba(0,0,0,0)");
+function pickWeather(h){
+  const r = Math.random();
+  if (h >= 4.5 && h < 9 && r < 0.35) return "fog";
+  return r < 0.4 ? "clear" : r < 0.62 ? "cloudy" : r < 0.85 ? "rain" : r < 0.95 ? "storm" : "fog";
+}
+function thunder(delay, gain){
+  if (!actx) return;
+  const t = actx.currentTime + delay;
+  const s = noiseSrc(brownBuf || noiseBuf);
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 260;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.2);
+  s.connect(f); f.connect(g); g.connect(sfxBus); s.start(t, Math.random()); s.stop(t + 3.4);
+}
+let rainNode = null;
+function weatherAudio(){
+  if (!actx) return;
+  if (!rainNode){
+    if (WX.rain < 0.02) return;
+    const s = noiseSrc(); s.loop = true;
+    const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 700;
+    const lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5200;
+    const g = actx.createGain(); g.gain.value = 0;
+    s.connect(hp); hp.connect(lp); lp.connect(g); g.connect(cityBus); s.start();
+    rainNode = g;
+  }
+  const inside = state !== "play" && state !== "title";
+  rainNode.gain.setTargetAtTime(inside ? 0 : WX.rain * (player.mode === "car" ? 0.07 : 0.12), actx.currentTime, 0.4);
+}
+function weatherUpdate(dt){
+  if (SET.weather === "cycle"){
+    WX.next -= dt;
+    if (WX.next <= 0){
+      const prev = WX.type;
+      WX.type = pickWeather(hourNow());
+      WX.next = 150 + Math.random() * 210;
+      if (WX.type !== prev && state === "play") toast(WXTYPES[WX.type].icon + " Pogoda: " + WXTYPES[WX.type].name.toLowerCase(), 2200);
+    }
+  } else WX.type = SET.weather;
+  const tg = WXTYPES[WX.type], k = Math.min(1, dt * 0.18);
+  WX.rain += (tg.rain - WX.rain) * k; WX.fog += (tg.fog - WX.fog) * k; WX.gloom += (tg.gloom - WX.gloom) * k;
+  if (WX.rain > 0.1) WX.wet = Math.min(1, WX.wet + dt * 0.05 * WX.rain); else WX.wet = Math.max(0, WX.wet - dt * 0.008);
+  if (WX.type === "storm"){
+    WX.thunderT -= dt;
+    if (WX.thunderT <= 0){ WX.thunderT = 6 + Math.random() * 12; WX.flash = 1; thunder(0.4 + Math.random() * 1.6, 0.6 + Math.random() * 0.4); }
+  }
+  WX.flash *= Math.exp(-6 * dt);
+  weatherAudio();
+}
+function drawWeatherWorld(inV, x0, y0, x1, y1){
+  if (WX.gloom > 0.04 && WX.rain < 0.9){
+    ctx.globalAlpha = Math.min(0.5, WX.gloom * 1.4);
+    for (let i = 0; i < 14; i++){
+      const span = 3600, ox = (i * 977 + gameTime * 22) % span, oy = (i * 613 + gameTime * 9) % span;
+      const cx = Math.floor(camX / span) * span + ox - span / 2, cy = Math.floor(camY / span) * span + oy - span / 2;
+      for (const [ax, ay] of [[0, 0], [span, 0], [0, span], [span, span]]){
+        const X = cx + ax, Y = cy + ay, r = 380 + (i % 4) * 120;
+        if (X + r < x0 || X - r > x1 || Y + r < y0 || Y - r > y1) continue;
+        ctx.drawImage(SPR_CLOUD, X - r, Y - r * 0.7, r * 2, r * 1.4);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (WX.wet > 0.03){
+    ctx.fillStyle = "rgba(20,32,55," + (0.14 * WX.wet).toFixed(3) + ")";
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    for (const p of PUDDLES){
+      if (p[0] < x0 - 30 || p[0] > x1 + 30 || p[1] < y0 - 30 || p[1] > y1 + 30) continue;
+      ctx.fillStyle = "rgba(150,175,210," + (0.22 * WX.wet).toFixed(3) + ")";
+      ctx.beginPath(); ctx.ellipse(p[0], p[1], p[2] * WX.wet, p[3] * WX.wet, 0, 0, Math.PI * 2); ctx.fill();
+      if (WX.rain > 0.15){
+        const ph = (gameTime * 1.3 + p[4]) % 1;
+        ctx.strokeStyle = "rgba(220,235,255," + (0.35 * (1 - ph) * WX.rain).toFixed(3) + ")"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(p[0] + p[4] * 3, p[1], 2 + ph * 9, 1 + ph * 5, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+  }
+}
+function drawWeatherScreen(dark){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (WX.fog > 0.02){
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.12, W / 2, H / 2, Math.max(W, H) * 0.75);
+    const c = dark > 0.5 ? "60,65,75" : "205,210,215";
+    g.addColorStop(0, "rgba(" + c + "," + (WX.fog * 0.18).toFixed(3) + ")");
+    g.addColorStop(1, "rgba(" + c + "," + (WX.fog * 0.88).toFixed(3) + ")");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  if (WX.rain > 0.03){
+    const n = Math.round(180 * WX.rain * (SET.quality === "low" ? 0.5 : 1));
+    ctx.strokeStyle = "rgba(200,220,255," + (0.25 + 0.2 * WX.rain).toFixed(2) + ")"; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++){
+      const x = Math.random() * (W + 60) - 30, y = Math.random() * H;
+      ctx.moveTo(x, y); ctx.lineTo(x - 5, y + 16 + WX.rain * 8);
+    }
+    ctx.stroke();
+    if (player.mode === "car" && !VT[player.veh.type].boat){
+      if (WX.drops.length < 26 * WX.rain && Math.random() < 0.4) WX.drops.push({ x: Math.random() * W, y: Math.random() * H, r: 3 + Math.random() * 7, t: 0 });
+      for (let i = WX.drops.length - 1; i >= 0; i--){
+        const d = WX.drops[i];
+        d.t += 1 / 60; d.y += d.t > 1 ? 1.5 : 0;
+        if (d.t > 4 || d.y > H){ WX.drops.splice(i, 1); continue; }
+        ctx.fillStyle = "rgba(180,200,230,.18)"; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.beginPath(); ctx.arc(d.x - d.r * 0.35, d.y - d.r * 0.35, d.r * 0.3, 0, Math.PI * 2); ctx.fill();
+      }
+    } else WX.drops.length = 0;
+  }
+  if (WX.flash > 0.02){ ctx.fillStyle = "rgba(235,240,255," + (WX.flash * 0.6).toFixed(3) + ")"; ctx.fillRect(0, 0, W, H); }
+  if (camFlash > 0.02){ ctx.fillStyle = "rgba(255,255,255," + camFlash.toFixed(3) + ")"; ctx.fillRect(0, 0, W, H); }
+}
+let camFlash = 0;
+
+// =====================================================================
+// ŻYWE MIASTO: GĘSTOŚĆ, KIEROWCY, STŁUCZKI, SŁUŻBY
+// =====================================================================
+function timeFactor(){
+  if (SET.daynight !== "cycle") return 1;
+  const h = hourNow();
+  if ((h >= 7 && h < 9.5) || (h >= 15.5 && h < 18.5)) return 1.25;
+  if (h >= 23 || h < 5) return 0.45;
+  if (h >= 20) return 0.75;
+  return 1;
+}
+function pedFactor(){
+  let f = SET.daynight === "cycle" ? (() => { const h = hourNow(); return (h >= 23 || h < 5) ? 0.35 : (h >= 20 ? 0.7 : 1); })() : 1;
+  return f * (1 - 0.4 * WX.rain);
+}
+function spawnFlavor(){
+  const h = hourNow(), night = h >= 21 || h < 5, r = Math.random();
+  if (r < 0.03 && !vehicles.some(v => v.siren && v.driver === "ai")) return { tp: Math.random() < 0.6 ? "ambulance" : "firetruck", pers: "emerg", siren: true };
+  if (h >= 5 && h < 9.5 && r < 0.08) return { tp: "garbage", pers: "slow" };
+  const pr = Math.random();
+  const pers = pr < (night ? 0.25 : 0.1) ? "pirate" : pr < (night ? 0.33 : 0.25) ? "slow" : "normal";
+  return { tp: pickType(Math.random()), pers };
+}
+function cruiseFor(pers, tp){
+  const mf = VT[tp].maxF * 0.85;
+  if (pers === "pirate") return Math.min(mf, 240 + Math.random() * 70);
+  if (pers === "slow") return 95 + Math.random() * 25;
+  if (pers === "emerg") return Math.min(mf, 260);
+  return 150 + Math.random() * 50;
+}
+const incidents = [];
+const ARGUE = ["Patrz, jak jeździsz!", "To pan we mnie wjechał!", "Gdzie miałeś oczy?!", "Dzwonię po ubezpieczyciela!", "Mój zderzak!!", "Prawo jazdy z chipsów?!", "Pan był na czerwonym!", "Ja tu jechałem pierwszy!"];
+function startIncident(A, B, hx, hy){
+  if (incidents.length >= 2 || A.inc || B.inc || !onScreen(hx, hy, 500) || A.siren || B.siren) return;
+  const inc = { cars: [A, B], peds: [], t: 16 + Math.random() * 8, sayT: 0.5 };
+  for (const v of [A, B]){
+    v.inc = inc; v.ai.hitT = 99;
+    const c = Math.cos(v.a), s = Math.sin(v.a), off = VT[v.type].wid / 2 + 11;
+    let px = v.x - s * off, py = v.y + c * off;
+    if (pointBlocked(px, py, 6)){ px = v.x + s * off; py = v.y - c * off; }
+    const p = makeStand(px, py, { icon: null, incident: inc, trait: "grumpy" });
+    p.home = null; p.fixed = true;
+    inc.peds.push(p);
+  }
+  incidents.push(inc);
+  if (Math.random() < 0.7) honk(hx, hy);
+}
+function endIncident(inc, calm){
+  for (const p of inc.peds){ const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1); }
+  for (const v of inc.cars){ v.inc = null; if (v.ai) v.ai.hitT = calm ? 0.5 : 0.1; }
+  const i = incidents.indexOf(inc); if (i >= 0) incidents.splice(i, 1);
+}
+function incidentsUpdate(dt){
+  for (let k = incidents.length - 1; k >= 0; k--){
+    const inc = incidents[k];
+    inc.t -= dt; inc.sayT -= dt;
+    const [a, b] = inc.peds;
+    if (a && b){
+      a.a = Math.atan2(b.y - a.y, b.x - a.x); b.a = Math.atan2(a.y - b.y, a.x - b.x);
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      for (const p of inc.peds){ const d = Math.hypot(mx - p.x, my - p.y); if (d > 26){ p.x += (mx - p.x) / d * 30 * dt; p.y += (my - p.y) / d * 30 * dt; p.moving = true; } else p.moving = false; }
+    }
+    if (inc.sayT <= 0 && inc.peds.length){ inc.sayT = 1.6 + Math.random(); say(pick(inc.peds), pick(ARGUE), 1.8); }
+    if (inc.t <= 0 || inc.peds.some(p => p.state === "dead") || inc.cars.some(v => v.wreck || v.driver !== "ai")) endIncident(inc, false);
+  }
+}
+function incidentDialog(p){
+  const inc = p.incident;
+  showDialog(who(p), pick(["Widziałeś to?! On we mnie wjechał!", "Pan jest świadkiem! To jego wina!", "Ludzie, co za kierowca!"]), [
+    { t: "🕊️ Spokojnie, panowie. To tylko blacha.", fn: () => {
+      endIncident(inc, true); addRep(2); addMoney(15, "MEDIATOR");
+      showDialog(who(p), "No... ma pan rację. Spiszemy się i tyle. Dzięki!", [{ t: "👍" }]);
+    } },
+    { t: "😈 Racja, to jego wina! Nie odpuszczaj!", fn: () => { inc.t += 8; closeDialog(); say(p, "Słyszałeś?! Świadek mówi!", 2.5); } },
+    { t: "🙈 Nie mieszam się", fn: closeDialog }
+  ], "Stłuczka na skrzyżowaniu");
+}
+
+// =====================================================================
+// PIESI: AKTYWNOŚCI, EMOCJE, DYMKI
+// =====================================================================
+const BENCHES = [], VENDORS = [];
+(function(){
+  for (const [cx, cy] of parks){
+    const lake = decals.some(d => d.type === "lake" && Math.hypot(d.x + d.w / 2 - cx, d.y + d.h / 2 - cy) < 30);
+    if (lake){
+      for (let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2 + 0.3; BENCHES.push({ x: cx + Math.cos(a) * 168, y: cy + Math.sin(a) * 140, a: a + Math.PI, sit: null }); }
+    } else {
+      for (const [dx, dy, a] of [[60, -34, Math.PI / 2], [-60, 34, -Math.PI / 2], [-34, -60, 0], [34, 60, Math.PI], [130, 34, -Math.PI / 2], [-130, -34, Math.PI / 2]])
+        BENCHES.push({ x: cx + dx, y: cy + dy, a, sit: null });
+    }
+  }
+  const rb = blockC(1, 1);
+  for (const [dx, dy, a] of [[-90, 120, 0], [90, 120, Math.PI], [0, 175, -Math.PI / 2]]) BENCHES.push({ x: rb[0] + dx, y: rb[1] + dy, a, sit: null });
+  const kinds = [["🌭", "Hot-dogi"], ["🍦", "Lody"], ["🎈", "Balony"]];
+  parks.slice(0, 5).forEach(([cx, cy], i) => VENDORS.push({ x: cx + 40, y: cy - 30 + (i % 2) * 60, kind: kinds[i % 3], ped: null }));
+  VENDORS.push({ x: rb[0] + 60, y: rb[1] + 140, kind: kinds[1], ped: null });
+  const dc = blockC(5, 5);
+  VENDORS.push({ x: dc[0] - 230, y: dc[1] + 230, kind: kinds[0], ped: null });
+})();
+const CLUB = (() => {
+  const dc = blockC(5, 5);
+  let best = null, bd = 1e18;
+  for (const d of DOORS) if (d.kind === "food" && d.name === "Bar"){ const dd = Math.hypot(d.x - dc[0], d.y - dc[1]); if (dd < bd){ bd = dd; best = d; } }
+  if (best){ best.club = true; best.name = "Klub 24"; }
+  return best;
+})();
+const clubOpen = () => { const h = hourNow(); return SET.daynight !== "day" && (h >= 21 || h < 4); };
+function say(p, txt, t){ p.say = txt; p.sayT = t || 2.5; }
+function emote(p, e, t){ p.emo = e; p.emoT = t || 2.2; }
+let shoutT = 0;
+function crowdReact(x, y, e, r, applause){
+  let n = 0;
+  for (const p of peds){
+    if (p.state === "dead" || p.kind || p.lying || p.incident) continue;
+    if (Math.hypot(p.x - x, p.y - y) < r){ emote(p, e, 2.4); n++; }
+  }
+  if (applause && n >= 2){ addMoney(n * 6, "BRAWA 👏"); }
+  return n;
+}
+function decoratePed(p){
+  const r = Math.random();
+  if (r < 0.12){ p.jog = true; p.spd = 85 + Math.random() * 20; p.col = pick(["#ff2bd6", "#39ff14", "#00e5ff", "#ffd400", "#ff7a00"]); }
+  else if (r < 0.22){
+    const d = makeAnimal("dog", p.x - 12, p.y, [p.x, p.y], 60);
+    d.owner = p; d.fixed = false; p.dog = d; p.spd = 28 + Math.random() * 10;
+  }
+  p.umbC = Math.random() < 0.6 ? pick(["#c0392b", "#2980b9", "#27ae60", "#1a1a1a", "#8e44ad", "#f1c40f", "#ecf0f1"]) : null;
+}
+function spawnSpecialPed(pp){
+  const r = Math.random();
+  if (r < 0.25){
+    const free = BENCHES.filter(b => (!b.sit || !peds.includes(b.sit)) && Math.hypot(b.x - pp.x, b.y - pp.y) < 1300 && !onScreen(b.x, b.y, 30));
+    if (free.length){
+      const b = pick(free), p = makePed(0, 0, 0);
+      p.x = b.x; p.y = b.y; p.a = b.a; p.state = "sit"; p.sitT = 25 + Math.random() * 60; b.sit = p; p.bench = b;
+      p.umbC = null;
+      return true;
+    }
+  } else if (r < 0.4){
+    const c = cityPoint(350, 1200);
+    if (!c) return false;
+    const a = makePed(0, 0, 0), b = makePed(0, 0, 0);
+    a.x = c.x - 9; a.y = c.y; b.x = c.x + 9; b.y = c.y;
+    for (const p of [a, b]){ p.state = "chat"; p.chatT = 20 + Math.random() * 25; p.partner = p === a ? b : a; p.umbC = null; }
+    return true;
+  } else if (r < 0.5 && SAVE.friends.length){
+    const c = cityPoint(350, 1100);
+    if (!c) return false;
+    const fi = (Math.random() * SAVE.friends.length) | 0, f = SAVE.friends[fi];
+    if (peds.some(p => p.friendIdx === fi)) return false;
+    const b2 = blockAt(c.x, c.y), p = makePed(b2[0], b2[1], ringS(b2[0], b2[1], c.x, c.y));
+    Object.assign(p, { name: f.name, fem: f.fem, col: f.col, hair: f.hair, trait: f.trait, friendIdx: fi });
+    return true;
+  }
+  return false;
+}
+const SMALLTALK = ["Ale pogoda...", "Widziałeś te ceny?", "No i mówię mu...", "Haha, serio?", "W sobotę grill?", "Ten nowy serial jest super", "A wiesz, że...", "Korki dziś straszne"];
+function pedExtraUpdate(p, dt){
+  if (p.sayT > 0) p.sayT -= dt;
+  if (p.emoT > 0) p.emoT -= dt;
+  if (p.state === "sit"){
+    p.moving = false; p.sitT -= dt;
+    if (WX.rain > 0.3) p.sitT -= dt * 4;
+    if (p.sitT <= 0){ if (p.bench) p.bench.sit = null; p.bench = null; startReturn(p); }
+    return true;
+  }
+  if (p.state === "chat"){
+    p.moving = false; p.chatT -= dt;
+    if (p.partner && peds.includes(p.partner) && p.partner.state === "chat") p.a = Math.atan2(p.partner.y - p.y, p.partner.x - p.x);
+    else p.chatT = 0;
+    if (Math.random() < dt * 0.25 && !(p.sayT > 0)) say(p, pick(SMALLTALK), 2);
+    if (p.chatT <= 0) startReturn(p);
+    return true;
+  }
+  if (p.state === "approach"){
+    const pp = player.foot;
+    if (player.mode !== "foot" || state !== "play" || Math.hypot(pp.x - p.x, pp.y - p.y) > 500){ p.icon = null; startReturn(p); return true; }
+    moveTo(p, pp.x, pp.y, 75, dt); p.moving = true;
+    if (Math.hypot(pp.x - p.x, pp.y - p.y) < 26){ p.state = "stand"; p.home = [p.x, p.y]; p.icon = null; approachDialog(p); }
+    return true;
+  }
+  if (p.state === "walk" && WX.rain > 0.2 && !p.umbC && p.state !== "flee") p.s += p.dir * p.spd * WX.rain * 0.5 * dt;
+  return false;
+}
+function updateDog(p, dt){
+  const o = p.owner;
+  if (!o || !peds.includes(o) || o.state === "dead"){ p.owner = null; p.home = [p.x, p.y]; p.rad = 120; return false; }
+  const bx = o.x - Math.cos(o.a) * 16 + Math.sin(p.t * 1.3) * 6, by = o.y - Math.sin(o.a) * 16 + Math.cos(p.t * 1.1) * 6;
+  const d = Math.hypot(bx - p.x, by - p.y);
+  p.t += dt;
+  if (d > 2){ const sp = Math.min(160, d * 4); p.x += (bx - p.x) / d * sp * dt; p.y += (by - p.y) / d * sp * dt; p.a = Math.atan2(by - p.y, bx - p.x); p.moving = sp > 15; }
+  else p.moving = false;
+  if (d > 160){ p.x = bx; p.y = by; }
+  return true;
+}
+function drawPedExtras(p){
+  if (p.state === "dead") return;
+  if (p.dog && peds.includes(p.dog)){
+    ctx.strokeStyle = "rgba(60,40,30,.8)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.dog.x, p.dog.y); ctx.stroke();
+  }
+  if (p.umbC && WX.rain > 0.25 && p.state !== "sit" && !p.lying){
+    ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.arc(p.x + 3, p.y + 4, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = p.umbC; ctx.beginPath(); ctx.arc(p.x, p.y - 2, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 0.8; ctx.beginPath();
+    for (let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2; ctx.moveTo(p.x, p.y - 2); ctx.lineTo(p.x + Math.cos(a) * 11, p.y - 2 + Math.sin(a) * 11); }
+    ctx.stroke();
+  }
+}
+function drawBubbles(inV){
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const p of peds){
+    if (p.state === "dead" || !inV(p.x, p.y, 60)) continue;
+    if (p.emoT > 0){
+      ctx.font = "15px system-ui, sans-serif";
+      ctx.fillText(p.emo, p.x + 10, p.y - 18 - (2.4 - p.emoT) * 4);
+    }
+    if (p.sayT > 0 && p.say){
+      ctx.font = "700 10px system-ui, sans-serif";
+      const tw = ctx.measureText(p.say).width, y = p.y - 30;
+      ctx.globalAlpha = Math.min(1, p.sayT * 2);
+      ctx.fillStyle = "rgba(255,255,255,.93)"; rrect(ctx, p.x - tw / 2 - 6, y - 9, tw + 12, 18, 7); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(p.x - 4, y + 8); ctx.lineTo(p.x + 4, y + 8); ctx.lineTo(p.x, y + 14); ctx.fill();
+      ctx.fillStyle = "#111"; ctx.fillText(p.say, p.x, y + 0.5);
+      ctx.globalAlpha = 1;
+    }
+    if (p.friendIdx !== undefined){ ctx.font = "11px system-ui, sans-serif"; ctx.fillText("💛", p.x - 9, p.y - 14); }
+  }
+}
+function drawLifeWorld(inV){
+  for (const b of BENCHES){
+    if (!inV(b.x, b.y, 30)) continue;
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a);
+    ctx.fillStyle = "rgba(0,0,0,.22)"; ctx.fillRect(-12, -5, 28, 12);
+    ctx.fillStyle = "#6d4c2f"; ctx.fillRect(-14, -7, 28, 9);
+    ctx.fillStyle = "#8d6440"; ctx.fillRect(-14, -7, 28, 3); ctx.fillRect(-14, -2, 28, 3);
+    ctx.fillStyle = "#333"; ctx.fillRect(-14, -9, 2, 13); ctx.fillRect(12, -9, 2, 13);
+    ctx.restore();
+  }
+  for (const v of VENDORS){
+    if (!inV(v.x, v.y, 40)) continue;
+    const x = v.x + 18, y = v.y;
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(x - 10, y - 6, 24, 16);
+    ctx.fillStyle = "#ecf0f1"; ctx.fillRect(x - 12, y - 8, 22, 14);
+    ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(x - 8, y + 7, 2.5, 0, Math.PI * 2); ctx.arc(x + 6, y + 7, 2.5, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 6; i++){ ctx.fillStyle = i % 2 ? "#fff" : (v.kind[0] === "🌭" ? "#c0392b" : v.kind[0] === "🍦" ? "#ff8fb1" : "#3498db"); ctx.beginPath(); ctx.moveTo(x, y - 2); ctx.arc(x, y - 2, 14, i / 6 * Math.PI * 2, (i + 1) / 6 * Math.PI * 2); ctx.fill(); }
+    if (v.kind[0] === "🎈"){ for (let i = 0; i < 4; i++){ ctx.fillStyle = ["#e74c3c", "#f1c40f", "#3498db", "#2ecc71"][i]; ctx.beginPath(); ctx.arc(x - 12 + i * 8, y - 22 + Math.sin(gameTime * 2 + i) * 2, 5, 0, Math.PI * 2); ctx.fill(); } }
+  }
+  if (CLUB && clubOpen() && inV(CLUB.x, CLUB.y, 120)){
+    const pulse = 0.6 + 0.4 * Math.sin(gameTime * 7.85);
+    for (let i = 0; i < 7; i++){
+      const qx = CLUB.x + 26 + i * 13, qy = CLUB.y + Math.sin(i * 2.3) * 3, bob = Math.sin(gameTime * 7.85 + i) * 1.2;
+      ctx.fillStyle = SHIRTS[(i * 5) % SHIRTS.length]; ctx.beginPath(); ctx.ellipse(qx, qy + bob, 3.6, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = HAIRS[(i * 3) % HAIRS.length]; ctx.beginPath(); ctx.arc(qx, qy + bob, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  if (NAV && inV(NAV.x, NAV.y, 80)){
+    const pr = 30 + Math.sin(gameTime * 5) * 4;
+    ctx.strokeStyle = "rgba(91,192,222,.9)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(NAV.x, NAV.y, pr, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+function drawClubNeon(vx, vy, inV){
+  if (!CLUB || !clubOpen() || !inV(CLUB.x, CLUB.y, 120)) return;
+  ctx.setTransform(DPR * zoom, 0, 0, DPR * zoom, DPR * (W / 2 - vx * zoom), DPR * (H / 2 - vy * zoom));
+  const pulse = 0.6 + 0.4 * Math.sin(gameTime * 7.85);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.5 * pulse;
+  ctx.drawImage(SPR_F, CLUB.x - 90, CLUB.y - 80, 180, 100);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+  ctx.font = "900 17px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.shadowColor = "#ff2bd6"; ctx.shadowBlur = 16 * pulse;
+  ctx.fillStyle = "rgba(255,110,230," + (0.75 + 0.25 * pulse).toFixed(2) + ")"; ctx.fillText("♫ KLUB 24 ♫", CLUB.x, CLUB.y - 34);
+  ctx.shadowBlur = 0;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+let bumpT = 60;
+function spontaneousBump(dt){
+  bumpT -= dt;
+  if (bumpT > 0 || incidents.length) return;
+  bumpT = 70 + Math.random() * 60;
+  for (const A of ACT){
+    if (A.driver !== "ai" || !A.ai || A.ai.ring || A.siren || A.inc || !onScreen(A.x, A.y, 450)) continue;
+    const fx = Math.cos(A.a), fy = Math.sin(A.a);
+    for (const B of ACT){
+      if (B === A || B.driver !== "ai" || !B.ai || B.ai.ring || B.siren || B.inc) continue;
+      const rx = B.x - A.x, ry = B.y - A.y, al = rx * fx + ry * fy, lat = Math.abs(-rx * fy + ry * fx);
+      if (al > 20 && al < 110 && lat < 14){
+        crashSound(260, B.x, B.y); sparks((A.x + B.x) / 2, (A.y + B.y) / 2, 200);
+        addDent(A, A.x + fx * 20, A.y + fy * 20); addDent(B, B.x - fx * 20, B.y - fy * 20);
+        startIncident(A, B, (A.x + B.x) / 2, (A.y + B.y) / 2);
+        return;
+      }
+    }
+  }
+  bumpT = 15;
+}
+function lifeAudio(dt){
+  if (!actx || !CLUB || !clubOpen() || state !== "play") return;
+  const a = att(CLUB.x, CLUB.y);
+  if (a < 0.05) return;
+  cityT.bass = (cityT.bass || 0) - dt;
+  if (cityT.bass <= 0){ cityT.bass = 0.5; tone(55, actx.currentTime, 0.25, "sine", 0.12 * a, cityBus, 40); }
+}
+
+// =====================================================================
+// INTERAKCJE: KIERUNKI, ZNAJOMI, ZACZEPKI, SPRZEDAWCY
+// =====================================================================
+let NAV = null;
+const COMPASS = ["na wschód", "na południowy wschód", "na południe", "na południowy zachód", "na zachód", "na północny zachód", "na północ", "na północny wschód"];
+const DIRQ = [["💊", "Apteka", d => d.kind === "pharm"], ["🏥", "Szpital", d => d.kind === "hosp"], ["☕", "Kawiarnia", d => d.kind === "cafe"],
+  ["🏦", "Bank", d => d.kind === "bank"], ["🛒", "Sklep", d => d.kind === "shop"], ["🔧", "Garaż", null], ["⛽", "Stacja paliw", null], ["🔑", "Wypożyczalnia", null]];
+function nearestOf(q, from){
+  let best = null, bd = 1e18;
+  const consider = (x, y, name) => { const d = Math.hypot(x - from.x, y - from.y); if (d < bd){ bd = d; best = { x, y, name }; } };
+  if (q[2]){ for (const d of DOORS) if (q[2](d)) consider(d.x, d.y, d.name); }
+  else { for (const o of pois) if (o.icon === q[0]) consider(o.x, o.y, o.name); }
+  return best;
+}
+function dirText(from, to){
+  const a = Math.atan2(to.y - from.y, to.x - from.x), i = ((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8;
+  return Math.round(Math.hypot(to.x - from.x, to.y - from.y) / 10 / 10) * 10 + " metrów " + COMPASS[i];
+}
+function askDirections(p){
+  showDialog(who(p), "Jasne, czego szukasz?", DIRQ.map(q => ({ t: q[0] + " " + q[1], fn: () => {
+    const t = nearestOf(q, p);
+    if (!t){ showDialog(who(p), "Hmm, chyba nic takiego tu nie ma.", [{ t: "👌" }]); return; }
+    NAV = { x: t.x, y: t.y, name: t.name };
+    const known = p.trait === "talkative" ? " Mają tam świetną obsługę, mój szwagier tam bywa!" : "";
+    showDialog(who(p), pick(["To proste! ", "Niedaleko! ", "Jasne! "]) + t.name + " jest jakieś " + dirText(p, t) + "." + known + "\n\n📍 Zaznaczyłeś cel na mapie.", [{ t: "🙏 Dzięki!", fn: () => { closeDialog(); addRep(1); } }]);
+  } })).concat([{ t: "👋 Nieważne", fn: closeDialog }]));
+}
+function navUpdate(){
+  if (!NAV) return;
+  const pp = playerPos();
+  if (Math.hypot(NAV.x - pp.x, NAV.y - pp.y) < 60){ popup("📍 Jesteś na miejscu: " + NAV.name, "#5bc0de"); NAV = null; }
+}
+function addRep(n){ SAVE.rep = (SAVE.rep || 0) + n; saveDirty = true; }
+function addFriend(p, n){
+  if (p.friendIdx !== undefined){ const f = SAVE.friends[p.friendIdx]; if (f){ f.rep = (f.rep || 0) + n; saveDirty = true; } return; }
+  if (n <= 0 || p.npc || p.vendor || p.rental) return;
+  pedName(p);
+  if (SAVE.friends.some(f => f.name === p.name && f.col === p.col)) return;
+  if (SAVE.friends.length >= 16) SAVE.friends.shift();
+  SAVE.friends.push({ name: p.name, fem: !!p.fem, col: p.col, hair: p.hair, trait: p.trait || "friendly", rep: n });
+  p.friendIdx = SAVE.friends.length - 1;
+  saveDirty = true;
+  popup("💛 Nowy znajomy: " + p.name, "#ffd27a");
+}
+function friendDialog(p){
+  const f = SAVE.friends[p.friendIdx], lvl = f ? f.rep || 1 : 1;
+  const hi = lvl >= 6 ? "Mój najlepszy kumpel! 😄" : lvl >= 3 ? "O, cześć! Dobrze cię widzieć!" : "Hej, pamiętasz mnie? To ja, " + p.name + "!";
+  showDialog(who(p), hi, [
+    { t: "🗣️ Co nowego?", fn: () => { addFriend(p, 1); showDialog(who(p), "Słuchaj, mam coś dla ciebie: " + makeRumor(), [{ t: "👍 Dzięki" }]); } },
+    { t: "☕ Stawiam kawę! ($8)", fn: () => {
+      if (SAVE.money < 8){ showDialog(who(p), "Haha, nie masz nawet na kawę? Następnym razem ja stawiam!", [{ t: "😅" }]); return; }
+      SAVE.money -= 8; buffCoffee(); addFriend(p, 2); heal(10); cashSound();
+      showDialog(who(p), "Ooo, dzięki! Fajnie się z tobą gada. ☕ (kofeina działa 2 min)", [{ t: "😊" }]);
+    } },
+    { t: "✋ Przybij piątkę", fn: () => { emote(p, "🙌"); addFriend(p, 1); showDialog(who(p), "Piąteczka! 🙌", [{ t: "😎" }]); } },
+    { t: "👋 Na razie", fn: closeDialog }
+  ], "💛 Znajomy · sympatia " + "❤".repeat(Math.min(5, Math.ceil(lvl / 2))));
+}
+function smallInteractions(p){
+  const out = [];
+  out.push({ t: "✋ Przybij piątkę", fn: () => {
+    if (p.trait === "grumpy" || (p.trait === "shy" && Math.random() < 0.5)){ emote(p, "😒"); showDialog(who(p), pick(["Nie, dzięki.", "Eee... nie.", "Zostaw mnie."]), [{ t: "😅" }]); }
+    else { emote(p, "🙌"); addRep(1); addFriend(p, 1); showDialog(who(p), pick(["Piątka! 🙌", "Hehe, siema!", "Yeah! 🙌"]), [{ t: "😎" }]); }
+  } });
+  out.push({ t: "📸 Wspólne zdjęcie", fn: () => {
+    camFlash = 0.8; if (actx) burst(0.15, 3000, 0.08, "highpass");
+    if (p.trait === "grumpy"){ showDialog(who(p), "Żadnych zdjęć!", [{ t: "🙊" }]); return; }
+    emote(p, "😁"); addRep(1);
+    showDialog(who(p), pick(["Super wyszło! Wrzucę na insta!", "Haha, ale mina! 😁", "Wyślij mi to!"]), [{ t: "📱" }]);
+  } });
+  if (p.dog && peds.includes(p.dog)) out.push({ t: "🐕 Pogłaszcz psa", fn: () => {
+    emote(p.dog, "❤️"); heal(5); addRep(1);
+    showDialog(who(p), pick(["Burek cię lubi! Rzadko się tak cieszy.", "Hau! Ojej, polubił cię!", "Uważaj, zaraz cię zaliże! 😄"]), [{ t: "🐾" }]);
+  } });
+  out.push({ t: "🧭 Gdzie znajdę...?", fn: () => askDirections(p) });
+  return out;
+}
+// zaczepki
+let approachT = 45;
+function approachUpdate(dt){
+  if (player.mode !== "foot" || state !== "play" || mission || race) return;
+  approachT -= dt;
+  if (approachT > 0) return;
+  approachT = 40 + Math.random() * 45;
+  const f = player.foot;
+  const cand = peds.filter(p => p.state === "walk" && !p.fixed && !p.kind && !p.talked && !p.dog && Math.hypot(p.x - f.x, p.y - f.y) < 380 && Math.hypot(p.x - f.x, p.y - f.y) > 80);
+  if (!cand.length){ approachT = 6; return; }
+  const p = pick(cand);
+  p.state = "approach"; p.icon = "❕";
+}
+function approachDialog(p){
+  pedName(p); p.talked = true;
+  const opts = [];
+  opts.push(() => showDialog(who(p), "Przepraszam... masz może drobne na bilet? Brakuje mi 5 dolców.", [
+    { t: "🪙 Proszę ($5)", pri: true, fn: () => { if (SAVE.money >= 5){ SAVE.money -= 5; addRep(2); addFriend(p, 2); emote(p, "🥹"); showDialog(who(p), "Dziękuję! Dobry z ciebie człowiek. Zapamiętam!", [{ t: "😊" }]); } else showDialog(who(p), "Ty też nie masz? To się dobraliśmy...", [{ t: "😅" }]); } },
+    { t: "🙅 Nie mam", fn: () => { emote(p, "😔"); closeDialog(); } }]));
+  opts.push(() => showDialog(who(p), "Hej! Zrobisz mi zdjęcie? Chcę mieć fotkę z tym widokiem!", [
+    { t: "📸 Jasne", pri: true, fn: () => { camFlash = 0.8; if (actx) burst(0.15, 3000, 0.08, "highpass"); addMoney(10, "ZA FOTKĘ"); addFriend(p, 1); showDialog(who(p), "Idealnie! Masz tu coś na kawę!", [{ t: "👍" }]); } },
+    { t: "🙅 Nie teraz", fn: closeDialog }]));
+  opts.push(() => showDialog(who(p), "Ulotka! Nowa kawiarnia na rogu – dziś darmowa kawa na start!", [
+    { t: "☕ Biorę!", pri: true, fn: () => { buffCoffee(); showDialog(who(p), "Smacznego! ☕ (kofeina działa 2 min)", [{ t: "😋" }]); } },
+    { t: "🙅 Nie, dzięki", fn: closeDialog }]));
+  opts.push(() => showDialog(who(p), "Kupisz los na loterię dla schroniska dla psów? Tylko $10, a główna wygrana to $150!", [
+    { t: "🎟️ Kupuję ($10)", pri: true, fn: () => { if (SAVE.money < 10){ closeDialog(); return; } SAVE.money -= 10; addRep(1); const win = Math.random() < 0.15; if (win) addMoney(150, "LOTERIA"); showDialog(who(p), win ? "Nie wierzę! Wygrałeś główną nagrodę! 🎉" : "Pudło, ale pieski dziękują! 🐶", [{ t: win ? "🎉" : "🐶" }]); } },
+    { t: "🙅 Nie", fn: closeDialog }]));
+  const tgt = pois.length ? pick(pois) : null;
+  if (tgt) opts.push(() => {
+    const f = player.foot, right = dirText(f, tgt).split(" metrów ")[1];
+    const wrong = COMPASS.filter(c => c !== right).sort(() => Math.random() - 0.5).slice(0, 2);
+    const ch = [right].concat(wrong).sort(() => Math.random() - 0.5);
+    showDialog(who(p), "Przepraszam, chyba się zgubiłem... W którą stronę jest " + tgt.name + "?", ch.map(c => ({ t: "🧭 " + c.charAt(0).toUpperCase() + c.slice(1), fn: () => {
+      if (c === right){ addMoney(15, "POMOC"); addRep(2); addFriend(p, 2); showDialog(who(p), "Dziękuję! Bez ciebie bym tu krążył do wieczora.", [{ t: "😊" }]); }
+      else { emote(p, "😕"); showDialog(who(p), "Hmm... na pewno? No dobra, spróbuję...", [{ t: "😬" }]); }
+    } })));
+  });
+  if ((SAVE.stats.wins || 0) > 0) opts.push(() => showDialog(who(p), "O mój Boże! To ty wygrywasz te uliczne wyścigi?! Dasz autograf?", [
+    { t: "✍️ Jasne!", pri: true, fn: () => { emote(p, "🤩"); addRep(3); addFriend(p, 3); addMoney(20, "FAN"); camFlash = 0.8; showDialog(who(p), "Aaa! Jeszcze selfie! Dziękuję, jesteś legendą!", [{ t: "😎" }]); } },
+    { t: "🕶️ Nie dziś", fn: () => { emote(p, "😢"); closeDialog(); } }]));
+  pick(opts)();
+}
+// sprzedawcy
+function ensureVendors(){
+  const pp = playerPos();
+  for (const v of VENDORS){
+    if (Math.hypot(v.x - pp.x, v.y - pp.y) > 1600) continue;
+    if (v.ped && peds.includes(v.ped)) continue;
+    if (v.ped && onScreen(v.x, v.y, 60)) continue;
+    v.ped = makeStand(v.x, v.y, { icon: v.kind[0], vendor: v, name: pick(NAMES_M), col: "#ecf0f1", hair: pick(HAIRS), trait: "friendly" });
+  }
+}
+function vendorDialog(p){
+  const v = p.vendor, k = v.kind[0];
+  const items = k === "🌭" ? [["🌭 Hot-dog", 4, () => { heal(20); return "Z musztardą i cebulką, mniam!"; }], ["🥤 Cola", 2, () => { heal(5); return "Zimna jak lód!"; }]]
+    : k === "🍦" ? [["🍦 Lody waniliowe", 3, () => { heal(10); return "Pycha!"; }], ["🍨 Wielki deser", 6, () => { heal(25); return "Uff, ale porcja!"; }]]
+    : [["🎈 Balon", 5, () => { buffs.balloon = 240; return "Trzymaj mocno, żeby nie odleciał!"; }], ["🎈🎈 Pęk balonów", 12, () => { buffs.balloon = 600; buffs.balloons = 3; return "Wyglądasz jak z bajki!"; }]];
+  showDialog(who(p), pick(["Zapraszam, zapraszam!", "Najlepsze w mieście!", "Dla pana specjalna cena!"]),
+    items.map(([n, pr, fn]) => ({ t: n + " · " + fmt(pr), fn: () => {
+      if (SAVE.money < pr){ showDialog(who(p), "Brakuje ci trochę kasy, kolego.", [{ t: "😅" }]); return; }
+      SAVE.money -= pr; saveDirty = true; cashSound(); addRep(0);
+      showDialog(who(p), fn(), [{ t: "😋" }]);
+    } })).concat([{ t: "👋 Nie, dzięki", fn: closeDialog }]), v.kind[1]);
+}
+function drawBalloon(){
+  if (!(buffs.balloon > 0) || player.mode !== "foot") return;
+  const f = player.foot, n = buffs.balloons || 1;
+  for (let i = 0; i < n; i++){
+    const bx = f.x + 8 + i * 7 + Math.sin(gameTime * 1.7 + i) * 3, by = f.y - 34 - i * 4;
+    ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(f.x + 3, f.y); ctx.lineTo(bx, by + 8); ctx.stroke();
+    ctx.fillStyle = ["#e74c3c", "#f1c40f", "#3498db"][i]; ctx.beginPath(); ctx.ellipse(bx, by, 6, 7.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.4)"; ctx.beginPath(); ctx.arc(bx - 2, by - 3, 1.8, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function drawLifeHUD(){
+  if (NAV && !mission && !race && !bus.on) drawEdgeArrow(NAV.x, NAV.y, "#5bc0de");
+}
+function aliveUpdate(dt){
+  weatherUpdate(dt);
+  camFlash *= Math.exp(-5 * dt);
+  if (buffs.balloon > 0){ buffs.balloon -= dt; if (buffs.balloon <= 0) buffs.balloons = 0; }
+  SIRENS.length = 0;
+  for (const v of ACT) if (v.siren && v.driver && !v.wreck) SIRENS.push(v);
+  incidentsUpdate(dt);
+  spontaneousBump(dt);
+  if (state === "play"){ approachUpdate(dt); navUpdate(); }
+  lifeAudio(dt);
+  shoutT -= dt;
 }
 
 // =====================================================================
