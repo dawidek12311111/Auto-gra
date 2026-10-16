@@ -198,7 +198,7 @@
 
 <div id="start">
   <h1>JAZDA<br><span>W MIEŚCIE</span></h1>
-  <div class="sub">Etap 6 · żywe miasto i pogoda</div>
+  <div class="sub">Etap 6 · żywe miasto, pogoda i kolej</div>
   <button class="bigbtn" id="play">GRAJ</button>
   <div class="rowbtns">
     <button class="smallbtn" id="setBtn">⚙ USTAWIENIA</button>
@@ -1105,6 +1105,7 @@ function respawn(){
 }
 function playerPos(){
   if (player.mode === "car") return player.veh;
+  if (player.mode === "train") return rail.pp;
   if (player.mode === "foot") return player.foot;
   return { x: player.dx, y: player.dy, vx: 0, vy: 0 };
 }
@@ -1249,6 +1250,11 @@ function updateControlLabels(){
   $("invBtn").style.display = ic > 0 ? "flex" : "none";
   $("taxiBtn").textContent = (bus.on || vt === "bus") ? "🚌" : work.on ? JOBS[work.kind].icon : jk ? JOBS[jk].icon : "🚕";
   $("taxiBtn").classList.toggle("on", taxi.on || bus.on || work.on);
+  if (mode === "train"){
+    $("gas").textContent = "NAPĘD"; $("brake").textContent = "HAMULEC"; $("hb").style.display = "none";
+    $("act").textContent = rail.ride ? "W PODRÓŻY" : "WYSIĄDŹ"; $("act").classList.toggle("dim", !!rail.ride);
+    return;
+  }
   if (mode === "foot"){
     $("gas").textContent = "IDŹ"; $("brake").textContent = "COFNIJ"; $("hb").style.display = "none";
     $("act").textContent = "WSIĄDŹ"; $("act").classList.toggle("dim", !near);
@@ -2291,6 +2297,7 @@ function nearestCar(){
 }
 function actionBtn(){
   if (state !== "play") return;
+  if (player.mode === "train") return trainExit();
   if (player.mode === "car"){
     const v = player.veh, t = VT[v.type], c = Math.cos(v.a), s = Math.sin(v.a);
     const rx = -s, ry = c, off = t.wid / 2 + 11;
@@ -2509,6 +2516,7 @@ function update(dt){
   }
   busUpdate(dt);
   workUpdate(dt);
+  railUpdate(dt);
   if (state === "play"){ economy(dt); if (!race) checkGarage(); checkRaceFlags(); taxiUpdate(dt); missionUpdate(dt); raceUpdate(dt); eventsUpdate(dt); }
   managePickups(dt);
   updateFx(dt);
@@ -3120,6 +3128,7 @@ function render(){
     ctx.fillStyle = p.k === 7 ? "rgba(255,255,255," + (0.4 * p.life / p.max).toFixed(3) + ")" : "rgba(210,210,210," + (0.35 * p.life / p.max).toFixed(3) + ")";
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
   }
+  drawRailGround(inV);
   drawRiverStuff(inV);
   drawBusStops(inV);
   drawWorkWorld(inV);
@@ -3187,6 +3196,7 @@ function render(){
     else if (p.k === 6){ ctx.fillStyle = "rgba(255,255,255," + a.toFixed(2) + ")"; ctx.font = "bold 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText("♪", p.x, p.y); }
     else { ctx.fillStyle = "rgba(25,25,25," + a.toFixed(2) + ")"; ctx.fillRect(p.x - 2, p.y - 2, 4, 3); }
   }
+  drawRailElevated(inV);
   // drzewa
   for (const t of trees){
     if (!inV(t.x, t.y, 40)) continue;
@@ -3247,6 +3257,7 @@ function drawLighting(dark, vx, vy, inV){
     if (v.burning || v.wreckT > 0) lctx.drawImage(SPR_L, v.x - 110, v.y - 110, 220, 220);
   }
   if (player.mode === "foot") lctx.drawImage(SPR_L, player.foot.x - 60, player.foot.y - 60, 120, 120);
+  drawTrainLights(lctx, inV);
   for (const v of vehicles) if (v.cfg.neon && !v.wreck && inV(v.x, v.y, 80)) lctx.drawImage(SPR_L, v.x - 50, v.y - 50, 100, 100);
   for (const k of pickups) if (inV(k.x, k.y, 40)) lctx.drawImage(SPR_L, k.x - 30, k.y - 30, 60, 60);
   for (const g of garages) if (inV(g.x + g.w / 2, g.y + g.h / 2, 200)) lctx.drawImage(SPR_L, g.x - 40, g.y - 40, g.w + 80, g.h + 80);
@@ -3375,6 +3386,7 @@ function drawHUD(h){
   drawBusHUD();
   drawWorkHUD();
   drawLifeHUD();
+  drawTrainHUD();
   if (!isTouch && state === "play" && talkTarget()){
     ctx.font = "800 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(0,0,0,.6)";
     ctx.fillRect(W / 2 - 80, H - 46, 160, 24); ctx.fillStyle = "#9fd4ff"; ctx.fillText("💬 T – porozmawiaj", W / 2, H - 29);
@@ -3399,6 +3411,9 @@ function drawHUD(h){
     for (const k of pickups) if (k.special){ const q = toR(k.x, k.y); ctx.fillText("🎁", q[0], q[1]); }
     for (const c of QCHARS) if (c.ped && pedIcon(c.ped)){ const q = toR(c.ped.x, c.ped.y); ctx.fillText("❗", q[0], q[1]); }
     if (ev){ const a = evAnchor(); if (a){ const q = toR(a.x, a.y); ctx.fillText(ev.item ? "👛" : (ev.ped && ev.ped.icon) || "•", q[0], q[1]); } }
+    for (const st of RSTATIONS){ const q = toR(st.x, st.y); if (q[0] > mx - 8 && q[0] < mx + sz + 8 && q[1] > my - 8 && q[1] < my + sz + 8) ctx.fillText("🚉", q[0], q[1]); }
+    ctx.fillStyle = "#e0e0e0";
+    for (const tr of TRAINS){ const f = pathAt(LINES[tr.line].path, tr.s), q = toR(f[0], f[1]); ctx.fillRect(q[0] - 2.5, q[1] - 2.5, 5, 5); }
     for (const p of PIERS){ const q = toR(p.x, p.y); if (q[0] > mx - 8 && q[0] < mx + sz + 8 && q[1] > my - 8 && q[1] < my + sz + 8) ctx.fillText("⚓", q[0], q[1]); }
     if (bus.on){
       const st = BUS_STOPS[bus.si], q = toR(clamp(st.x, pp.x - RAD * 0.94, pp.x + RAD * 0.94), clamp(st.y, pp.y - RAD * 0.94, pp.y + RAD * 0.94));
@@ -3521,8 +3536,8 @@ $("sWipe").addEventListener("click", () => {
   location.reload();
 });
 function openPause(){
-  $("pAbort").style.display = (mission || race || taxi.on || bus.on || work.on) ? "" : "none";
-  $("pAbort").textContent = race ? "PRZERWIJ WYŚCIG" : taxi.on ? "ZAKOŃCZ PRACĘ TAXI" : bus.on ? "ZAKOŃCZ KURSY AUTOBUSU" : work.on ? "ZAKOŃCZ PRACĘ" : "PRZERWIJ ZLECENIE";
+  $("pAbort").style.display = (mission || race || taxi.on || bus.on || work.on || rail.on) ? "" : "none";
+  $("pAbort").textContent = race ? "PRZERWIJ WYŚCIG" : taxi.on ? "ZAKOŃCZ PRACĘ TAXI" : bus.on ? "ZAKOŃCZ KURSY AUTOBUSU" : work.on ? "ZAKOŃCZ PRACĘ" : rail.on ? "ZAKOŃCZ PRACĘ MASZYNISTY" : "PRZERWIJ ZLECENIE";
   state = "pause";
   $("pause").classList.add("show");
 }
@@ -4248,6 +4263,9 @@ function drawMapView(){
   for (const c of QCHARS) if (c.ped && pedIcon(c.ped)){ const q = toM(c.ped.x, c.ped.y); g.fillText("❗", q[0], q[1]); }
   for (const f of raceFlags){ const q = toM(f.x, f.y); g.fillText("🏁", q[0], q[1]); }
   for (const p of PIERS){ const q = toM(p.x, p.y); g.fillText("⚓", q[0], q[1]); }
+  for (const st of RSTATIONS){ const q = toM(st.x, st.y); g.fillText("🚉", q[0], q[1]); }
+  g.fillStyle = "#ffffff";
+  for (const tr of TRAINS){ const f = pathAt(LINES[tr.line].path, tr.s), q = toM(f[0], f[1]); g.fillRect(q[0] - 3, q[1] - 3, 6, 6); }
   if (bus.on){
     g.strokeStyle = "rgba(255,80,80,.75)"; g.lineWidth = 2; g.beginPath();
     BUS_ROUTE.concat([BUS_ROUTE[0]]).forEach((n, i) => { const q = toM(nodePos(n[0]), nodePos(n[1])); if (i) g.lineTo(q[0], q[1]); else g.moveTo(q[0], q[1]); });
@@ -4272,7 +4290,7 @@ function drawMapView(){
   g.textAlign = "left"; g.font = "900 15px system-ui, sans-serif"; g.fillStyle = "#fff";
   g.fillText("MAPA MIASTA", 16, 22);
   g.font = "600 12px system-ui, sans-serif"; g.fillStyle = "rgba(255,255,255,.65)";
-  const leg = ["🏠 mieszkanie", "🏁 wyścig", "⚓ przystań", "🔑 wypożyczalnia", "🍕 pizzeria", "♻️ MPO", "🚌 zajezdnia", "❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
+  const leg = ["🚉 kolej", "🏠 mieszkanie", "🏁 wyścig", "⚓ przystań", "🔑 wypożyczalnia", "🍕 pizzeria", "♻️ MPO", "🚌 zajezdnia", "❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
   const lsp = Math.min(20, (h - 60) / leg.length);
   g.font = "600 " + Math.min(12, lsp * 0.75).toFixed(0) + "px system-ui, sans-serif";
   if (w - size > 260) leg.forEach((t, i) => g.fillText(t, 16, 48 + i * lsp));
@@ -4562,7 +4580,7 @@ function ensureQuestChars(){
 }
 function talkQuest(c){
   const w = charWho(c), stg = questStage(c);
-  if (race || taxi.on || bus.on || work.on){ showDialog(w, race ? "Widzę, że się ścigasz! Pogadamy później." : "Jesteś w pracy. Wpadnij po zmianie!", [{ t: "👌 OK" }]); return; }
+  if (race || taxi.on || bus.on || work.on || rail.on){ showDialog(w, race ? "Widzę, że się ścigasz! Pogadamy później." : "Jesteś w pracy. Wpadnij po zmianie!", [{ t: "👌 OK" }]); return; }
   if (mission){
     showDialog(w, mission.src === c ? "No i co, załatwione? Śmigaj!" : "Najpierw skończ to, co masz na głowie. Potem pogadamy.", [{ t: "👌 OK" }]);
     return;
@@ -4840,7 +4858,7 @@ function eventsUpdate(dt){
     return;
   }
   evT -= dt;
-  if (evT > 0 || mission || race || taxi.on || bus.on || work.on) return;
+  if (evT > 0 || mission || race || taxi.on || bus.on || work.on || rail.on || player.mode === "train") return;
   evT = 45 + Math.random() * 45;
   const pp = playerPos();
   if (pp.x < GT(0) || pp.x > GT(MT) || pp.y < GT(0) || pp.y > GT(MT)) return;
@@ -4910,7 +4928,7 @@ const EV_TALK = {
   }
 };
 function talkTarget(){
-  if (state !== "play" || player.mode === "dead") return null;
+  if (state !== "play" || player.mode === "dead" || player.mode === "train") return null;
   const car = player.mode === "car";
   if (car && Math.hypot(player.veh.vx, player.veh.vy) > 60) return null;
   const pp = playerPos();
@@ -4947,6 +4965,7 @@ $("pAbort").addEventListener("click", () => {
   else if (taxi.on) stopTaxi("Koniec zmiany.");
   else if (bus.on) stopBus("Koniec zmiany.");
   else if (work.on) stopWork("Koniec zmiany.");
+  else if (rail.on){ if (rail.train) rail.train.v = 0; endRailJob("Koniec zmiany."); }
   else if (mission) failMission("Przerwano zlecenie.");
 });
 $("taxiBtn").addEventListener("click", () => toggleJob());
@@ -5058,7 +5077,7 @@ const raceFlags = [];
       }
       for (let s = s0 + 420; s < s0 + RPER - 1; s += 420){ const p = ringPt(s, 36); cps.push([p[0], p[1]]); }
       const pe = ringPt(s0 + RPER, 36); cps.push([pe[0], pe[1]]);
-      R.flag = { x: nodePos(6), y: (RA + RHW + GT(0)) / 2 };
+      R.flag = { x: nodePos(6), y: GT(0) - 70 };
     } else {
       const A = nodeXY(R.route[0]), B = nodeXY(R.route[1]);
       const dl = Math.hypot(B[0] - A[0], B[1] - A[1]), dx = (B[0] - A[0]) / dl, dy = (B[1] - A[1]) / dl, rx = -dy, ry = dx;
@@ -5499,7 +5518,8 @@ const PIERS = [], boatSolids = [];
     v.driver = "boatai"; v.bai = { dir }; v.rider = pick(HELMS);
   }
 })();
-const isUnderBridge = v => getGW(v.x, v.y) !== G_WATER || Math.abs(ringDist(v.x, v.y)) < RHW;
+const isUnderBridge = v => getGW(v.x, v.y) !== G_WATER || Math.abs(ringDist(v.x, v.y)) < RHW ||
+  Math.abs(v.y - (RAIL_O + RAIL_I) / 2) < 52 || Math.abs(v.y - (WORLD - (RAIL_O + RAIL_I) / 2)) < 52;
 function collideBoat(v){
   const t = VT[v.type], r = t.wid / 2, c = Math.cos(v.a), s = Math.sin(v.a);
   let imp = 0, hx = 0, hy = 0;
@@ -6098,6 +6118,7 @@ function hourSkipTo(H){
   gameTime += dh * SET.dayLen * 60 / 24;
 }
 function buildInterior(){
+  if (curDoor.kind === "rail") return buildRailInterior();
   const d = curDoor, body = $("iBody");
   body.innerHTML = "";
   $("iMoney").textContent = fmt(SAVE.money);
@@ -6205,6 +6226,7 @@ function shelf(g, x, y, w, h, seed){
   }
 }
 function drawRoom(g, kind, tier, t){
+  if (kind === "rail") return drawRailRoom(g, t);
   const wallC = { cafe: "#4e342e", food: "#5d4037", pharm: "#90a4ae", shop: "#78909c", kiosk: "#546e7a", hosp: "#90a4ae", bank: "#5d4037", home: "#6d5a4a" }[kind];
   if (kind === "cafe") planks(g, "#8d6e63", "#7b5e52");
   else if (kind === "food") tiles(g, "#ffe0b2", "#ffcc80", 25);
@@ -6962,6 +6984,651 @@ function aliveUpdate(dt){
   lifeAudio(dt);
   shoutT -= dt;
 }
+
+// =====================================================================
+// KOLEJ: TORY, STACJE, POCIĄGI, PRZEJAZDY, PRACA MASZYNISTY
+// =====================================================================
+const RAIL_O = 540, RAIL_I = 590, RAIL_RO = 340, RAIL_RI = 290, RAIL_ROW = nodePos(4), RAIL_JR = 120;
+const RSTEP = 4;
+function buildPath(segs){
+  const raw = [];
+  for (const sg of segs){
+    if (sg.t === "L"){
+      const len = Math.hypot(sg.x1 - sg.x0, sg.y1 - sg.y0), n = Math.max(1, Math.ceil(len)), a = Math.atan2(sg.y1 - sg.y0, sg.x1 - sg.x0);
+      for (let k = 0; k < n; k++){ const u = k / n; raw.push([sg.x0 + (sg.x1 - sg.x0) * u, sg.y0 + (sg.y1 - sg.y0) * u, a, sg.lim]); }
+    } else {
+      const len = Math.abs(sg.a1 - sg.a0) * sg.r, n = Math.max(1, Math.ceil(len)), dir = sg.a1 > sg.a0 ? 1 : -1;
+      for (let k = 0; k < n; k++){ const a = sg.a0 + (sg.a1 - sg.a0) * k / n; raw.push([sg.cx + Math.cos(a) * sg.r, sg.cy + Math.sin(a) * sg.r, a + dir * Math.PI / 2, sg.lim]); }
+    }
+  }
+  const cum = [0];
+  for (let i = 1; i < raw.length; i++) cum.push(cum[i - 1] + Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]));
+  const total = cum[cum.length - 1] + Math.hypot(raw[0][0] - raw[raw.length - 1][0], raw[0][1] - raw[raw.length - 1][1]);
+  const n = Math.floor(total / RSTEP), pts = [];
+  let j = 0;
+  for (let i = 0; i < n; i++){
+    const s = i * RSTEP;
+    while (j < cum.length - 1 && cum[j + 1] < s) j++;
+    const r = raw[j];
+    pts.push([r[0], r[1], r[2], r[3]]);
+  }
+  return { pts, len: n * RSTEP, n };
+}
+function rrSegs(a, r, lim, startTop){
+  const b = WORLD - a;
+  return [
+    { t: "L", x0: a + r, y0: a, x1: b - r, y1: a, lim: 330 },
+    { t: "A", cx: b - r, cy: a + r, r, a0: -Math.PI / 2, a1: 0, lim },
+    { t: "L", x0: b, y0: a + r, x1: b, y1: b - r, lim: 330 },
+    { t: "A", cx: b - r, cy: b - r, r, a0: 0, a1: Math.PI / 2, lim },
+    { t: "L", x0: b - r, y0: b, x1: a + r, y1: b, lim: 330 },
+    { t: "A", cx: a + r, cy: b - r, r, a0: Math.PI / 2, a1: Math.PI, lim },
+    { t: "L", x0: a, y0: b - r, x1: a, y1: a + r, lim: 330 },
+    { t: "A", cx: a + r, cy: a + r, r, a0: Math.PI, a1: Math.PI * 1.5, lim }
+  ];
+}
+const PATH_R = buildPath(rrSegs(RAIL_O, RAIL_RO, 175));
+const PATH_M = (() => {
+  const a = RAIL_I, b = WORLD - RAIL_I, r = RAIL_RI, y = RAIL_ROW, j = RAIL_JR;
+  return buildPath([
+    { t: "L", x0: a + j, y0: y, x1: b - j, y1: y, lim: 300 },
+    { t: "A", cx: b - j, cy: y - j, r: j, a0: Math.PI / 2, a1: 0, lim: 115 },
+    { t: "L", x0: b, y0: y - j, x1: b, y1: a + r, lim: 330 },
+    { t: "A", cx: b - r, cy: a + r, r, a0: 0, a1: -Math.PI / 2, lim: 165 },
+    { t: "L", x0: b - r, y0: a, x1: a + r, y1: a, lim: 330 },
+    { t: "A", cx: a + r, cy: a + r, r, a0: -Math.PI / 2, a1: -Math.PI, lim: 165 },
+    { t: "L", x0: a, y0: a + r, x1: a, y1: y - j, lim: 330 },
+    { t: "A", cx: a + j, cy: y - j, r: j, a0: Math.PI, a1: Math.PI / 2, lim: 115 }
+  ]);
+})();
+const isElev = (x, y) => x > GT(0) - 50 && x < GT(MT) + 50 && Math.abs(y - RAIL_ROW) < 3;
+function pathAt(P, s){
+  s = ((s % P.len) + P.len) % P.len;
+  const f = s / RSTEP, i = Math.floor(f) % P.n, k = (i + 1) % P.n, u = f - Math.floor(f);
+  const A = P.pts[i], B = P.pts[k];
+  return [A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2], A[3]];
+}
+function nearestS(P, x, y){
+  let bi = 0, bd = 1e18;
+  for (let i = 0; i < P.n; i++){ const p = P.pts[i], d = (p[0] - x) * (p[0] - x) + (p[1] - y) * (p[1] - y); if (d < bd){ bd = d; bi = i; } }
+  return bi * RSTEP;
+}
+const fwd = (P, from, to) => ((to - from) % P.len + P.len) % P.len;
+// ---- usunięcie drzew z korytarza torów
+(function clearTrees(){
+  const cell = 64, h = new Map();
+  for (const P of [PATH_R, PATH_M]) for (let i = 0; i < P.n; i += 3){ const p = P.pts[i], k = ((p[0] / cell) | 0) * 100000 + ((p[1] / cell) | 0); let a = h.get(k); if (!a) h.set(k, a = []); a.push(p); }
+  const near = (x, y, r) => {
+    const cx = (x / cell) | 0, cy = (y / cell) | 0;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++){ const a = h.get((cx + dx) * 100000 + cy + dy); if (a) for (const p of a) if (Math.hypot(p[0] - x, p[1] - y) < r) return true; }
+    return false;
+  };
+  const dead = new Set();
+  for (let i = trees.length - 1; i >= 0; i--){ const t = trees[i]; if (near(t.x, t.y, t.r + 34)){ dead.add(t.x + "," + t.y); trees.splice(i, 1); } }
+  const keep = o => !(o.t === "c" && dead.has(o.x + "," + o.y));
+  for (let i = 0; i < grid.length; i++) if (grid[i].length) grid[i] = grid[i].filter(keep);
+})();
+// ---- kawałki do rysowania
+function makeChunks(P){
+  const ch = [];
+  for (let i0 = 0; i0 < P.n; i0 += 60){
+    const i1 = Math.min(P.n, i0 + 61), c = new Path2D(), l = new Path2D(), r = new Path2D();
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, elev = false;
+    for (let i = i0; i <= i1; i++){
+      const p = P.pts[i % P.n], nx = -Math.sin(p[2]), ny = Math.cos(p[2]);
+      const m = i === i0 ? "moveTo" : "lineTo";
+      c[m](p[0], p[1]); l[m](p[0] + nx * 6, p[1] + ny * 6); r[m](p[0] - nx * 6, p[1] - ny * 6);
+      x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]);
+      if (isElev(p[0], p[1])) elev = true;
+    }
+    ch.push({ c, l, r, x0, y0, x1, y1, elev });
+  }
+  return ch;
+}
+const CH_R = makeChunks(PATH_R), CH_M = makeChunks(PATH_M);
+// ---- stacje
+const yTop = RAIL_O, xL = RAIL_O;
+const RSTATIONS = [
+  { id: "dworzec", name: "Dworzec", x: blockC(7, 4)[0], y: RAIL_ROW, lines: ["M"], elev: true },
+  { id: "zachod", name: "Zachód", x: (RAIL_O + RAIL_I) / 2, y: 2300, lines: ["R", "M"] },
+  { id: "rzeka", name: "Nad Rzeką", x: RX0 - 320, y: (RAIL_O + RAIL_I) / 2, lines: ["R", "M"] },
+  { id: "wschod", name: "Wschód", x: WORLD - (RAIL_O + RAIL_I) / 2, y: 2300, lines: ["R", "M"] },
+  { id: "przem", name: "Przemysłówka", x: blockC(10, 11)[0], y: WORLD - RAIL_O - 28, lines: ["R"] }
+];
+const LINES = {
+  R: { id: "R", name: "Linia R · obwodnica", path: PATH_R, stops: [] },
+  M: { id: "M", name: "Linia M · przez centrum", path: PATH_M, stops: [] }
+};
+for (const L of Object.values(LINES)){
+  for (const st of RSTATIONS) if (st.lines.includes(L.id)){
+    const s0 = nearestS(L.path, st.x, st.y);
+    L.stops.push({ st, s: (s0 + 135) % L.path.len, s0 });
+  }
+  L.stops.sort((a, b) => a.s - b.s);
+}
+// ---- przejazdy kolejowe
+const CROSSINGS = [];
+for (const i of [2, 6, 10]){
+  const c = nodePos(i), m = (RAIL_O + RAIL_I) / 2;
+  CROSSINGS.push({ x: c, y: m, v: true }, { x: c, y: WORLD - m, v: true }, { x: m, y: c, v: false }, { x: WORLD - m, y: c, v: false });
+}
+for (const cr of CROSSINGS){ cr.closed = false; cr.ding = 0; }
+// ---- składy
+const CARSPEC = {
+  loco: { len: 62, col: "#c62828" }, flok: { len: 60, col: "#1565c0" }, coach: { len: 58, col: "#f2f2f2" },
+  box: { len: 50, col: "#b03a2e" }, tank: { len: 48, col: "#9aa0a6" }
+};
+const CONT_COLS = ["#b03a2e", "#1f618d", "#d68910", "#1e8449", "#7d3c98", "#839192"];
+function makeTrain(line, kind, s){
+  const cars = kind === "pass" ? ["loco", "coach", "coach", "coach"] : ["flok", "box", "tank", "box", "box", "tank"];
+  const offs = []; let o = 0;
+  for (const c of cars){ offs.push(o + CARSPEC[c].len / 2); o += CARSPEC[c].len + 5; }
+  return { line, kind, s, v: 0, cars, offs, tlen: o, cols: cars.map((c, i) => c === "box" ? CONT_COLS[(i * 3 + s) % CONT_COLS.length] : CARSPEC[c].col),
+    si: 0, dwell: 0, ai: true, clack: 0, hornT: 0, derail: 0, pax: 30 + ((Math.random() * 40) | 0) };
+}
+const TRAINS = [makeTrain("R", "pass", 0), makeTrain("R", "freight", Math.round(PATH_R.len / 2)), makeTrain("M", "pass", 200)];
+for (const tr of TRAINS){ const L = LINES[tr.line]; tr.si = L.stops.findIndex(x => x.s > tr.s); if (tr.si < 0) tr.si = 0; }
+const ACC = { pass: [48, 120], freight: [22, 70] };
+function speedLimitAhead(tr, look){
+  const P = LINES[tr.line].path, dec = ACC[tr.kind][1] * 0.8;
+  let best = 1e9;
+  for (let d = 0; d <= look; d += 40){
+    const lim = pathAt(P, tr.s + d)[3];
+    best = Math.min(best, Math.sqrt(lim * lim + 2 * dec * d));
+  }
+  for (const off of [0, tr.tlen * 0.5, tr.tlen - 4]) best = Math.min(best, pathAt(P, tr.s - off)[3]);
+  return best;
+}
+function gapAhead(tr){
+  const P = LINES[tr.line].path;
+  let g = 1e9;
+  for (const o of TRAINS){ if (o === tr || o.line !== tr.line) continue; g = Math.min(g, fwd(P, tr.s, o.s) - o.tlen); }
+  return g;
+}
+function trainHorn(x, y, k){
+  if (!actx) return;
+  const a = att(x, y) * (k || 1);
+  if (a < 0.03) return;
+  const t = actx.currentTime, g = actx.createGain();
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.08 * a, t + 0.05); g.gain.setValueAtTime(0.08 * a, t + 0.7); g.gain.linearRampToValueAtTime(0, t + 0.85);
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 1400;
+  for (const fr of [311, 370, 466]){ const o = actx.createOscillator(); o.type = "sawtooth"; o.frequency.value = fr; o.connect(f); o.start(t); o.stop(t + 0.9); }
+  f.connect(g); g.connect(sfxBus);
+}
+// ---- stan gracza
+const rail = { on: false, kind: null, train: null, stop: 0, legT: 0, earned: 0, doorT: -1, ride: null, warnT: 0, pp: { x: 0, y: 0, vx: 0, vy: 0 } };
+function trainFront(tr){ return pathAt(LINES[tr.line].path, tr.s); }
+function boardTrain(tr, drive){
+  if (player.mode === "car" && player.veh){ player.veh.driver = null; player.veh = null; }
+  player.mode = "train"; lastMode = "";
+  const p = trainFront(tr); player.dx = p[0]; player.dy = p[1];
+  if (drive){ tr.ai = false; rail.train = tr; }
+}
+function startRailJob(kind){
+  closeInterior();
+  if (mission || race){ toast("Najpierw skończ obecne zadanie"); return; }
+  if (taxi.on) stopTaxi(null); if (bus.on) stopBus(null); if (work.on) stopWork(null);
+  const tr = kind === "pass" ? TRAINS.find(t => t.line === "M") : TRAINS.find(t => t.kind === "freight");
+  const L = LINES[tr.line];
+  const si = L.stops.findIndex(x => x.st.id === (kind === "pass" ? "dworzec" : "przem"));
+  tr.s = L.stops[si].s; tr.v = 0; tr.dwell = 0; tr.derail = 0;
+  for (const o of TRAINS){
+    if (o === tr || o.line !== tr.line) continue;
+    const g1 = fwd(L.path, tr.s, o.s), g2 = fwd(L.path, o.s, tr.s);
+    if (g1 < o.tlen + 900 || g2 < tr.tlen + 900){ o.s = (tr.s + L.path.len / 2) % L.path.len; o.v = 0; o.dwell = 0; o.si = L.stops.findIndex(x => x.s > o.s); if (o.si < 0) o.si = 0; }
+  }
+  rail.on = true; rail.kind = kind; rail.stop = (si + 1) % L.stops.length; rail.earned = 0; rail.doorT = -1;
+  rail.legT = legTime(tr, L.stops[si].s, L.stops[rail.stop].s);
+  boardTrain(tr, true);
+  camX = player.dx; camY = player.dy;
+  toast(kind === "pass" ? "🚆 Linia M – prowadź pociąg i zatrzymuj się przy peronach" : "🚂 Skład towarowy – obwodnica, uważaj na łukach!", 3200);
+  trainHorn(player.dx, player.dy);
+}
+function legTime(tr, s0, s1){ return Math.round(fwd(LINES[tr.line].path, s0, s1) / (tr.kind === "pass" ? 190 : 140) + 18); }
+function endRailJob(msg, toFoot){
+  const tr = rail.train;
+  rail.on = false; rail.train = null; rail.doorT = -1;
+  if (tr){ tr.ai = true; tr.derail = 0; }
+  if (msg) toast("🚆 " + msg + " Zarobek: " + fmt(rail.earned), 3200);
+  if (toFoot !== false && player.mode === "train") exitTrainAt(tr);
+  lastMode = "";
+}
+function exitTrainAt(tr){
+  const P = LINES[tr.line].path, p = pathAt(P, tr.s - 60), nx = -Math.sin(p[2]), ny = Math.cos(p[2]);
+  let side = 1, ex = p[0] + nx * 34, ey = p[1] + ny * 34;
+  for (const st of RSTATIONS){ if (Math.hypot(st.x - p[0], st.y - p[1]) < 400){ if (Math.hypot(st.x - (p[0] - nx * 34), st.y - (p[1] - ny * 34)) < Math.hypot(st.x - ex, st.y - ey)){ side = -1; } break; } }
+  ex = p[0] + nx * 34 * side; ey = p[1] + ny * 34 * side;
+  if (isElev(p[0], p[1])){ const st = RSTATIONS[0]; ex = st.x; ey = RAIL_ROW + 98; }
+  player.mode = "foot"; player.foot.x = ex; player.foot.y = ey; player.foot.kvx = player.foot.kvy = 0;
+  pushCircle(player.foot, 7);
+  lastMode = "";
+}
+function trainExit(){
+  if (rail.ride){ toast("Wysiądziesz na stacji docelowej 🚉", 1500); return; }
+  const tr = rail.train;
+  if (tr && Math.abs(tr.v) > 5){ toast("Najpierw zatrzymaj pociąg", 1500); return; }
+  endRailJob("Koniec zmiany.");
+}
+// ---- aktualizacja
+function railUpdate(dt){
+  const P0 = playerPos();
+  for (const tr of TRAINS){
+    const L = LINES[tr.line], P = L.path, [acc, dec] = ACC[tr.kind];
+    tr.hornT -= dt;
+    if (tr.derail > 0){
+      tr.derail -= dt; tr.v *= Math.exp(-3 * dt);
+      const f = trainFront(tr); if (Math.random() < dt * 12) addPart(f[0], f[1], (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, 2, 10, 3);
+      if (tr.derail <= 0) derailEnd(tr);
+      continue;
+    }
+    const gap = gapAhead(tr);
+    if (tr.ai){
+      let target = speedLimitAhead(tr, 900) * (tr.kind === "pass" ? 0.95 : 0.85);
+      if (tr.dwell > 0){
+        tr.dwell -= dt; tr.v = 0;
+        if (tr.dwell <= 0){ tr.si = (tr.si + 1) % L.stops.length; if (tr.hornT <= 0){ trainHorn(trainFront(tr)[0], trainFront(tr)[1], 0.6); tr.hornT = 5; } }
+        continue;
+      }
+      if (tr.kind === "pass"){
+        const st = L.stops[tr.si], d = fwd(P, tr.s, st.s);
+        if (d > P.len - 400){ tr.si = (tr.si + 1) % L.stops.length; }
+        else {
+          target = Math.min(target, Math.sqrt(2 * dec * 0.8 * Math.max(0, d - 1)));
+          if (d < 6 && tr.v < 14){ tr.v = 0; tr.s = st.s; tr.dwell = 8; continue; }
+        }
+      }
+      target = Math.min(target, Math.sqrt(2 * dec * Math.max(0, gap - 140)));
+      if (tr.v < target) tr.v = Math.min(target, tr.v + acc * dt); else tr.v = Math.max(target, tr.v - dec * dt);
+    } else {
+      const th = pin.thr, br = pin.brk;
+      if (rail.doorT >= 0){ tr.v = 0; }
+      else if (th) tr.v = Math.min(360, tr.v + acc * dt * (tr.v < 0 ? 3 : 1));
+      else if (br){ if (tr.v > 2) tr.v = Math.max(0, tr.v - dec * dt); else tr.v = Math.max(-45, tr.v - 25 * dt); }
+      else tr.v -= Math.sign(tr.v) * Math.min(Math.abs(tr.v), 6 * dt);
+      const lim = Math.min(pathAt(P, tr.s)[3], pathAt(P, tr.s - tr.tlen * 0.5)[3]);
+      if (tr.v > lim * 1.32 + 12){ derail(tr); continue; }
+      if (tr.v > lim * 1.05){ rail.warnT -= dt; if (rail.warnT <= 0){ beep(1500, 0.08, 0.05); rail.warnT = 0.35; } }
+      if (gap < 0){ crashTrains(tr); continue; }
+    }
+    tr.s = ((tr.s + tr.v * dt) % P.len + P.len) % P.len;
+    tr.clack += Math.abs(tr.v) * dt;
+    if (tr.clack > 34){
+      tr.clack = 0;
+      const f = trainFront(tr), a = att(f[0], f[1]);
+      if (a > 0.05 && actx){ burst(a * 0.09, 380, 0.07); }
+    }
+    if (tr.ai && tr.hornT <= 0 && tr.v > 60){
+      const f = trainFront(tr);
+      for (const cr of CROSSINGS) if (Math.hypot(cr.x - f[0], cr.y - f[1]) < 450 && Math.hypot(cr.x - P0.x, cr.y - P0.y) < 900){ trainHorn(f[0], f[1]); tr.hornT = 6; break; }
+    }
+  }
+  // przejazdy
+  for (const cr of CROSSINGS){
+    let cl = false;
+    for (const tr of TRAINS){
+      const P = LINES[tr.line].path, f = pathAt(P, tr.s), b = pathAt(P, tr.s - tr.tlen);
+      if (Math.hypot(f[0] - cr.x, f[1] - cr.y) < 560 || Math.hypot(b[0] - cr.x, b[1] - cr.y) < 120){ cl = true; break; }
+    }
+    cr.closed = cl;
+    if (cl && actx && state === "play"){
+      cr.ding -= dt;
+      if (cr.ding <= 0){ cr.ding = 0.55; const a = att(cr.x, cr.y); if (a > 0.04) tone(1480, actx.currentTime, 0.18, "triangle", 0.05 * a); }
+    }
+  }
+  trainCollisions();
+  // gracz w pociągu
+  if (player.mode === "train"){
+    const tr = rail.train || (rail.ride && rail.ride.train);
+    if (!tr){ player.mode = "foot"; lastMode = ""; }
+    else {
+      const f = trainFront(tr), P = LINES[tr.line].path;
+      player.dx = f[0]; player.dy = f[1]; player.foot.a = f[2] + (tr.v < 0 ? Math.PI : 0);
+      rail.pp.x = f[0]; rail.pp.y = f[1]; rail.pp.vx = Math.cos(f[2]) * tr.v; rail.pp.vy = Math.sin(f[2]) * tr.v;
+      if (rail.on) railJobUpdate(tr, dt);
+      if (rail.ride) rideUpdate(tr);
+    }
+  } else {
+    if (rail.on) endRailJob("Opuściłeś kabinę – koniec zmiany.", false);
+    if (rail.ride && rail.ride.phase === "on") rail.ride = null;
+  }
+  if (rail.ride && rail.ride.phase === "wait") rideWait();
+}
+function railJobUpdate(tr, dt){
+  const L = LINES[tr.line], P = L.path, st = L.stops[rail.stop];
+  rail.legT -= dt;
+  let d = fwd(P, tr.s, st.s); if (d > P.len / 2) d -= P.len;
+  if (rail.doorT >= 0){
+    rail.doorT -= dt;
+    if (rail.doorT <= 0){
+      const prec = Math.max(0, 1 - Math.abs(rail.lastD) / 30), onTime = rail.legT >= 0;
+      let pay = (tr.kind === "pass" ? 70 : 130) + Math.round(prec * 40) + (onTime ? 35 : 0);
+      if (tr.kind === "pass"){ const out = (Math.random() * tr.pax * 0.6) | 0, inn = 8 + ((Math.random() * 20) | 0); tr.pax = Math.min(180, tr.pax - out + inn); pay += Math.round(inn * 1.5); popup("👥 +" + inn + " / −" + out, "#5cd65c"); }
+      else popup("📦 Skład obsłużony", "#5cd65c");
+      addMoney(pay, tr.kind === "pass" ? "PKP" : "CARGO");
+      rail.earned += pay; SAVE.stats.trainStops = (SAVE.stats.trainStops || 0) + 1;
+      popup((prec > 0.8 ? "🎯 Idealnie przy peronie!" : "Zatrzymanie: " + Math.round(Math.abs(rail.lastD)) + " px od znaku") + (onTime ? " · punktualnie ✔" : " · spóźnienie"), prec > 0.8 ? "#ffd27a" : "#fff");
+      rail.doorT = -1;
+      rail.stop = (rail.stop + 1) % L.stops.length;
+      rail.legT = legTime(tr, st.s, L.stops[rail.stop].s);
+      trainHorn(player.dx, player.dy, 0.7);
+    }
+    return;
+  }
+  if (Math.abs(d) < 30 && Math.abs(tr.v) < 3){
+    rail.lastD = d; rail.doorT = tr.kind === "pass" ? 4 : 5; tr.v = 0;
+    if (actx) burst(0.14, 1800, 0.45, "bandpass", sfxBus, 0.7);
+    popup(tr.kind === "pass" ? "🚪 Drzwi otwarte" : "🏗️ Przeładunek", "#ffb300");
+  } else if (d < -60 && d > -400 && Math.abs(tr.v) < 3){
+    rail.warnT -= dt;
+    if (rail.warnT <= 0){ toast("Za daleko! Cofnij (HAMULEC na postoju)", 1500); rail.warnT = 3; }
+  }
+}
+function derail(tr){
+  tr.derail = 3.5; tr.ai = false;
+  boom(player.dx, player.dy); if (SET.shake) shake = 16;
+  popup("💥 WYKOLEJENIE! Za szybko na łuku", "#ff4136");
+  const fine = Math.min(SAVE.money, 300); SAVE.money -= fine; saveDirty = true;
+  toast("Wykolejenie – kara " + fmt(fine), 3000);
+}
+function crashTrains(tr){
+  tr.v = 0; boom(player.dx, player.dy);
+  popup("💥 ZDERZENIE POCIĄGÓW!", "#ff4136");
+  const fine = Math.min(SAVE.money, 500); SAVE.money -= fine; saveDirty = true;
+  tr.derail = 3; tr.ai = false;
+}
+function derailEnd(tr){
+  const L = LINES[tr.line];
+  let best = 0, bg = -1;
+  L.stops.forEach((x, i) => { let g = 1e9; for (const o of TRAINS) if (o !== tr && o.line === L.id) g = Math.min(g, fwd(L.path, o.s, x.s), fwd(L.path, x.s, o.s)); if (g > bg){ bg = g; best = i; } });
+  tr.s = L.stops[best].s; tr.v = 0; tr.dwell = 4; tr.si = best;
+  if (rail.train === tr) endRailJob("Pociąg odholowany do stacji.");
+  else tr.ai = true;
+}
+function trainCollisions(){
+  if (player.mode !== "car" && player.mode !== "foot") return;
+  const pv = player.mode === "car" ? player.veh : null, pp = playerPos();
+  for (const tr of TRAINS){
+    if (Math.abs(tr.v) < 8) continue;
+    const P = LINES[tr.line].path, f = pathAt(P, tr.s);
+    if (Math.hypot(f[0] - pp.x, f[1] - pp.y) > tr.tlen + 120) continue;
+    for (let i = 0; i < tr.cars.length; i++){
+      const L2 = CARSPEC[tr.cars[i]].len;
+      for (const k of [-0.35, 0, 0.35]){
+        const c = pathAt(P, tr.s - tr.offs[i] + k * L2);
+        if (isElev(c[0], c[1])) continue;
+        if (pv){
+          const t = VT[pv.type], r = t.wid / 2 + 11;
+          for (const off of t.offs){
+            const cx = pv.x + Math.cos(pv.a) * off, cy = pv.y + Math.sin(pv.a) * off, dx = cx - c[0], dy = cy - c[1], d = Math.hypot(dx, dy);
+            if (d < r){
+              const ux = Math.cos(c[2]), uy = Math.sin(c[2]), nx = d > 0.01 ? dx / d : -uy, ny = d > 0.01 ? dy / d : ux;
+              pv.x += nx * (r - d); pv.y += ny * (r - d);
+              pv.vx = ux * tr.v * 0.9 + nx * 180; pv.vy = uy * tr.v * 0.9 + ny * 180; pv.spin += 3;
+              const imp = Math.abs(tr.v) + 80;
+              onVehicleHit(pv, imp * 1.6, c[0], c[1], null);
+              if (tr.hornT <= 0){ trainHorn(c[0], c[1]); tr.hornT = 4; }
+              return;
+            }
+          }
+        } else if (Math.hypot(pp.x - c[0], pp.y - c[1]) < 18){
+          killPlayer("POCIĄG!"); trainHorn(c[0], c[1]); return;
+        }
+      }
+    }
+  }
+}
+// ---- przejazd jako pasażer
+function buyRide(stop){
+  closeInterior();
+  if (SAVE.money < 5){ toast("Bilet kosztuje $5"); return; }
+  SAVE.money -= 5; saveDirty = true; cashSound();
+  const tr = TRAINS.find(t => t.line === "M");
+  rail.ride = { train: tr, dest: stop, phase: "wait" };
+  const st = RSTATIONS[0];
+  if (player.mode === "car" && player.veh){ player.veh.driver = null; player.veh = null; player.mode = "foot"; }
+  player.foot.x = st.x; player.foot.y = RAIL_ROW + 98; pushCircle(player.foot, 7);
+  toast("🎫 Bilet do: " + stop.st.name + " – czekaj na peronie, pociąg linii M zaraz będzie", 3500);
+}
+function rideWait(){
+  const r = rail.ride, tr = r.train, L = LINES.M, dw = L.stops.findIndex(x => x.st.id === "dworzec");
+  if (player.mode !== "foot"){ rail.ride = null; return; }
+  if (Math.hypot(player.foot.x - RSTATIONS[0].x, player.foot.y - RAIL_ROW) > 260){ rail.ride = null; toast("Odszedłeś z peronu – bilet przepadł", 2000); return; }
+  if (tr.ai && tr.dwell > 0 && tr.si === dw){ r.phase = "on"; boardTrain(tr, false); popup("🚆 Wsiadasz do pociągu", "#ffb300"); }
+}
+function rideUpdate(tr){
+  const r = rail.ride, L = LINES.M;
+  if (r.phase !== "on") return;
+  if (!tr.ai){ exitTrainAt(tr); rail.ride = null; return; }
+  if (tr.dwell > 0 && L.stops[tr.si] === r.dest){ exitTrainAt(tr); rail.ride = null; popup("🚉 Stacja " + r.dest.st.name, "#5cd65c"); }
+}
+// ---- Dworzec PKP (wnętrze)
+function buildRailInterior(){
+  const body = $("iBody");
+  body.innerHTML = "";
+  $("iName").textContent = "🚉 Dworzec PKP";
+  $("iMoney").textContent = fmt(SAVE.money);
+  const tr = TRAINS.find(t => t.line === "M"), L = LINES.M, dw = L.stops.find(x => x.st.id === "dworzec");
+  const eta = Math.max(0, Math.round(fwd(L.path, tr.s, dw.s) / 170 + (tr.dwell > 0 && tr.si !== L.stops.indexOf(dw) ? tr.dwell : 0)));
+  $("iSub").textContent = "Linia M (przez centrum) · najbliższy pociąg za ok. " + (tr.dwell > 0 && L.stops[tr.si] === dw ? "0 s – stoi przy peronie!" : eta + " s");
+  const row = (icon, name, desc, btn, fn) => {
+    const r = el("div", "prow"), pn = el("div", "pn");
+    pn.appendChild(el("div", "", icon + " " + name)); if (desc) pn.appendChild(el("small", "", desc)); r.appendChild(pn);
+    if (btn){ const b = el("button", "buy", btn); b.addEventListener("click", () => { uiClick(); fn(); }); r.appendChild(b); }
+    body.appendChild(r);
+  };
+  body.appendChild(el("h4", "", "🎫 Bilety – linia M"));
+  for (const x of L.stops) if (x !== dw) row("🎫", "Do stacji: " + x.st.name, "Przejazd pociągiem, wysiadasz na peronie", "$5", () => buyRide(x));
+  body.appendChild(el("h4", "", "🧑‍✈️ Praca maszynisty"));
+  const busy = mission || race;
+  row("🚆", "Pociąg pasażerski · linia M", "Zatrzymuj się przy peronach, pilnuj rozkładu i ograniczeń na łukach", busy ? "" : "PROWADŹ", () => startRailJob("pass"));
+  row("🚂", "Skład towarowy · obwodnica", "Ciężki pociąg: długo hamuje, lepiej płacą", busy ? "" : "PROWADŹ", () => startRailJob("freight"));
+  body.appendChild(el("div", "note", "Sterowanie: GAZ – napęd, HAMULEC – hamowanie (na postoju: cofanie). Zatrzymaj czoło pociągu przy żółtym znaku ⬛ na peronie. Za szybka jazda na łuku = wykolejenie!"));
+}
+function drawRailRoom(g, t){
+  tiles(g, "#d7ccc8", "#c8bcb6", 50);
+  g.fillStyle = "#5d4037"; g.fillRect(0, 0, 400, 14); g.fillRect(0, 0, 14, 300); g.fillRect(386, 0, 14, 300); g.fillRect(0, 286, 170, 14); g.fillRect(230, 286, 170, 14);
+  box(g, 120, 24, 160, 40, "#263238"); g.fillStyle = "#ffb300"; g.font = "bold 9px monospace"; g.textAlign = "left";
+  ["M  ZACHÓD      12:05", "M  NAD RZEKĄ   12:12", "M  WSCHÓD      12:20"].forEach((l, i) => g.fillText(l, 128, 36 + i * 11));
+  for (let i = 0; i < 3; i++){ box(g, 40 + i * 120, 120, 90, 18, "#8d6e63"); }
+  box(g, 300, 220, 80, 34, "#6d4c41"); person(g, 340, 240, Math.PI, "#1565c0", "#3b2a1a");
+  person(g, 80 + Math.sin(t * 0.6) * 40, 200, 0, "#c0392b", "#111"); person(g, 200, 128, Math.PI / 2, "#27ae60", "#c9a35b");
+  plant(g, 30, 270); plant(g, 370, 30);
+}
+// ---- rysowanie
+function drawTrackChunks(CH, inV, elev){
+  for (const c of CH){
+    if (c.elev !== elev) continue;
+    if (c.x1 < camX - W / zoom / 2 - 60 || c.x0 > camX + W / zoom / 2 + 60 || c.y1 < camY - H / zoom / 2 - 60 || c.y0 > camY + H / zoom / 2 + 60) continue;
+    if (elev){ ctx.strokeStyle = "#8f949b"; ctx.lineWidth = 40; ctx.stroke(c.c); ctx.strokeStyle = "#b8bcc2"; ctx.lineWidth = 34; ctx.stroke(c.c); }
+    else { ctx.strokeStyle = "#7d7266"; ctx.lineWidth = 26; ctx.stroke(c.c); }
+    ctx.strokeStyle = "#5a4430"; ctx.lineWidth = 20; ctx.setLineDash([3, 6]); ctx.stroke(c.c); ctx.setLineDash([]);
+    ctx.strokeStyle = "#c8ccd0"; ctx.lineWidth = 2; ctx.stroke(c.l); ctx.stroke(c.r);
+    if (elev){ ctx.strokeStyle = "#5d6166"; ctx.lineWidth = 3; ctx.setLineDash([]); }
+  }
+}
+function drawRailGround(inV){
+  ctx.lineCap = "butt"; ctx.lineJoin = "round";
+  for (const yy of [(RAIL_O + RAIL_I) / 2, WORLD - (RAIL_O + RAIL_I) / 2]){
+    if (!inV((RX0 + RX1) / 2, yy, 400)) continue;
+    ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.fillRect(RX0 - 12, yy - 42, RX1 - RX0 + 24, 92);
+    ctx.fillStyle = "#6d6f73"; ctx.fillRect(RX0 - 12, yy - 50, RX1 - RX0 + 24, 100);
+    ctx.fillStyle = "#4a4c50"; for (let x = RX0; x < RX1; x += 44) ctx.fillRect(x, yy - 50, 6, 100);
+  }
+  if (camY > RAIL_ROW - 600 && camY < RAIL_ROW + 600){
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(GT(0) - 50, RAIL_ROW + 14, GT(MT) - GT(0) + 100, 22);
+  }
+  drawTrackChunks(CH_R, inV, false); drawTrackChunks(CH_M, inV, false);
+  for (const cr of CROSSINGS){
+    if (!inV(cr.x, cr.y, 140)) continue;
+    ctx.save(); ctx.translate(cr.x, cr.y); if (!cr.v) ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = "#6b5a48"; ctx.fillRect(-72, -45, 144, 90);
+    ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1; ctx.beginPath(); for (let y = -45; y < 45; y += 7){ ctx.moveTo(-72, y); ctx.lineTo(72, y); } ctx.stroke();
+    ctx.strokeStyle = "#c8ccd0"; ctx.lineWidth = 2; ctx.beginPath(); for (const y of [-31, -19, 19, 31]){ ctx.moveTo(-72, y); ctx.lineTo(72, y); } ctx.stroke();
+    for (const sy of [-1, 1]){
+      const by = sy * 66, px = sy > 0 ? 78 : -78;
+      ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(px, by, 5, 0, Math.PI * 2); ctx.fill();
+      const on = cr.closed && Math.sin(gameTime * 9 + sy) > 0;
+      ctx.fillStyle = on ? "#ff2a2a" : "#5a1010"; ctx.beginPath(); ctx.arc(px, by + sy * 9, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(px, by);
+      if (cr.closed){
+        for (let k = 0; k < 7; k++){ ctx.fillStyle = k % 2 ? "#fff" : "#d32f2f"; ctx.fillRect(sy > 0 ? -76 + k * 10.8 : 0 + k * 10.8 - 0, -2.5, 10.8, 5); }
+      } else { ctx.fillStyle = "#d32f2f"; ctx.fillRect(-2.5, -18, 5, 18); ctx.fillStyle = "#fff"; ctx.fillRect(-2.5, -12, 5, 5); }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  for (const st of RSTATIONS){
+    if (st.elev || !inV(st.x, st.y, 250)) continue;
+    const horiz = Math.abs(st.y - (RAIL_O + RAIL_I) / 2) < 5 || Math.abs(st.y - (WORLD - RAIL_O - 28)) < 5;
+    ctx.save(); ctx.translate(st.x, st.y); if (!horiz) ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(-158, -9, 320, 24);
+    ctx.fillStyle = "#a7aaad"; ctx.fillRect(-160, -11, 320, 22);
+    ctx.fillStyle = "#f5c518"; ctx.fillRect(-160, -11, 320, 2.5); ctx.fillRect(-160, 8.5, 320, 2.5);
+    ctx.fillStyle = "rgba(160,200,230,.55)"; ctx.fillRect(-40, -6, 80, 12); ctx.fillStyle = "#3d4650"; ctx.fillRect(-40, -6, 80, 2);
+    for (let k = 0; k < 6; k++){ ctx.fillStyle = SHIRTS[(k * 5 + st.x) % SHIRTS.length]; ctx.beginPath(); ctx.arc(-130 + k * 47, (k % 2) * 4 - 2, 3.5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    ctx.font = "900 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const tx = st.x + (horiz ? 0 : 0), ty = st.y + (horiz ? -64 : 0), tx2 = horiz ? tx : st.x + (st.x < WORLD / 2 ? 90 : -90);
+    const lab = "🚉 " + st.name, tw = ctx.measureText(lab).width;
+    ctx.fillStyle = "rgba(10,40,90,.85)"; rrect(ctx, tx2 - tw / 2 - 7, (horiz ? ty : st.y) - 11, tw + 14, 22, 6); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillText(lab, tx2, horiz ? ty : st.y);
+  }
+  drawStopMarks(false);
+  for (const tr of TRAINS) drawTrain(tr, inV, false);
+}
+function drawStopMarks(elev){
+  if (!rail.on || !rail.train) return;
+  const L = LINES[rail.train.line], st = L.stops[rail.stop], p = pathAt(L.path, st.s);
+  if (isElev(p[0], p[1]) !== elev) return;
+  ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(p[2]);
+  ctx.fillStyle = "#111"; ctx.fillRect(-3, -22, 6, 44);
+  ctx.fillStyle = "#f5c518"; ctx.fillRect(-2, -22, 4, 6); ctx.fillRect(-2, 16, 4, 6);
+  ctx.strokeStyle = "rgba(255,179,0," + (0.5 + 0.4 * Math.sin(gameTime * 6)).toFixed(2) + ")"; ctx.lineWidth = 3; ctx.strokeRect(-30, -20, 60, 40);
+  ctx.restore();
+}
+function drawRailElevated(inV){
+  if (camY < RAIL_ROW - 700 || camY > RAIL_ROW + 700) return;
+  ctx.lineCap = "butt";
+  drawTrackChunks(CH_M, inV, true);
+  ctx.strokeStyle = "#5d6166"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(GT(0) - 50, RAIL_ROW - 19); ctx.lineTo(GT(MT) + 50, RAIL_ROW - 19); ctx.moveTo(GT(0) - 50, RAIL_ROW + 19); ctx.lineTo(GT(MT) + 50, RAIL_ROW + 19); ctx.stroke();
+  const st = RSTATIONS[0];
+  if (inV(st.x, st.y, 250)){
+    ctx.fillStyle = "#a7aaad"; ctx.fillRect(st.x - 170, RAIL_ROW + 20, 340, 26);
+    ctx.fillStyle = "#f5c518"; ctx.fillRect(st.x - 170, RAIL_ROW + 20, 340, 3);
+    ctx.fillStyle = "rgba(160,200,230,.6)"; ctx.fillRect(st.x - 50, RAIL_ROW + 30, 100, 12);
+    for (let k = 0; k < 7; k++){ ctx.fillStyle = SHIRTS[(k * 3) % SHIRTS.length]; ctx.beginPath(); ctx.arc(st.x - 150 + k * 46, RAIL_ROW + 38, 3.5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.font = "900 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const lab = "🚉 Dworzec · linia M", tw = ctx.measureText(lab).width;
+    ctx.fillStyle = "rgba(10,40,90,.85)"; rrect(ctx, st.x - tw / 2 - 7, RAIL_ROW + 52, tw + 14, 22, 6); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillText(lab, st.x, RAIL_ROW + 63);
+    if (rail.ride && rail.ride.phase === "wait"){ ctx.fillStyle = "#ffb300"; ctx.fillText("⏱ Czekasz na pociąg...", st.x, RAIL_ROW + 86); }
+  }
+  drawStopMarks(true);
+  for (const tr of TRAINS) drawTrain(tr, inV, true);
+}
+function drawTrain(tr, inV, elev){
+  const P = LINES[tr.line].path, dark = darkness(hourNow());
+  for (let i = tr.cars.length - 1; i >= 0; i--){
+    const type = tr.cars[i], spec = CARSPEC[type], c = pathAt(P, tr.s - tr.offs[i]), b = pathAt(P, tr.s - tr.offs[i] + spec.len * 0.4), e = pathAt(P, tr.s - tr.offs[i] - spec.len * 0.4);
+    if (isElev(c[0], c[1]) !== elev || !inV(c[0], c[1], 60)) continue;
+    const a = Math.atan2(b[1] - e[1], b[0] - e[0]) + (tr.derail > 0 ? Math.sin(i * 1.7) * 0.25 : 0);
+    const L2 = spec.len, hw = 11, col = tr.cols[i];
+    ctx.save(); ctx.translate(c[0], c[1]); ctx.rotate(a);
+    ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.fillRect(-L2 / 2 + 3, -hw + 4, L2, hw * 2);
+    if (type === "loco" || type === "flok"){
+      ctx.fillStyle = col; rrect(ctx, -L2 / 2, -hw, L2, hw * 2, 4); ctx.fill();
+      const gr = ctx.createLinearGradient(0, -hw, 0, hw); gr.addColorStop(0, "rgba(255,255,255,.25)"); gr.addColorStop(0.5, "rgba(255,255,255,0)"); gr.addColorStop(1, "rgba(0,0,0,.3)");
+      ctx.fillStyle = gr; rrect(ctx, -L2 / 2, -hw, L2, hw * 2, 4); ctx.fill();
+      ctx.fillStyle = type === "loco" ? "#fff" : "#f5c518"; ctx.fillRect(L2 / 2 - 14, -hw, 3, hw * 2); ctx.fillRect(-L2 / 2 + 11, -hw, 3, hw * 2);
+      ctx.fillStyle = "#1b2430"; rrect(ctx, L2 / 2 - 9, -hw + 2.5, 6, hw * 2 - 5, 2); ctx.fill(); rrect(ctx, -L2 / 2 + 3, -hw + 2.5, 6, hw * 2 - 5, 2); ctx.fill();
+      ctx.strokeStyle = "#333"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(-10, -7); ctx.lineTo(0, 7); ctx.lineTo(10, -7); ctx.moveTo(-10, 7); ctx.lineTo(0, -7); ctx.lineTo(10, 7); ctx.stroke();
+      ctx.fillStyle = "#fff6d8"; ctx.fillRect(L2 / 2 - 2, -hw + 2, 2, 4); ctx.fillRect(L2 / 2 - 2, hw - 6, 2, 4);
+    } else if (type === "coach"){
+      ctx.fillStyle = col; rrect(ctx, -L2 / 2, -hw, L2, hw * 2, 3); ctx.fill();
+      ctx.fillStyle = "#1e88e5"; ctx.fillRect(-L2 / 2, -hw + 1, L2, 3); ctx.fillRect(-L2 / 2, hw - 4, L2, 3);
+      ctx.fillStyle = "#9aa0a6"; ctx.fillRect(-L2 / 2 + 3, -hw + 5, L2 - 6, hw * 2 - 10);
+      ctx.fillStyle = dark > 0.4 ? "rgba(255,220,140,.9)" : "#24364a";
+      for (let x = -L2 / 2 + 5; x < L2 / 2 - 6; x += 8){ ctx.fillRect(x, -hw + 1, 5, 2.2); ctx.fillRect(x, hw - 3.2, 5, 2.2); }
+      ctx.fillStyle = "#7d8288"; for (const x of [-12, 12]) ctx.fillRect(x - 3, -4, 6, 8);
+    } else if (type === "box"){
+      ctx.fillStyle = "#3a3c40"; ctx.fillRect(-L2 / 2, -hw + 1, L2, hw * 2 - 2);
+      ctx.fillStyle = col; ctx.fillRect(-L2 / 2 + 2, -hw + 2, L2 - 4, hw * 2 - 4);
+      ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1; ctx.beginPath(); for (let x = -L2 / 2 + 5; x < L2 / 2 - 2; x += 4){ ctx.moveTo(x, -hw + 2); ctx.lineTo(x, hw - 2); } ctx.stroke();
+    } else {
+      ctx.fillStyle = "#3a3c40"; ctx.fillRect(-L2 / 2, -hw + 1, L2, hw * 2 - 2);
+      const g2 = ctx.createLinearGradient(0, -hw, 0, hw); g2.addColorStop(0, "#dfe3e6"); g2.addColorStop(0.5, "#a9aeb3"); g2.addColorStop(1, "#6c7175");
+      ctx.fillStyle = g2; rrect(ctx, -L2 / 2 + 2, -hw + 1.5, L2 - 4, hw * 2 - 3, hw - 2); ctx.fill();
+      ctx.fillStyle = "#555"; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+function drawTrainLights(l, inV){
+  for (const tr of TRAINS){
+    const P = LINES[tr.line].path, f = pathAt(P, tr.s);
+    if (!inV(f[0], f[1], 260)) continue;
+    l.save(); l.translate(f[0], f[1]); l.rotate(f[2]); l.drawImage(CONE, -2, -80, 280, 160); l.restore();
+    for (let i = 1; i < tr.cars.length; i++){ if (tr.cars[i] !== "coach") continue; const c = pathAt(P, tr.s - tr.offs[i]); l.drawImage(SPR_L, c[0] - 45, c[1] - 45, 90, 90); }
+  }
+}
+function drawTrainHUD(){
+  if (player.mode !== "train") return;
+  const tr = rail.train || (rail.ride && rail.ride.train);
+  if (!tr) return;
+  const L = LINES[tr.line], P = L.path;
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  let sp = Math.abs(tr.v) * 0.36; if (SET.units === "mph") sp *= 0.621;
+  ctx.font = "900 38px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillText(Math.round(sp), W / 2 + 2, 52);
+  ctx.fillStyle = "#fff"; ctx.fillText(Math.round(sp), W / 2, 50);
+  const lim = Math.round(Math.min(pathAt(P, tr.s)[3], speedLimitAhead(tr, 500)) * 0.36);
+  ctx.font = "700 12px system-ui, sans-serif"; ctx.fillStyle = "rgba(255,255,255,.75)";
+  ctx.fillText((SET.units === "mph" ? "mph" : "km/h") + (tr.v < -1 ? " · WSTECZ" : ""), W / 2, 67);
+  if (!tr.ai){
+    const over = Math.abs(tr.v) * 0.36 > lim * 1.02;
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(W / 2 + 80, 38, 19, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = over && Math.sin(gameTime * 14) > 0 ? "#ffb300" : "#d32f2f"; ctx.lineWidth = 4; ctx.stroke();
+    ctx.fillStyle = "#111"; ctx.font = "900 14px system-ui, sans-serif"; ctx.fillText(lim, W / 2 + 80, 43);
+  }
+  const lines = [];
+  if (rail.on){
+    const st = L.stops[rail.stop]; let d = fwd(P, tr.s, st.s); if (d > P.len / 2) d -= P.len;
+    lines.push((tr.kind === "pass" ? "🚆 " : "🚂 ") + L.name, "Następna: " + st.st.name + " · " + (d >= 0 ? (d / 10 >= 1000 ? (d / 10000).toFixed(1) + " km" : Math.round(d / 10) + " m") : "minąłeś o " + Math.round(-d / 10) + " m"),
+      rail.legT >= 0 ? "⏱ Rozkład: " + Math.ceil(rail.legT) + " s" : "⏱ Spóźnienie: " + Math.ceil(-rail.legT) + " s");
+    if (tr.kind === "pass") lines.push("👥 Pasażerów: " + tr.pax);
+    lines.push("💰 Zarobek: " + fmt(rail.earned));
+    if (rail.doorT < 0 && d >= 0) drawEdgeArrow(pathAt(P, st.s)[0], pathAt(P, st.s)[1], "#ffb300");
+  } else if (rail.ride){
+    lines.push("🎫 Jedziesz pociągiem linii M", "Wysiadasz: " + rail.ride.dest.st.name, "Następny przystanek: " + L.stops[tr.si].st.name);
+  }
+  ctx.font = "800 12px system-ui, sans-serif"; ctx.textAlign = "left";
+  let bw = 0; for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+  ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, 12, 86, bw + 18, lines.length * 17 + 10, 8); ctx.fill();
+  lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? "#ffb300" : (l.includes("Spóźnienie") || l.includes("minąłeś") ? "#ff6b5e" : "#fff"); ctx.fillText(l, 21, 105 + i * 17); });
+  ctx.textAlign = "center";
+  if (rail.doorT >= 0){
+    const f = clamp(1 - rail.doorT / (tr.kind === "pass" ? 4 : 5), 0, 1);
+    ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(W / 2 - 92, H * 0.62, 184, 26);
+    ctx.fillStyle = "#5cd65c"; ctx.fillRect(W / 2 - 88, H * 0.62 + 18, 176 * f, 4);
+    ctx.font = "800 12px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText(tr.kind === "pass" ? "🚪 Wymiana pasażerów..." : "🏗️ Przeładunek...", W / 2, H * 0.62 + 14);
+  }
+}
+(function drawRailOnMap(){
+  const m = mapCv.getContext("2d");
+  m.save(); m.scale(MAPS / T, MAPS / T);
+  for (const P of [PATH_R, PATH_M]){
+    m.strokeStyle = "#3b3330"; m.lineWidth = 34; m.beginPath();
+    P.pts.forEach((p, i) => i ? m.lineTo(p[0], p[1]) : m.moveTo(p[0], p[1])); m.closePath(); m.stroke();
+    m.strokeStyle = "#c8ccd0"; m.lineWidth = 9; m.setLineDash([60, 40]); m.stroke(); m.setLineDash([]);
+  }
+  m.restore();
+})();
+
+(function stationDoor(){
+  const b = buildings.find(x => x.label === "DWORZEC");
+  if (b) DOORS.push({ kind: "rail", name: "Dworzec PKP", x: b.x + b.w / 2, y: b.y + b.h + 16 });
+})();
 
 // =====================================================================
 // START
