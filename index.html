@@ -161,6 +161,8 @@
   #dChoices{display:flex;flex-wrap:wrap;gap:6px}
   #dChoices button{padding:10px 12px;border-radius:10px;border:0;background:#2a2d34;color:#fff;font-weight:700;font-size:14px;text-align:left}
   #dChoices button.pri{background:#ffb300;color:#111}
+  #jobBtn{display:none}
+  #jobBtn.on{background:#f4c20d;color:#111}
 </style>
 </head>
 <body>
@@ -170,6 +172,7 @@
   <button class="sbtn" id="pauseBtn" aria-label="Menu">☰</button>
   <button class="sbtn" id="muteBtn" aria-label="Dźwięk">🔊</button>
   <button class="sbtn" id="radioBtn" aria-label="Radio">📻</button>
+  <button class="sbtn" id="jobBtn" aria-label="Praca taxi">🚕</button>
 </div>
 <div id="mapHit"></div>
 <div id="toast"></div>
@@ -186,7 +189,7 @@
 
 <div id="start">
   <h1>JAZDA<br><span>W MIEŚCIE</span></h1>
-  <div class="sub">Etap 4 · życie w mieście</div>
+  <div class="sub">Etap 4 · taxi i wyścigi</div>
   <button class="bigbtn" id="play">GRAJ</button>
   <div class="rowbtns">
     <button class="smallbtn" id="setBtn">⚙ USTAWIENIA</button>
@@ -978,6 +981,8 @@ function loadSave(){
   s.cur = Object.assign(defaultCfg(s.cur.type, s.cur.col), s.cur);
   if (!Array.isArray(s.col)) s.col = [];
   if (!s.quests || typeof s.quests !== "object") s.quests = {};
+  if (!s.records || typeof s.records !== "object") s.records = {};
+  if (!s.stats || typeof s.stats !== "object") s.stats = {};
   s.col = s.col.filter(c => c && VT[c.type]).map(c => Object.assign(defaultCfg(c.type, c.col), c));
   return s;
 }
@@ -1039,6 +1044,7 @@ addEventListener("keydown", e => {
       if (e.code === "KeyE" || e.code === "KeyF" || e.code === "Enter") actionBtn();
       if (e.code === "KeyQ") radioNext();
       if (e.code === "KeyT") tryTalk();
+      if (e.code === "KeyJ") toggleTaxi();
     }
     if (state === "talk" && /^Digit[1-5]$/.test(e.code)){ const b = $("dChoices").children[+e.code.slice(5) - 1]; if (b) b.click(); }
     if (e.code === "KeyM") toggleMute();
@@ -1138,11 +1144,14 @@ function updateControlLabels(){
   if (mode === "foot") near = !!nearestCar();
   const hasN = mode === "car" && player.veh.cfg.nitro > 0;
   const hasT = !!talkTarget();
-  const key = mode + near + hasN + hasT;
+  const hasJ = inTaxi() || taxi.on;
+  const key = mode + near + hasN + hasT + hasJ + taxi.on;
   if (key === lastMode) return;
   lastMode = key;
   $("nitro").style.display = hasN ? "flex" : "none";
   $("talk").style.display = hasT ? "flex" : "none";
+  $("jobBtn").style.display = hasJ ? "flex" : "none";
+  $("jobBtn").classList.toggle("on", taxi.on);
   $("radioBtn").style.display = mode === "car" ? "flex" : "none";
   if (mode === "foot"){
     $("gas").textContent = "IDŹ"; $("brake").textContent = "COFNIJ"; $("hb").style.display = "none";
@@ -2156,7 +2165,7 @@ function nearestCar(){
   let best = null, bd = 1e9;
   hashQuery(VH, f.x, f.y, 70, TMP_F);
   for (const v of TMP_F){
-    if (v.wreck) continue;
+    if (v.wreck || v.driver === "race") continue;
     const d = Math.hypot(v.x - f.x, v.y - f.y);
     if (d < VT[v.type].len / 2 + 26 && d < bd){ bd = d; best = v; }
   }
@@ -2272,7 +2281,8 @@ function manageSpawns(dt){
       const d = Math.hypot(v.x - pp.x, v.y - pp.y);
       if ((d > 1700 || v.ai.stuckT > 12) && !onScreen(v.x, v.y, 80)){ vehicles.splice(i, 1); continue; }
       if (v.ai.ring) nRing++; else nAI++;
-    } else if (v.wreck && v.wreckT <= 0) wrecks.push(v);
+    } else if (v.temp && !v.driver && !onScreen(v.x, v.y, 80) && Math.hypot(v.x - pp.x, v.y - pp.y) > 900){ vehicles.splice(i, 1); continue; }
+    else if (v.wreck && v.wreckT <= 0) wrecks.push(v);
   }
   if (wrecks.length > 14){
     let far = null, fd = 0;
@@ -2315,7 +2325,7 @@ function update(dt){
 
   ACT.length = 0;
   for (const v of vehicles){
-    v.active = Math.abs(v.x - pp.x) < 1500 && Math.abs(v.y - pp.y) < 1500;
+    v.active = v.driver === "race" || (Math.abs(v.x - pp.x) < 1500 && Math.abs(v.y - pp.y) < 1500);
     if (v.active) ACT.push(v);
   }
   hashBuild(VH, ACT);
@@ -2325,8 +2335,9 @@ function update(dt){
 
   // wejścia
   for (const v of ACT){
-    if (v.driver === "player") v.curInp = pin;
+    if (v.driver === "player") v.curInp = (race && race.phase === "count") ? NOINP : pin;
     else if (v.driver === "ai") v.curInp = aiInput(v, dt);
+    else if (v.driver === "race") v.curInp = raceInput(v, dt);
     else v.curInp = NOINP;
     v.sleep = !v.driver && !v.burning && Math.abs(v.vx) + Math.abs(v.vy) < 1 && Math.abs(v.spin) < 0.05;
     if (v.sleep){ v.vx = v.vy = 0; v.spin = 0; v.slip = 0; v.skidding = false; }
@@ -2370,7 +2381,7 @@ function update(dt){
     player.deadT -= dt;
     if (player.deadT <= 0) respawn();
   }
-  if (state === "play"){ economy(dt); checkGarage(); missionUpdate(dt); eventsUpdate(dt); }
+  if (state === "play"){ economy(dt); checkGarage(); checkRaceFlags(); missionUpdate(dt); eventsUpdate(dt); taxiUpdate(dt); raceUpdate(dt); }
   managePickups(dt);
   updateFx(dt);
 }
@@ -2964,6 +2975,7 @@ function render(){
     ctx.fillStyle = "rgba(210,210,210," + (0.35 * p.life / p.max).toFixed(3) + ")";
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
   }
+  drawRaceWorld(inV);
   // znacznik celu zlecenia
   if (mission && mission.target && inV(mission.target[0], mission.target[1], 80)){
     const [tx, ty] = mission.target, pr = 34 + Math.sin(gameTime * 5) * 6;
@@ -3176,24 +3188,10 @@ function drawHUD(h){
     const bx0 = 12, by0 = 86;
     ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, bx0, by0, bwid + 18, lines.length * 17 + 10, 8); ctx.fill();
     lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? "#ffb300" : (l.startsWith("⏱") && mission.time < 15 ? "#ff6b5e" : "#fff"); ctx.fillText(l, bx0 + 9, by0 + 19 + i * 17); });
-    if (mission.target){
-      const [tx, ty] = mission.target, sx2 = W / 2 + (tx - camX) * zoom, sy2 = H / 2 + (ty - camY) * zoom, mg = 40;
-      if (sx2 < mg || sx2 > W - mg || sy2 < mg || sy2 > H - mg){
-        const ang = Math.atan2(sy2 - H / 2, sx2 - W / 2), dx = Math.cos(ang), dy = Math.sin(ang);
-        const kx = Math.abs(dx) > 1e-4 ? (W / 2 - mg) / Math.abs(dx) : 1e9, ky = Math.abs(dy) > 1e-4 ? (H / 2 - mg) / Math.abs(dy) : 1e9;
-        const kk = Math.min(kx, ky), ax = W / 2 + dx * kk, ay = H / 2 + dy * kk;
-        ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang);
-        ctx.fillStyle = "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-8, -12); ctx.lineTo(-3, 0); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.restore();
-        const pp = playerPos(), dist = Math.round(Math.hypot(tx - pp.x, ty - pp.y) / 10);
-        ctx.font = "900 12px system-ui, sans-serif"; ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(dist + " m", ax - dx * 26 + 1, ay - dy * 26 + 5);
-        ctx.fillStyle = "#ffb300"; ctx.fillText(dist + " m", ax - dx * 26, ay - dy * 26 + 4);
-      }
-    }
+    if (mission.target) hudArrow(mission.target[0], mission.target[1]);
     ctx.textAlign = "center";
   }
+  drawRaceHUD();
   if (ev && ev.repair >= 0){
     const f = clamp(ev.repair / 4, 0, 1);
     ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(W / 2 - 82, H * 0.62, 164, 26);
@@ -3225,6 +3223,13 @@ function drawHUD(h){
     for (const k of pickups) if (k.special){ const q = toR(k.x, k.y); ctx.fillText("🎁", q[0], q[1]); }
     for (const c of QCHARS) if (c.ped && pedIcon(c.ped)){ const q = toR(c.ped.x, c.ped.y); ctx.fillText("❗", q[0], q[1]); }
     if (ev){ const a = evAnchor(); if (a){ const q = toR(a.x, a.y); ctx.fillText(ev.item ? "👛" : (ev.ped && ev.ped.icon) || "•", q[0], q[1]); } }
+    const rtg = raceTarget();
+    if (rtg){
+      const q = toR(clamp(rtg[0], pp.x - RAD * 0.94, pp.x + RAD * 0.94), clamp(rtg[1], pp.y - RAD * 0.94, pp.y + RAD * 0.94));
+      ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(q[0], q[1], 5 + Math.sin(gameTime * 6), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    if (race) for (const r of race.racers){ if (r.me || r.done) continue; const q = toR(r.veh.x, r.veh.y); ctx.fillStyle = "#ff4136"; ctx.fillRect(q[0] - 2, q[1] - 2, 4, 4); }
     if (mission && mission.target){
       const q = toR(clamp(mission.target[0], pp.x - RAD * 0.94, pp.x + RAD * 0.94), clamp(mission.target[1], pp.y - RAD * 0.94, pp.y + RAD * 0.94));
       ctx.fillStyle = "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
@@ -3321,7 +3326,8 @@ $("sWipe").addEventListener("click", () => {
   location.reload();
 });
 function openPause(){
-  $("pAbort").style.display = mission ? "" : "none";
+  $("pAbort").style.display = (mission || race) ? "" : "none";
+  $("pAbort").textContent = race ? "PRZERWIJ WYŚCIG" : "PRZERWIJ ZLECENIE";
   state = "pause";
   $("pause").classList.add("show");
 }
@@ -3343,8 +3349,8 @@ $("pTitle").addEventListener("click", () => {
 
 const isTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
 $("hint").innerHTML = isTouch
-  ? "Lewy kciuk: skręcanie · Prawy: gaz, hamulec / wsteczny, ręczny do driftu.<br>Żółty: wysiadanie i wsiadanie · Niebieski 💬: rozmowa · ❗ nad głową: zlecenie · radar: mapa miasta."
-  : "Strzałki / WASD: jazda · Spacja: ręczny · Shift: nitro · E: wysiądź / wsiądź · T: rozmowa<br>Q: radio · Tab: mapa · P lub Esc: menu · R: nowe auto · M: dźwięk";
+  ? "Lewy kciuk: skręcanie · Prawy: gaz, hamulec / wsteczny, ręczny do driftu.<br>Żółty: wysiadanie i wsiadanie · Niebieski 💬: rozmowa · ❗: zlecenie · 🏁: wyścig · 🚕 w taksówce: praca · radar: mapa."
+  : "Strzałki / WASD: jazda · Spacja: ręczny · Shift: nitro · E: wysiądź / wsiądź · T: rozmowa · J: praca taxi<br>Q: radio · Tab: mapa · P lub Esc: menu · R: nowe auto · M: dźwięk";
 
 const isStandalone = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -3751,6 +3757,7 @@ const PERF = [
 const GTABS = [["paint","Lakier"],["look","Wygląd"],["perf","Osiągi"],["repair","Naprawa"],["shop","Salon"],["coll","Kolekcja"]];
 
 function checkGarage(){
+  if (race) return;
   if (player.mode !== "car"){ garageLock = null; return; }
   const v = player.veh;
   let inside = null;
@@ -4010,7 +4017,7 @@ function drawMapView(){
   g.textAlign = "left"; g.font = "900 15px system-ui, sans-serif"; g.fillStyle = "#fff";
   g.fillText("MAPA MIASTA", 16, 22);
   g.font = "600 12px system-ui, sans-serif"; g.fillStyle = "rgba(255,255,255,.65)";
-  const leg = ["❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
+  const leg = ["🏁 wyścig", "❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
   if (w - size > 260) leg.forEach((t, i) => g.fillText(t, 16, 48 + i * 20));
   g.textAlign = "center"; g.fillText("dotknij, aby wrócić do gry", w / 2, h - 12);
 }
@@ -4316,8 +4323,8 @@ function startMission(def, src, ped){
   if (def.passenger) steps.unshift({ t: "board", text: "Podjedź autem po pasażera" });
   mission = { def, steps, step: 0, src, ped, time: def.time || 0, timerOn: !steps.some(s => s.timer),
     dmg: 0, lastVeh: null, lastHp: 0, boarded: false, car: null, carry: null, animal: null, comT: 0, calm: 1,
-    tracking: !steps.some(s => s.t === "getcar"), target: null };
-  popup("ZLECENIE: " + def.title, "#ffb300");
+    tracking: !def.passenger && !steps.some(s => s.t === "getcar"), target: null };
+  popup(def.taxi ? "🙋 Nowy pasażer czeka!" : "ZLECENIE: " + def.title, "#ffb300");
   enterStep();
 }
 function enterStep(){
@@ -4361,7 +4368,8 @@ function completeMission(){
   if (m.def.gentle) reward = Math.round(reward * (0.6 + 0.4 * clamp(m.calm, 0, 1)));
   if (m.def.fragile) reward += Math.round(m.def.reward * 0.3 * Math.max(0, 1 - m.dmg / m.def.fragile));
   if (m.def.time && m.timerOn) reward += Math.round(Math.max(0, m.time) * 2);
-  addMoney(reward, "ZLECENIE");
+  if (m.def.taxi){ reward = Math.round(reward * taxiMult()); taxi.streak++; taxi.nextT = 2.5; SAVE.stats.fares = (SAVE.stats.fares || 0) + 1; }
+  addMoney(reward, m.def.taxi ? "KURS" : "ZLECENIE");
   if (m.src && m.src.missions) SAVE.quests[m.src.id] = (SAVE.quests[m.src.id] || 0) + 1;
   if (m.def.giveCar && m.car && SAVE.col.length < 8){
     const cfg = cloneCfg(m.car.cfg); cfg.cid = newCid();
@@ -4370,6 +4378,7 @@ function completeMission(){
   persist();
   missionCleanup(m);
   if (actx){ const t = actx.currentTime; tone(660, t, 0.15, "triangle", 0.1); tone(880, t + 0.12, 0.15, "triangle", 0.1); tone(1320, t + 0.24, 0.35, "triangle", 0.1); }
+  if (m.def.quiet){ popup("„" + pick(TAXI_BYE) + "”", "#ffd2a0"); return; }
   const w = m.src && m.src.missions ? charWho(m.src) : (m.def.who || { name: "" });
   const outro = typeof m.def.outro === "function" ? m.def.outro(m) : (m.def.outro || "Dzięki!");
   showDialog(w, outro, [{ t: "👍 Spoko", pri: true }], "✔ Zlecenie wykonane · +" + fmt(reward));
@@ -4378,7 +4387,8 @@ function failMission(msg){
   const m = mission;
   mission = null;
   popup("✖ " + msg, "#ff4136");
-  toast("Zlecenie nieudane: " + msg + (m.src && m.src.missions ? " Możesz spróbować ponownie." : ""), 3000);
+  if (m.def.taxi){ taxi.streak = 0; taxi.nextT = 3; }
+  toast((m.def.taxi ? "Kurs nieudany: " : "Zlecenie nieudane: ") + msg + (m.src && m.src.missions ? " Możesz spróbować ponownie." : ""), 3000);
   missionCleanup(m);
   if (actx){ const t = actx.currentTime; tone(440, t, 0.2, "square", 0.05); tone(330, t + 0.18, 0.35, "square", 0.05); }
 }
@@ -4565,7 +4575,7 @@ function eventsUpdate(dt){
     return;
   }
   evT -= dt;
-  if (evT > 0 || mission) return;
+  if (evT > 0 || mission || race || taxi.on) return;
   evT = 45 + Math.random() * 45;
   const pp = playerPos();
   if (pp.x < GT(0) || pp.x > GT(MT) || pp.y < GT(0) || pp.y > GT(MT)) return;
@@ -4663,7 +4673,407 @@ function pedIcon(p){
   return p.icon || null;
 }
 $("talk").addEventListener("pointerdown", e => { e.preventDefault(); if (SET.vibrate && navigator.vibrate) navigator.vibrate(10); tryTalk(); });
-$("pAbort").addEventListener("click", () => { closePause(); if (mission) failMission("Przerwano zlecenie."); });
+$("pAbort").addEventListener("click", () => { closePause(); if (race) endRace("Wyścig przerwany."); else if (mission) failMission("Przerwano zlecenie."); });
+
+// =====================================================================
+// TAXI
+// =====================================================================
+const taxi = { on: false, streak: 0, nextT: 0 };
+const inTaxi = () => player.mode === "car" && player.veh && player.veh.type === "taxi" && !player.veh.wreck;
+const taxiMult = () => Math.min(3, 1 + taxi.streak * 0.25);
+const TAXI_HI = ["Dzień dobry! Szybko, proszę!", "Cześć! Spieszę się trochę.", "Witam, kierowco!", "Hej! Ale fajnie, że pan stanął.", "Dobry wieczór. Tylko bez szaleństw.", "Siema! Gaz do dechy!"];
+const TAXI_BYE = ["Dzięki, reszty nie trzeba!", "Super jazda, polecę znajomym!", "Ufff, żyję. Dzięki!", "Najlepszy taksówkarz w mieście!", "Dzięki, miłego dnia!"];
+function toggleTaxi(){
+  if (state !== "play") return;
+  if (!taxi.on && !inTaxi()){ toast("Wsiądź do taksówki (żółte auto z napisem TAXI), żeby zacząć pracę", 2500); return; }
+  if (!taxi.on && (mission || race)){ toast("Najpierw skończ obecne zadanie", 2000); return; }
+  taxi.on = !taxi.on;
+  if (taxi.on){ taxi.streak = 0; taxi.nextT = 1; toast("🚕 Zaczynasz zmianę! Szukaj pasażerów z 🙋", 2500); }
+  else { if (mission && mission.def.taxi) failMission("Koniec zmiany."); toast("🚕 Koniec zmiany", 1800); }
+  lastMode = "";
+}
+function spawnFare(){
+  const c = cityPoint(250, 850);
+  if (!c) return;
+  const p = makeStand(c.x, c.y, { icon: "🙋" });
+  pedName(p);
+  const far = pois.filter(o => { const d = Math.hypot(o.x - c.x, o.y - c.y); return d > 900 && d < 3800; });
+  const o = far.length ? pick(far) : pick(pois);
+  const dst = spotNearPoi(o), d = Math.hypot(dst[0] - c.x, dst[1] - c.y);
+  startMission({ title: "🚕 Kurs: " + o.name, passenger: true, taxi: true, quiet: true,
+    reward: Math.round(30 + d / 14), time: Math.round(d / 170 + 25), fragile: 55,
+    steps: [{ t: "goto", at: () => dst, car: true, timer: true, text: "Zawieź pasażera: " + o.name, drop: true }],
+    cleanup: m => { if (m.ped && !m.boarded) freeEventPed(m.ped); } }, null, p);
+}
+function taxiUpdate(dt){
+  if (!taxi.on) return;
+  if (mission && mission.def.taxi && mission.boarded && !mission.greeted){ mission.greeted = true; popup("„" + pick(TAXI_HI) + "”", "#ffd2a0"); }
+  if (!inTaxi() && !(mission && mission.def.taxi && mission.boarded)){
+    taxi.on = false; lastMode = "";
+    if (mission && mission.def.taxi) failMission("Koniec zmiany.");
+    toast("🚕 Koniec zmiany – wysiadłeś z taksówki", 2200);
+    return;
+  }
+  if (mission) return;
+  taxi.nextT -= dt;
+  if (taxi.nextT <= 0){ taxi.nextT = 3; spawnFare(); }
+}
+
+// =====================================================================
+// WYŚCIGI ULICZNE
+// =====================================================================
+function nodeRoute(nodes, laps){
+  const pts = [], cps = [];
+  for (let L = 0; L < laps; L++){
+    for (let k = 0; k < nodes.length - 1; k++){
+      if (k > 0 || L > 0) cps.push(pts.length);
+      const ax = nodePos(nodes[k][0]), ay = nodePos(nodes[k][1]), bx = nodePos(nodes[k + 1][0]), by = nodePos(nodes[k + 1][1]);
+      const n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / 40));
+      for (let i = 0; i < n; i++) pts.push([ax + (bx - ax) * i / n, ay + (by - ay) * i / n]);
+    }
+  }
+  const e = nodes[nodes.length - 1];
+  cps.push(pts.length); pts.push([nodePos(e[0]), nodePos(e[1])]);
+  return { pts, cps };
+}
+function ringRoute(s0, laps){
+  const pts = [], cps = [], n = Math.round(RPER / 40);
+  for (let L = 0; L < laps; L++) for (let i = 0; i < n; i++){
+    if (i > 0 && i % Math.round(n / 8) === 0) cps.push(pts.length);
+    if (i === 0 && L > 0) cps.push(pts.length);
+    const p = ringPt(s0 + i / n * RPER, 36); pts.push([p[0], p[1]]);
+  }
+  const p = ringPt(s0, 36); cps.push(pts.length); pts.push([p[0], p[1]]);
+  return { pts, cps };
+}
+const RACES = [
+  { id: "centrum", name: "Pętla Centrum", desc: "2 okrążenia między wieżowcami", laps: 2, fee: 200, prizes: [900, 450, 200], skill: 0.86,
+    types: ["sedan", "muscle", "small"], tune: 1, r: 105, build: () => nodeRoute([[4, 4], [7, 4], [7, 6], [4, 6], [4, 4]], 2) },
+  { id: "starowka", name: "Sprint przez Starówkę", desc: "kręte uliczki, 1 przejazd", laps: 1, fee: 300, prizes: [1100, 550, 250], skill: 0.92,
+    types: ["muscle", "sport", "suv"], tune: 1, r: 105, build: () => nodeRoute([[1, 0], [4, 0], [4, 2], [2, 2], [2, 5], [0, 5], [0, 1], [1, 1]], 1) },
+  { id: "przemysl", name: "Hale i kontenery", desc: "2 okrążenia po Strefie przemysłowej", laps: 2, fee: 400, prizes: [1500, 750, 350], skill: 0.97,
+    types: ["muscle", "pickup", "sport"], tune: 2, r: 110, build: () => nodeRoute([[9, 7], [12, 7], [12, 12], [9, 12], [9, 7]], 2) },
+  { id: "miasto", name: "Przez całe miasto", desc: "długi sprint z zachodu na wschód, przez most", laps: 1, fee: 500, prizes: [1900, 950, 450], skill: 1.0,
+    types: ["sport", "muscle", "sport"], tune: 2, r: 110, build: () => nodeRoute([[1, 11], [5, 11], [5, 8], [9, 8], [9, 2], [12, 2], [12, 0]], 1) },
+  { id: "obwodnica", name: "Król obwodnicy", desc: "pełne okrążenie ekspresówki, prędkość ponad wszystko", laps: 1, fee: 700, prizes: [2600, 1300, 600], skill: 1.04,
+    types: ["sport", "sport", "muscle"], tune: 3, r: 150, ring: true, build: () => ringRoute(WORLD / 2 - (RA + RR), 1) }
+];
+for (const rc of RACES){
+  const rt = rc.build();
+  rc.pts = rt.pts; rc.cps = rt.cps;
+  rc.start = rt.pts[0];
+  const D0 = routeDir(rt.pts, 0);
+  rc.flag = [rc.start[0] - D0[0] * 88, rc.start[1] - D0[1] * 88];
+  let len = 0; for (let i = 1; i < rt.pts.length; i++) len += Math.hypot(rt.pts[i][0] - rt.pts[i - 1][0], rt.pts[i][1] - rt.pts[i - 1][1]);
+  rc.len = len;
+  rc.corners = [];
+  for (let i = 1; i < rt.pts.length - 1; i++){
+    const a = rt.pts[i - 1], b = rt.pts[i], c = rt.pts[i + 1];
+    let da = Math.atan2(c[1] - b[1], c[0] - b[0]) - Math.atan2(b[1] - a[1], b[0] - a[0]);
+    da = Math.abs(Math.atan2(Math.sin(da), Math.cos(da)));
+    if (da > 0.35) rc.corners.push([i, da]);
+  }
+  poi("🏁", "Wyścig: " + rc.name, rc.flag[0], rc.flag[1]);
+}
+let race = null, raceLock = null;
+const RIVAL_NAMES = ["Szybki Zenek", "Turbo Krystian", "Baronowa", "Duch z Mostu", "Kamil 'Bokiem'", "Lewa Noga", "Mała Ola", "Doktor Drift", "Stary Mietek"];
+function raceDialog(rc){
+  const rec = SAVE.records[rc.id];
+  const txt = rc.desc + ".\nTrasa: " + (rc.len / 10000).toFixed(1).replace(".", ",") + " km · " + (rc.laps > 1 ? rc.laps + " okrążenia" : "1 przejazd") +
+    "\nWpisowe: " + fmt(rc.fee) + " · Nagrody: 1. " + fmt(rc.prizes[0]) + "  2. " + fmt(rc.prizes[1]) + "  3. " + fmt(rc.prizes[2]) +
+    "\nTwój rekord: " + (rec ? fmtTime(rec) : "brak");
+  showDialog({ name: "🏁 " + rc.name, item: "🏁" }, txt, [
+    { t: "🏁 Startuję (" + fmt(rc.fee) + ")", pri: true, fn: () => {
+      if (SAVE.money < rc.fee){ closeDialog(); toast("Za mało kasy na wpisowe – brakuje " + fmt(rc.fee - SAVE.money)); return; }
+      closeDialog(); startRace(rc);
+    } },
+    { t: "⏳ Nie teraz", fn: closeDialog }
+  ], "Wyścig uliczny · 3 rywali");
+}
+function fmtTime(t){ const m = Math.floor(t / 60), s = t - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(2).replace(".", ","); }
+function checkRaceFlags(){
+  if (player.mode !== "car" || race){ raceLock = null; return; }
+  const v = player.veh;
+  let near = null;
+  for (const rc of RACES) if (Math.hypot(v.x - rc.flag[0], v.y - rc.flag[1]) < 60) near = rc;
+  if (!near){ raceLock = null; return; }
+  if (raceLock === near || Math.hypot(v.vx, v.vy) > 90) return;
+  raceLock = near;
+  if (mission){ toast(mission.def.taxi ? "Najpierw zakończ kurs taxi" : "Najpierw skończ zlecenie", 2000); return; }
+  if (v.wreck) return;
+  raceDialog(near);
+}
+function routeDir(pts, i){
+  const a = pts[Math.max(0, i)], b = pts[Math.min(pts.length - 1, i + 3)];
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  return [(b[0] - a[0]) / d, (b[1] - a[1]) / d];
+}
+function startRace(rc){
+  SAVE.money -= rc.fee; saveDirty = true;
+  if (taxi.on){ taxi.on = false; lastMode = ""; }
+  const S = rc.pts[0], D = routeDir(rc.pts, 0), N = [-D[1], D[0]];
+  const ang = Math.atan2(D[1], D[0]);
+  const slots = [[50, -24], [50, 24], [125, -24], [125, 24]].map(([b, l]) => [S[0] - D[0] * b + N[0] * l, S[1] - D[1] * b + N[1] * l]);
+  for (let i = vehicles.length - 1; i >= 0; i--){
+    const o = vehicles[i];
+    if (o === player.veh) continue;
+    const dd = Math.hypot(o.x - S[0], o.y - S[1]);
+    if ((o.driver === "ai" && dd < 420) || slots.some(s => Math.hypot(o.x - s[0], o.y - s[1]) < 45)) vehicles.splice(i, 1);
+  }
+  for (let i = peds.length - 1; i >= 0; i--){ const p = peds[i]; if (!p.fixed && slots.some(s => Math.hypot(p.x - s[0], p.y - s[1]) < 40)) peds.splice(i, 1); }
+  const pv = player.veh;
+  pv.x = slots[3][0]; pv.y = slots[3][1]; pv.a = ang; pv.vx = pv.vy = 0; pv.spin = 0; pv.steer = 0;
+  camX = pv.x; camY = pv.y;
+  const names = RIVAL_NAMES.slice().sort(() => Math.random() - 0.5);
+  const racers = [{ veh: pv, me: true, name: "Ty", cpi: 0, done: false, ft: 0 }];
+  for (let k = 0; k < 3; k++){
+    const tp = rc.types[k];
+    const cfg = Object.assign(defaultCfg(tp, pick(PAINT)), { eng: rc.tune, gbx: rc.tune, tires: Math.min(3, rc.tune + 1), susp: 1, armor: 3, stripes: pick(["race", "center", "none"]), rims: pick(["sport", "chrome", "black"]) });
+    const v = makeVehicle(cfg, slots[k][0], slots[k][1], ang);
+    v.driver = "race"; v.temp = true; v.ai = { blockedByPlayer: false };
+    v.rc = { pi: 0, lat: k === 1 ? 18 : -18, latT: 0, flipT: 0, stuckT: 0, revT: 0, skill: rc.skill * (0.95 + Math.random() * 0.1) };
+    v.rc.latT = v.rc.lat;
+    racers.push({ veh: v, me: false, name: names[k], cpi: 0, done: false, ft: 0 });
+  }
+  race = { rc, racers, phase: "count", t: 3.6, time: 0, finished: 0, beep: 4, offT: 0 };
+  popup("🏁 " + rc.name, "#ffb300");
+}
+function raceProgress(r){
+  const rc = race.rc;
+  if (r.done) return 1e9 - r.place;
+  const c = rc.pts[rc.cps[Math.min(r.cpi, rc.cps.length - 1)]];
+  return r.cpi * 1e5 - Math.hypot(r.veh.x - c[0], r.veh.y - c[1]);
+}
+function racePlaces(){ return race.racers.slice().sort((a, b) => raceProgress(b) - raceProgress(a)); }
+function raceInput(v, dt){
+  const inp = v.inp, rc = race ? race.rc : null, R2 = v.rc;
+  inp.thr = inp.brk = inp.hb = inp.nitro = false; inp.steer = 0; inp.hold = false;
+  if (!rc || race.phase === "count" || !R2 || R2.done){ inp.brk = true; inp.hold = true; return inp; }
+  const pts = rc.pts;
+  while (R2.pi < pts.length - 1){
+    const p = pts[R2.pi], q = pts[R2.pi + 1];
+    const sx = q[0] - p[0], sy = q[1] - p[1];
+    if (Math.hypot(p[0] - v.x, p[1] - v.y) < 55 || (p[0] - v.x) * sx + (p[1] - v.y) * sy < 0) R2.pi++;
+    else break;
+  }
+  const D = routeDir(pts, R2.pi), N = [-D[1], D[0]];
+  R2.flipT -= dt;
+  R2.lat += (R2.latT - R2.lat) * Math.min(1, dt * 1.5);
+  const ti = Math.min(pts.length - 1, R2.pi + 2), tp = pts[ti];
+  const tx = tp[0] + N[0] * R2.lat, ty = tp[1] + N[1] * R2.lat;
+  let diff = Math.atan2(ty - v.y, tx - v.x) - v.a;
+  diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  // zakręt przed nami
+  const t = VT[v.type], maxS = t.maxF * (1 + 0.08 * v.cfg.eng) * 0.97;
+  const vc = (rc.ring ? 330 : 172) * R2.skill;
+  let target = maxS * R2.skill;
+  let ci = R2.ci || 0;
+  while (ci < rc.corners.length && rc.corners[ci][0] < R2.pi - 1) ci++;
+  R2.ci = ci;
+  if (ci < rc.corners.length){
+    const c = rc.corners[ci], cp = pts[c[0]];
+    const dTurn = Math.hypot(cp[0] - v.x, cp[1] - v.y), vcc = vc * (c[1] > 1.2 ? 1 : 1.45);
+    target = Math.min(target, Math.sqrt(vcc * vcc + 2 * 560 * Math.max(0, dTurn - 45)));
+  }
+  if (Math.abs(diff) > 0.5) target = Math.min(target, vc * 1.15);
+  // dopasowanie do gracza (lekkie)
+  const me = race.racers[0], mine = race.racers.find(r => r.veh === v);
+  if (mine && !me.done){
+    const gap = raceProgress(mine) - raceProgress(me);
+    if (gap > 2e5) target *= 0.9; else if (gap < -1.5e5) target *= 1.08;
+  }
+  const fx = Math.cos(v.a), fy = Math.sin(v.a);
+  const lim = aheadLimit(v, fx, fy, 110);
+  if (lim < target && R2.flipT <= 0){ R2.latT = R2.latT > 0 ? -26 : 26; R2.flipT = 1.4; }
+  target = Math.min(target, Math.max(lim * 1.3, 40));
+  const sp = v.vx * fx + v.vy * fy;
+  inp.steer = clamp(diff * 2.6, -1, 1);
+  if (R2.revT > 0){
+    R2.revT -= dt; inp.brk = true; inp.steer = -inp.steer; return inp;
+  }
+  if (sp < target - 6) inp.thr = true;
+  else if (sp > target + 18){ inp.brk = true; inp.hold = true; }
+  if (Math.abs(diff) > 0.9 && sp > 140) inp.hb = Math.random() < 0.3;
+  if (sp < 25) R2.stuckT += dt; else R2.stuckT = Math.max(0, R2.stuckT - dt * 2);
+  if (R2.stuckT > 2 && R2.stuckT < 2.1) R2.revT = 1;
+  if (R2.stuckT > 5){
+    const p = pts[R2.pi];
+    if (!onScreen(p[0], p[1], 40) || R2.stuckT > 9){
+      const dd = routeDir(pts, R2.pi);
+      v.x = p[0]; v.y = p[1]; v.a = Math.atan2(dd[1], dd[0]); v.vx = v.vy = 0; v.spin = 0;
+      R2.stuckT = 0;
+    }
+  }
+  return inp;
+}
+function raceBeep(f, d){ if (actx) tone(f, actx.currentTime, d || 0.12, "square", 0.06); }
+function raceUpdate(dt){
+  if (!race) return;
+  const rc = race.rc;
+  if (race.phase === "count"){
+    race.t -= dt;
+    for (const r of race.racers){ r.veh.vx = r.veh.vy = 0; }
+    const n = Math.ceil(race.t);
+    if (n < race.beep && n >= 1 && n <= 3){ race.beep = n; raceBeep(660, 0.15); }
+    if (race.t <= 0.6){ race.phase = "go"; raceBeep(1320, 0.4); }
+    return;
+  }
+  if (race.phase === "end") return;
+  race.time += dt;
+  if (player.mode === "dead") return endRace("Wyścig przegrany – rozbiłeś się.");
+  const me = race.racers[0];
+  if (player.mode !== "car" || player.veh !== me.veh){
+    race.offT += dt;
+    if (race.offT > 6) return endRace("Dyskwalifikacja – opuściłeś auto.");
+  } else race.offT = 0;
+  for (const r of race.racers){
+    if (r.done) continue;
+    if (r.veh.wreck){ if (r.me) return endRace("Twoje auto jest rozbite."); r.done = true; r.dnf = true; r.place = 99; continue; }
+    const ci = rc.cps[r.cpi], c = rc.pts[ci];
+    const pass = r.me ? Math.hypot(r.veh.x - c[0], r.veh.y - c[1]) < rc.r : (r.veh.rc.pi >= ci || Math.hypot(r.veh.x - c[0], r.veh.y - c[1]) < rc.r);
+    if (pass){
+      r.cpi++;
+      if (r.me && r.cpi < rc.cps.length) raceBeep(990, 0.08);
+      if (r.cpi >= rc.cps.length){
+        r.done = true; r.ft = race.time; race.finished++; r.place = race.finished;
+        if (r.me) return finishRace(r.place);
+        else r.veh.rc.done = true;
+      }
+    }
+  }
+}
+function finishRace(place){
+  const rc = race.rc, t = race.time;
+  const prize = rc.prizes[place - 1] || 0;
+  const rec = SAVE.records[rc.id], newRec = !rec || t < rec;
+  if (newRec) SAVE.records[rc.id] = t;
+  if (place === 1) SAVE.stats.wins = (SAVE.stats.wins || 0) + 1;
+  if (prize) addMoney(prize, place + ". MIEJSCE");
+  persist();
+  if (actx){ const a = actx.currentTime; [523, 659, 784, 1047].forEach((f, i) => tone(f, a + i * 0.12, 0.3, "triangle", place === 1 ? 0.12 : 0.07)); }
+  const order = racePlaces().map((r, i) => (i + 1) + ". " + r.name + (r.me ? " ⭐" : ""));
+  const msg = (place === 1 ? "🏆 ZWYCIĘSTWO!" : place <= 3 ? "Miejsce na podium!" : "Tym razem bez nagrody.") +
+    "\nCzas: " + fmtTime(t) + (newRec ? "  · NOWY REKORD!" : "  · rekord: " + fmtTime(rec)) +
+    "\n\n" + order.join("\n");
+  cleanupRace();
+  showDialog({ name: "🏁 " + rc.name, item: place === 1 ? "🏆" : place <= 3 ? "🥈" : "🏁" }, msg, [{ t: "👍 OK", pri: true }],
+    place + ". miejsce" + (prize ? " · +" + fmt(prize) : ""));
+}
+function endRace(msg){
+  popup("✖ " + msg, "#ff4136");
+  toast(msg, 3000);
+  cleanupRace();
+}
+function cleanupRace(){
+  if (!race) return;
+  for (const r of race.racers) if (!r.me){ r.veh.driver = null; r.veh.rc = null; r.veh.ai = null; }
+  raceLock = race.rc; race = null;
+  lastMode = "";
+}
+function raceTarget(){
+  if (!race || race.phase === "end") return null;
+  const me = race.racers[0];
+  if (me.done) return null;
+  return race.rc.pts[race.rc.cps[me.cpi]];
+}
+function drawRaceWorld(inV){
+  // flagi startowe
+  for (const rc of RACES){
+    const [x, y] = rc.flag;
+    if (race || !inV(x, y, 60)) continue;
+    ctx.save(); ctx.translate(x, y);
+    const s = 9;
+    for (let i = -3; i < 3; i++) for (let j = -3; j < 3; j++){ ctx.fillStyle = (i + j) & 1 ? "rgba(20,20,20,.85)" : "rgba(245,245,245,.85)"; ctx.fillRect(i * s, j * s, s, s); }
+    ctx.strokeStyle = "#ffb300"; ctx.lineWidth = 3; ctx.strokeRect(-3 * s, -3 * s, 6 * s, 6 * s);
+    ctx.restore();
+    const yy = y - 46 - Math.abs(Math.sin(gameTime * 3)) * 6;
+    ctx.font = "26px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("🏁", x, yy);
+    ctx.font = "900 12px system-ui, sans-serif"; ctx.fillStyle = "rgba(0,0,0,.6)";
+    const w = ctx.measureText(rc.name).width; ctx.fillRect(x - w / 2 - 6, y + 32, w + 12, 18);
+    ctx.fillStyle = "#ffb300"; ctx.fillText(rc.name, x, y + 41);
+  }
+  if (!race) return;
+  const rc = race.rc, me = race.racers[0];
+  for (let k = 1; k >= 0; k--){
+    const idx = me.cpi + k;
+    if (idx >= rc.cps.length) continue;
+    const c = rc.pts[rc.cps[idx]];
+    if (!inV(c[0], c[1], rc.r + 20)) continue;
+    const fin = idx === rc.cps.length - 1;
+    ctx.globalAlpha = k ? 0.35 : 1;
+    if (fin){
+      ctx.save(); ctx.beginPath(); ctx.arc(c[0], c[1], rc.r * 0.92, 0, Math.PI * 2); ctx.clip();
+      const s = 18;
+      for (let i = -8; i < 8; i++) for (let j = -8; j < 8; j++){ ctx.fillStyle = (i + j) & 1 ? "rgba(20,20,20,.35)" : "rgba(255,255,255,.35)"; ctx.fillRect(c[0] + i * s, c[1] + j * s, s, s); }
+      ctx.restore();
+    }
+    const pr = rc.r * (0.9 + Math.sin(gameTime * 6) * 0.04);
+    ctx.strokeStyle = fin ? "#ffffff" : "#ffb300"; ctx.lineWidth = 7; ctx.setLineDash([24, 14]);
+    ctx.beginPath(); ctx.arc(c[0], c[1], pr, gameTime * 0.8, gameTime * 0.8 + Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = "900 30px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillText(fin ? "META" : String(idx + 1), c[0] + 2, c[1] + 2);
+    ctx.fillStyle = fin ? "#fff" : "#ffb300"; ctx.fillText(fin ? "META" : String(idx + 1), c[0], c[1]);
+    ctx.globalAlpha = 1;
+  }
+  // znaczniki nad rywalami
+  ctx.font = "800 11px system-ui, sans-serif";
+  for (const r of race.racers){
+    if (r.me || r.done || !inV(r.veh.x, r.veh.y, 30)) continue;
+    const pl = racePlaces().indexOf(r) + 1;
+    ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(r.veh.x - 11, r.veh.y - 36, 22, 16);
+    ctx.fillStyle = "#ff6b5e"; ctx.fillText(String(pl), r.veh.x, r.veh.y - 27);
+  }
+}
+function hudArrow(tx, ty, col){
+  const sx2 = W / 2 + (tx - camX) * zoom, sy2 = H / 2 + (ty - camY) * zoom, mg = 40;
+  if (!(sx2 < mg || sx2 > W - mg || sy2 < mg || sy2 > H - mg)) return;
+  const ang = Math.atan2(sy2 - H / 2, sx2 - W / 2), dx = Math.cos(ang), dy = Math.sin(ang);
+  const kx = Math.abs(dx) > 1e-4 ? (W / 2 - mg) / Math.abs(dx) : 1e9, ky = Math.abs(dy) > 1e-4 ? (H / 2 - mg) / Math.abs(dy) : 1e9;
+  const kk = Math.min(kx, ky), ax = W / 2 + dx * kk, ay = H / 2 + dy * kk;
+  ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang);
+  ctx.fillStyle = col || "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-8, -12); ctx.lineTo(-3, 0); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  const pp = playerPos(), dist = Math.round(Math.hypot(tx - pp.x, ty - pp.y) / 10);
+  ctx.font = "900 12px system-ui, sans-serif"; ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(dist + " m", ax - dx * 26 + 1, ay - dy * 26 + 5);
+  ctx.fillStyle = col || "#ffb300"; ctx.fillText(dist + " m", ax - dx * 26, ay - dy * 26 + 4);
+}
+function drawRaceHUD(){
+  if (taxi.on){
+    ctx.font = "900 13px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    const t = "🚕 TAXI · seria x" + taxiMult().toFixed(2).replace(/0$/, "").replace(".", ",") + " · kursy dziś: " + taxi.streak;
+    const w = ctx.measureText(t).width;
+    ctx.fillStyle = "rgba(244,194,13,.9)"; rrect(ctx, 12, H - 182, w + 16, 24, 8); ctx.fill();
+    ctx.fillStyle = "#111"; ctx.fillText(t, 20, H - 165);
+  }
+  if (!race) return;
+  const rc = race.rc, me = race.racers[0];
+  if (race.phase === "count"){
+    const n = Math.ceil(race.t - 0.6);
+    const txt = n >= 1 ? String(n) : "START!";
+    ctx.font = "900 " + Math.round(Math.min(W, H) * 0.22) + "px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillText(txt, W / 2 + 4, H / 2 + 4);
+    ctx.fillStyle = n >= 1 ? "#ffb300" : "#5cd65c"; ctx.fillText(txt, W / 2, H / 2);
+    ctx.textBaseline = "alphabetic";
+  } else if (race.time < 1.2){
+    ctx.font = "900 " + Math.round(Math.min(W, H) * 0.16) + "px system-ui, sans-serif"; ctx.textAlign = "center";
+    ctx.globalAlpha = 1 - race.time / 1.2; ctx.fillStyle = "#5cd65c"; ctx.fillText("START!", W / 2, H / 2); ctx.globalAlpha = 1;
+  }
+  const places = racePlaces(), pos = places.indexOf(me) + 1;
+  const lap = Math.min(rc.laps, Math.floor(me.cpi / (rc.cps.length / rc.laps)) + 1);
+  const lines = ["🏁 " + rc.name, "Pozycja: " + pos + "/4", (rc.laps > 1 ? "Okrążenie: " + lap + "/" + rc.laps + " · " : "") + "Punkt: " + Math.min(me.cpi + 1, rc.cps.length) + "/" + rc.cps.length, "⏱ " + fmtTime(race.time)];
+  if (SAVE.records[rc.id]) lines.push("Rekord: " + fmtTime(SAVE.records[rc.id]));
+  if (race.offT > 0) lines.push("⚠ Wróć do auta! " + Math.ceil(6 - race.offT) + " s");
+  ctx.font = "800 12px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  let bw = 0; for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+  ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, 12, 86, bw + 18, lines.length * 17 + 10, 8); ctx.fill();
+  lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? "#ffb300" : i === 1 ? (pos === 1 ? "#5cd65c" : "#fff") : l.startsWith("⚠") ? "#ff6b5e" : "#fff"; ctx.fillText(l, 21, 105 + i * 17); });
+  ctx.textAlign = "center";
+  const tg = raceTarget();
+  if (tg) hudArrow(tg[0], tg[1]);
+}
+$("jobBtn").addEventListener("click", toggleTaxi);
 
 // =====================================================================
 // START
