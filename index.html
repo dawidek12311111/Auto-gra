@@ -996,14 +996,16 @@ const VT = {
   firetruck:{ len: 74, wid: 27, maxF: 400, acc: 230, mass: 2.6, grip: 6.4, name: "Wóz strażacki", price: 0, steerK: 0.85 },
   garbage:  { len: 66, wid: 27, maxF: 330, acc: 190, mass: 2.8, grip: 6.4, name: "Śmieciarka", price: 0, steerK: 0.85 },
   police:   { len: 46, wid: 22, maxF: 610, acc: 490, mass: 1.25, grip: 8.3, name: "Radiowóz", price: 0 },
-  swat:     { len: 58, wid: 26, maxF: 500, acc: 350, mass: 2.4, grip: 7.4, name: "Opancerzony van", price: 0, steerK: 0.9 }
+  swat:     { len: 58, wid: 26, maxF: 500, acc: 350, mass: 2.4, grip: 7.4, name: "Opancerzony van", price: 0, steerK: 0.9 },
+  bicycle:  { len: 24, wid: 8, maxF: 155, acc: 170, mass: 0.22, grip: 8.6, name: "Rower", price: 400, bike: true, human: true, steerK: 1.2 },
+  skate:    { len: 16, wid: 7, maxF: 120, acc: 140, mass: 0.15, grip: 7.6, name: "Deskorolka", price: 150, bike: true, human: true, steerK: 1.35 }
 };
 for (const k in VT){
   const t = VT[k], r = t.wid / 2, n = Math.max(2, Math.ceil(t.len / t.wid));
   t.offs = [];
   for (let i = 0; i < n; i++) t.offs.push(-(t.len / 2 - r) + (t.len - 2 * r) * i / (n - 1));
 }
-const TYPE_ORDER = ["scooter", "small", "sedan", "taxi", "van", "pickup", "suv", "moto", "muscle", "bus", "limo", "sport"];
+const TYPE_ORDER = ["skate", "bicycle", "scooter", "small", "sedan", "taxi", "van", "pickup", "suv", "moto", "muscle", "bus", "limo", "sport"];
 function pickType(r){
   if (r < 0.045) return "scooter";
   if (r < 0.07) return "moto";
@@ -1531,8 +1533,8 @@ function updateAudio(dt){
   const s = Math.hypot(v.vx, v.vy), mf = VT[v.type].maxF * (1 + 0.08 * v.cfg.eng);
   const span = mf / 5;
   gear = Math.min(4, Math.floor(s / span));
-  const vol = (0.07 + (pin.thr ? 0.07 : 0)) * SET.engineVol / 100 * (v.wreck ? 0 : 1);
-  if (gear > lastGear && pin.thr){ gearClick(); engGain.gain.cancelScheduledValues(t); engGain.gain.setValueAtTime(vol * 0.3, t); }
+  const vol = (0.07 + (pin.thr ? 0.07 : 0)) * SET.engineVol / 100 * (v.wreck || VT[v.type].human ? 0 : 1);
+  if (gear > lastGear && pin.thr && !VT[v.type].human){ gearClick(); engGain.gain.cancelScheduledValues(t); engGain.gain.setValueAtTime(vol * 0.3, t); }
   lastGear = gear;
   const part = (s - gear * span) / span;
   const rpm = gear === 0 ? s / span : 0.35 + 0.65 * part;
@@ -2291,11 +2293,12 @@ function pedVsVehicles(p, isPlayer){
     const sp = Math.hypot(v.vx, v.vy);
     if (sp > 75){
       if (isPlayer){
-        player.foot.hp -= (sp - 60) / 2;
+        player.foot.hp -= (sp - 60) / 2 * (VT[v.type].human ? 0.25 : 1);
         player.foot.kvx = v.vx * 0.8; player.foot.kvy = v.vy * 0.8;
         thud(p.x, p.y);
         if (player.foot.hp <= 0){ player.foot.hp = 0; killPlayer("NIE ŻYJESZ"); }
-      } else {
+      } else if (VT[v.type].human) knockPed(p, v);
+      else {
         killPed(p, v.vx * 0.7, v.vy * 0.7);
         if (v === player.veh && player.mode === "car" && !p.thief) crime(p.cop ? 2 : 1, p.x, p.y);
       }
@@ -2555,7 +2558,7 @@ function update(dt){
   workUpdate(dt);
   railUpdate(dt);
   if (state === "play"){ economy(dt); if (!race) checkGarage(); checkRaceFlags(); taxiUpdate(dt); missionUpdate(dt); raceUpdate(dt); eventsUpdate(dt); }
-  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); }
+  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); }
   managePickups(dt);
   updateFx(dt);
 }
@@ -3212,6 +3215,7 @@ function render(){
   if (player.mode === "foot") drawPed(player.foot, true);
   drawBulletsWorld(inV);
   drawLife2World(inV);
+  drawNatureWorld(inV);
   ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of peds){
     if (p.state === "dead" || !inV(p.x, p.y, 30)) continue;
@@ -3258,6 +3262,7 @@ function render(){
     ctx.fillStyle = "rgba(40,40,40," + (0.42 * p.life / p.max).toFixed(2) + ")";
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
   }
+  drawSky(inV);
   drawWeatherWorld(inV, x0, y0, x1, y1);
   if (dark > 0.02 && dark < 0.98 && WX.gloom < 0.1){
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -4071,6 +4076,7 @@ function checkGarage(){
   if (Math.hypot(v.vx, v.vy) < 90) openGarage(inside);
 }
 function openGarage(g){
+  if (player.veh && player.veh.poop){ player.veh.poop = 0; toast("🧽 Umyto auto z ptasich niespodzianek", 1500); }
   if (police.stars > 0){ clearWanted(null); toast("🎨 Szybkie przemalowanie – policja cię nie rozpoznaje!", 2500); }
   curGarage = g; garageLock = g; state = "garage";
   const v = player.veh;
@@ -5442,6 +5448,8 @@ function drawRaceHUD(){
 // =====================================================================
 const HELMS = ["#c0392b", "#2980b9", "#ecf0f1", "#1a1a1a", "#27ae60", "#f1c40f", "#8e44ad"];
 function drawBike(g, v){
+  if (v.type === "bicycle") return drawBicycle(g, v);
+  if (v.type === "skate") return drawSkate(g, v);
   const t = VT[v.type], hl = t.len / 2, col = v.wreck ? "#2a2a2a" : v.cfg.col, scooter = v.type === "scooter";
   g.fillStyle = "rgba(0,0,0,.3)"; g.beginPath(); g.ellipse(2, 3, hl, 4.5, 0, 0, Math.PI * 2); g.fill();
   const rim = v.wreck ? "#333" : (RIMCOL[v.cfg.rims] || RIMCOL.std);
@@ -6593,6 +6601,7 @@ function spawnFlavor(){
   const h = hourNow(), night = h >= 21 || h < 5, r = Math.random();
   if (r < 0.03 && !vehicles.some(v => v.siren && v.driver === "ai")) return { tp: Math.random() < 0.6 ? "ambulance" : "firetruck", pers: "emerg", siren: true };
   if (h >= 5 && h < 9.5 && r < 0.08) return { tp: "garbage", pers: "slow" };
+  if (r > 0.84 && r <= 0.9 && WX.rain < 0.3 && h > 6 && h < 21) return { tp: "bicycle", pers: "slow" };
   if (SET.police && r > 0.92 && vehicles.filter(v => v.type === "police" && v.driver === "ai").length < 3) return { tp: "police", pers: "normal" };
   const pr = Math.random();
   const pers = pr < (night ? 0.25 : 0.1) ? "pirate" : pr < (night ? 0.33 : 0.25) ? "slow" : "normal";
@@ -9545,6 +9554,782 @@ tryTalk = function(){
   if (p.thief || p.state === "cuffed" || p.state === "gawk" || p.state === "jacking") { showDialog(who(p), pick(["Nie teraz!", "Spadaj!", "Zajęty jestem!"]), [{ t: "👋" }]); return; }
   _tryTalkBase();
 };
+
+// =====================================================================
+// PRZYRODA I GWAR: KOMENTARZE, DZIKIE ZWIERZĘTA, PTAKI, ROWERY, DESKI
+// =====================================================================
+// ---------- 1. bardzo dużo komentarzy w dymkach ----------
+const CHAT = {
+  walk: ["Gdzie ja zostawiłem klucze?", "Muszę kupić chleb…", "Jeszcze tylko pięć minut…", "Ale dziś długi dzień.", "Ciekawe, co na obiad.", "Znowu się spóźnię…",
+    "Mleko, jajka, masło… i co jeszcze?", "Rachunek za prąd! Zapomniałem!", "Ta kawa mnie nie obudziła.", "W piątek urlop, wytrzymaj!", "Hmm, tędy czy tamtędy?",
+    "Ładny ten nowy mural.", "Muszę zadzwonić do mamy.", "Ile to jeszcze do wypłaty?", "Ten autobus nigdy nie jest na czas.", "Kto tu tak parkuje?!",
+    "Pachnie pizzą… nie, dieta!", "Kolejny remont na tej ulicy…", "Zapomniałem parasola, jasne.", "Muszę wreszcie iść do fryzjera.", "Ciekawe, czy zdążę na mecz.",
+    "Ojej, ale ceny w tym kiosku!", "Kiedyś tu był warzywniak…", "Gdzie ja zaparkowałem?", "Szef znowu będzie marudził.", "Weekend, przybywaj!",
+    "Nogi mnie bolą od tego chodzenia.", "Ale tu dziś tłoczno.", "Kto wymyślił poniedziałki?", "Jeszcze apteka i do domu.", "Muszę oddać książkę do biblioteki.",
+    "Ta muzyka z auta… za głośno!", "Pies sąsiadów znowu wył całą noc.", "Wygrałem w zdrapkę dwa złote!", "Ciekawe, co tam u Kaśki.", "Trzeba zrobić pranie…",
+    "Kupię dziś lody. Zasłużyłem.", "Ech, te korki…", "Za dużo kawy, ręce mi drżą.", "Gdzie jest ten sklep, o którym mówili?", "Hej, to chyba nowa kawiarnia!",
+    "Muszę zacząć biegać. Od jutra.", "Mam dziś randkę! Stresik.", "Ta torba waży tonę.", "Słońce, nareszcie!", "Wszystko podrożało, wszystko!",
+    "Gołębie znowu na ławce…", "Jutro egzamin, a ja nic nie umiem.", "Zgubiłem rękawiczkę. Znowu.", "Ciekawe, kto wygra wybory w osiedlowej radzie.", "Kupię kwiaty żonie. Bez okazji.",
+    "Ten kebab był za ostry.", "Kurier miał przyjść między 8 a 20. Super.", "Mam nadzieję, że pociąg nie ma opóźnienia.", "Ta czapka mi nie pasuje…", "Rower mi ukradli w zeszłym tygodniu."],
+  phone: ["📱 Halo? Tak, już idę!", "📱 Nie, nie słyszę cię, tu straszny hałas!", "📱 Mamo, jem, jem, nie martw się.", "📱 Kochanie, kupić coś?", "📱 Szefie, będę za pięć minut… może dziesięć.",
+    "📱 Tak, wysłałem ten mejl. Chyba.", "📱 Serio?! Nie wierzę!", "📱 Co?! Zerwali?!", "📱 Hahaha, no weź!", "📱 Dobra, oddzwonię, pa!", "📱 Nie, nie jestem zainteresowany ofertą.",
+    "📱 Jestem pod dworcem, a ty gdzie?", "📱 Zamów pizzę, zaraz będę.", "📱 Halo? Halo?! Przerywa…", "📱 Ile?! Za naprawę?!", "📱 Kupiłeś bilety na koncert?",
+    "📱 Słuchaj, mam plotkę…", "📱 Nie mów nikomu, ale…", "📱 Tak, pamiętam o urodzinach babci!", "📱 Wyślij lokalizację.", "📱 Bateria mi pada, szybko mów!",
+    "📱 Spóźnię się, korki.", "📱 Pani dzwoni w sprawie fotowoltaiki? Nie, dziękuję!", "📱 No to do zobaczenia w Klubie 24!", "📱 Psa wyprowadziłeś?"],
+  morning: ["Dzień dobry, miasto!", "Kawa. Potrzebuję kawy.", "Kto wstaje tak wcześnie?!", "Spóźnię się do pracy!", "Rześko dziś.", "Ziewam od rana…",
+    "Autobus mi uciekł!", "Śniadanie w biegu, jak zawsze.", "Piekarnia już otwarta, pachnie!", "Poranny spacer, najlepszy.", "Śniło mi się, że wygrałem w lotto…"],
+  night: ["Ale piękna noc.", "Trochę tu ciemno…", "Gdzie jest jakiś nocny sklep?", "Impreza była mega!", "Muszę złapać nocny autobus.", "Słychać bas z Klubu 24.",
+    "Gwiazd nie widać przez te latarnie.", "Hej, ktoś za mną idzie?", "Ostatni kebab i do domu.", "Ale się wytańczyłem!", "Jutro będzie bolało…", "Cisza nocna, panowie!",
+    "Kto o tej porze gra na gitarze?", "Taksówka! A nie, zajęta.", "Księżyc dziś ogromny!"],
+  rain: ["No i leje…", "Parasol mi się wywinął!", "Moje buty! Całe mokre!", "Kałuża! Za późno…", "Przynajmniej trawniki się cieszą.", "Ja to mam szczęście do pogody.",
+    "Taksówki wszystkie zajęte, oczywiście.", "Mokro, zimno, poniedziałek…", "Ochlapał mnie! Kierowca jeden!", "Czekam, aż przestanie.", "Prognoza mówiła: słonecznie."],
+  sunny: ["Ale upał!", "Idealna pogoda na lody.", "Okulary! Gdzie moje okulary?", "Nad rzekę bym poszedł.", "Słońce, wreszcie!", "Zaraz się spalę na raka."],
+  fog: ["Nic nie widać!", "Mgła jak mleko.", "Gdzie jest ta ulica?!", "Upiornie dziś…"],
+  bench: ["Ach, odpocznę chwilę.", "Gołąbki, chodźcie tu.", "Ładnie tu.", "Kiedyś to było…", "Patrz, jak ludzie się spieszą.", "Ławka, książka, spokój.",
+    "Za moich czasów to…", "Słońce grzeje, aż miło.", "Wnuczek miał zadzwonić…", "Ech, młodość…", "Karmię kaczki od czterdziestu lat."],
+  chat: ["I wtedy ona mówi…", "Nie no, przesadzasz!", "Słyszałaś o sąsiadce?", "Byłem wczoraj na koncercie.", "Kupiłem nowy telefon.", "Ceny paliwa, masakra!",
+    "Mój szef to jakiś żart.", "Widziałeś wczoraj mecz?", "Wyjeżdżamy w góry w lipcu.", "Kot mi zjadł kwiatka.", "No i co z tego?", "Haha, dokładnie!", "Mówię ci, szok!",
+    "Ten nowy serial jest super.", "Wiesz, że Marek się żeni?", "A u was jak w pracy?", "Musimy się częściej widywać!", "Weź przestań!", "Ja bym tak nie mógł.",
+    "Ty, a pamiętasz liceum?", "Kupuję mieszkanie! Kredyt na 30 lat…", "Byłeś w tej nowej knajpie?", "Dzieci rosną jak na drożdżach.", "Kiedy grill?",
+    "Ja się zapisałem na siłownię.", "Ile płacisz za czynsz?", "Pies mi zjadł but!", "W sobotę przeprowadzka, pomożesz?"],
+  jog: ["Uff… jeszcze kilometr…", "Nie zatrzymuj się!", "Rekord życiowy!", "Z drogi!", "Ostatnie okrążenie!", "Hej, biegniesz ze mną?", "Woda… potrzebuję wody…"],
+  dog: ["Burek, zostaw to!", "Dobry piesek!", "Nie ciągnij tak!", "Do nogi!", "Nie, nie jemy tego!", "Aport!", "Grzeczny… no prawie.", "Nie szczekaj na pana!"],
+  club: ["Wpuszczą nas?", "Selekcja dziś ostra…", "Jeszcze jeden drink i do domu!", "Gdzie moja kurtka?!", "Ta piosenka to hit!", "Tańczymy do rana!",
+    "Kto płaci za taksówkę?", "Bramkarz mnie nie lubi.", "Haha, widziałeś jego taniec?", "Zaraz zamykają!"],
+  seeCar: ["Ładne auto.", "Uważaj, jak jeździsz!", "Ten to ma bryczkę.", "Wolniej tu, dzieci chodzą!", "Głośny ten wydech…", "Hej, podwieziesz?", "Ładny lakier!"],
+  seeFoot: ["Dzień dobry!", "Cześć!", "Przepraszam…", "Uwaga, przechodzę.", "Ładna kurtka!", "Zgubiłeś się?", "Hej, znamy się?", "Miłego dnia!",
+    "Nie depcz mi po piętach.", "Ojej, sorry!", "Witam, witam!", "Hejka!"],
+  seeBike: ["Ładny rower!", "Ścieżka rowerowa jest obok!", "Dzwonek masz?!", "Uważaj na pieszych!", "Szacun, ekologicznie!", "Kask byś założył!"],
+  seeSkate: ["Ale ollie!", "Deskorolka? Retro!", "Uważaj, bo się wywalisz!", "Nauczysz mnie?", "Szacun, ziomek!", "Nie na chodniku!"],
+  wild: { cat: ["Kici, kici!", "Jaki słodki kotek!", "Patrz, kot!", "Kot sąsiadów znowu ucieka."], boar: ["DZIK!", "Uciekajcie, dzik!", "Dzik w mieście?!", "Nie ruszaj się, to dzik!"],
+    deer: ["Patrz, sarna!", "Ooo, jaka piękna!", "Cicho, bo ucieknie."], stag: ["Ale poroże!", "Jeleń! Prawdziwy!"], moose: ["ŁOŚ?!", "To jest łoś! Zdjęcie, szybko!", "Nie podchodź do łosia!"],
+    fox: ["Lis! Uważaj na kury!", "Rudy lis, ale piękny."], hedgehog: ["Jeżyk! Ojej!", "Uważaj, jeż na drodze!"] }
+};
+const chatter = { t: 1, nearT: 0 };
+function pickChat(p){
+  const h = hourNow(), night = h >= 21 || h < 5, morning = h >= 5 && h < 9;
+  if (p.jog) return pick(CHAT.jog);
+  if (p.dog && peds.includes(p.dog)) return pick(CHAT.dog);
+  if (p.state === "sit") return pick(CHAT.bench);
+  if (p.state === "chat") return pick(CHAT.chat);
+  if (night && CLUB && Math.hypot(p.x - CLUB.x, p.y - CLUB.y) < 350) return pick(CHAT.club);
+  const r = Math.random();
+  if (WX.rain > 0.3 && r < 0.4) return pick(CHAT.rain);
+  if (WX.fog > 0.4 && r < 0.3) return pick(CHAT.fog);
+  if (WX.type === "clear" && !night && r < 0.15) return pick(CHAT.sunny);
+  if (night && r < 0.35) return pick(CHAT.night);
+  if (morning && r < 0.35) return pick(CHAT.morning);
+  if (r < 0.62) return pick(CHAT.phone);
+  return pick(CHAT.walk);
+}
+for (const l of CHAT.chat) SMALLTALK.push(l);
+function chatterUpdate(dt){
+  chatter.t -= dt;
+  if (chatter.t > 0) return;
+  chatter.t = 0.7 + Math.random() * 0.8;
+  const cand = [];
+  for (const p of peds){
+    if (p.kind || p.state === "dead" || p.state === "inside" || p.lying || p.sayT > 0 || p.thief || p.cop) continue;
+    if (!["walk", "sit", "chat", "stand", "cross", "errand", "return"].includes(p.state)) continue;
+    if (!onScreen(p.x, p.y, -10)) continue;
+    cand.push(p);
+  }
+  if (!cand.length) return;
+  const p = pick(cand);
+  if (p.state === "chat") return; // pary mają własne rozmowy
+  say(p, pickChat(p), 2.4);
+  // komentarz o graczu
+  chatter.nearT -= 1;
+  if (chatter.nearT <= 0){
+    const pp = playerPos();
+    for (const q of cand){
+      if (q.sayT > 0 || q.talkedNear) continue;
+      const d = Math.hypot(q.x - pp.x, q.y - pp.y);
+      if (player.mode === "foot" && d < 40){ say(q, pick(CHAT.seeFoot), 2); q.talkedNear = true; chatter.nearT = 3; break; }
+      if (player.mode === "car" && d < 70){
+        const t = player.veh.type;
+        say(q, pick(t === "bicycle" ? CHAT.seeBike : t === "skate" ? CHAT.seeSkate : CHAT.seeCar), 2); q.talkedNear = true; chatter.nearT = 4; break;
+      }
+    }
+  }
+}
+
+// ---------- 2. dzikie zwierzęta ----------
+const WILD = {
+  cat:      { name: "Kot", icon: "🐈", L: 6.5, sp: 45, flee: 60, run: 130, mass: 0, city: true },
+  hedgehog: { name: "Jeż", icon: "🦔", L: 4.5, sp: 12, flee: 0, run: 0, mass: 0, city: true, night: true },
+  boar:     { name: "Dzik", icon: "🐗", L: 11, sp: 30, flee: 0, run: 150, mass: 0.6, col: "#4a3a2c" },
+  fox:      { name: "Lis", icon: "🦊", L: 8, sp: 40, flee: 120, run: 170, mass: 0.1, col: "#d9622b", night: true },
+  deer:     { name: "Sarna", icon: "🦌", L: 14, sp: 22, flee: 150, run: 190, mass: 0.7, col: "#a9744a" },
+  stag:     { name: "Jeleń", icon: "🦌", L: 17, sp: 20, flee: 110, run: 180, mass: 1.1, col: "#7a5234" },
+  moose:    { name: "Łoś", icon: "🫎", L: 23, sp: 16, flee: 0, run: 120, mass: 2.6, col: "#3e2c20" }
+};
+const ALBUM = ["cat", "hedgehog", "boar", "fox", "deer", "stag", "moose", "pigeon", "gull", "goose", "crow"];
+const ALBUM_N = { cat: "Kot", hedgehog: "Jeż", boar: "Dzik", fox: "Lis", deer: "Sarna", stag: "Jeleń", moose: "Łoś", pigeon: "Gołąb", gull: "Mewa", goose: "Gęś", crow: "Wrona" };
+if (!SAVE.album || typeof SAVE.album !== "object") SAVE.album = {};
+const wild = { spawnT: 2, sndT: 0 };
+const isOut = (x, y) => x < GT(0) - 80 || y < GT(0) - 80 || x > GT(MT) + 80 || y > GT(MT) + 80;
+function outPoint(minD, maxD){
+  const pp = playerPos();
+  for (let i = 0; i < 20; i++){
+    const a = Math.random() * Math.PI * 2, d = minD + Math.random() * (maxD - minD), x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d;
+    if (x < 80 || y < 80 || x > WORLD - 80 || y > WORLD - 80 || !isOut(x, y)) continue;
+    if (getGW(x, y) !== G_FIELD || pointBlocked(x, y, 18) || Math.abs(ringDist(x, y)) < RHW + 40) continue;
+    if (onScreen(x, y, 40)) continue;
+    return { x, y };
+  }
+  return null;
+}
+function parkPoint(minD, maxD){
+  const pp = playerPos();
+  const ok = parks.filter(([x, y]) => { const d = Math.hypot(x - pp.x, y - pp.y); return d > minD && d < maxD; });
+  for (let i = 0; i < 6 && ok.length; i++){
+    const [cx, cy] = pick(ok), x = cx + (Math.random() - 0.5) * 300, y = cy + (Math.random() - 0.5) * 300;
+    if (!pointBlocked(x, y, 10) && getGW(x, y) !== G_WATER && !onScreen(x, y, 30)) return { x, y };
+  }
+  return null;
+}
+function makeWild(kind, x, y, extra){
+  const W2 = WILD[kind];
+  const p = makePed(0, 0, 0);
+  Object.assign(p, { x, y, kind, wild: true, home: [x, y], rad: kind === "cat" ? 160 : 260, state: "wander", fixed: false, wt: 0, wa: Math.random() * 6.28, ws: W2.sp,
+    col: W2.col || pick(["#e67e22", "#7f8c8d", "#2c2c2c", "#f0e0c0", "#9c6b3a", "#ffffff"]), calm: 0, hp: 40 + W2.mass * 60 }, extra || {});
+  return p;
+}
+function wildSpawn(dt){
+  wild.spawnT -= dt;
+  if (wild.spawnT > 0) return;
+  wild.spawnT = 2.5;
+  const pp = playerPos(), h = hourNow(), night = h >= 20 || h < 6, dusk = (h >= 18 && h < 21) || (h >= 5 && h < 8);
+  const near = {};
+  for (const p of peds) if (p.wild && p.state !== "dead" && Math.hypot(p.x - pp.x, p.y - pp.y) < 1500) near[p.kind] = (near[p.kind] || 0) + 1;
+  const outNear = isOut(pp.x, pp.y) || pp.x < GT(0) + 700 || pp.y < GT(0) + 700 || pp.x > GT(MT) - 700 || pp.y > GT(MT) - 700;
+  // miasto
+  if ((near.cat || 0) < 4){ const c = cityPoint(350, 1000); if (c) makeWild("cat", c.x, c.y); }
+  if (night && (near.hedgehog || 0) < 2 && Math.random() < 0.4){ const c = parkPoint(300, 1100); if (c) makeWild("hedgehog", c.x, c.y); }
+  if ((near.boar || 0) < (night ? 3 : 1) && Math.random() < (night ? 0.35 : 0.08)){
+    const c = outNear && Math.random() < 0.6 ? outPoint(500, 1100) : parkPoint(400, 1100);
+    if (c){ makeWild("boar", c.x, c.y); if (Math.random() < 0.5) makeWild("boar", c.x + 20, c.y + 12, { young: true }); }
+  }
+  if (!outNear) return;
+  // obrzeża
+  if ((near.deer || 0) < 4 && Math.random() < (dusk ? 0.6 : 0.3)){ const c = outPoint(500, 1100); if (c){ const n = 2 + ((Math.random() * 2) | 0); for (let i = 0; i < n; i++) makeWild("deer", c.x + (Math.random() - 0.5) * 60, c.y + (Math.random() - 0.5) * 60); } }
+  if ((near.stag || 0) < 1 && Math.random() < (dusk ? 0.4 : 0.15)){ const c = outPoint(500, 1100); if (c) makeWild("stag", c.x, c.y); }
+  if ((near.moose || 0) < 1 && Math.random() < 0.07){ const c = outPoint(600, 1100); if (c) makeWild("moose", c.x, c.y); }
+  if ((near.fox || 0) < 1 && Math.random() < (night ? 0.4 : 0.1)){ const c = outPoint(500, 1100); if (c) makeWild("fox", c.x, c.y); }
+}
+const _updAnimalBase = updateAnimal;
+updateAnimal = function(p, dt){
+  if (!p.wild && !p.pet) return _updAnimalBase(p, dt);
+  if (p.emoT > 0) p.emoT -= dt;
+  if (p.sayT > 0) p.sayT -= dt;
+  p.t += dt;
+  if (p.state === "dead"){ p.deadT -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.exp(-4 * dt); p.vy *= Math.exp(-4 * dt); return; }
+  if (p.pet) return petUpdate(p, dt);
+  const W2 = WILD[p.kind], pp = playerPos(), d = Math.hypot(p.x - pp.x, p.y - pp.y);
+  const foot = player.mode === "foot", pv = player.mode === "car" ? player.veh : null, still = foot && !player.foot.moving;
+  let sp = 0, ang = p.a;
+  if (p.calm > 0) p.calm -= dt;
+  if (p.follow > 0){
+    p.follow -= dt;
+    if (foot && d > 22){ ang = Math.atan2(pp.y - p.y, pp.x - p.x); sp = Math.min(140, d * 2); }
+    if (p.follow <= 0) emote(p, "😼", 1.5);
+  } else if (p.charge > 0){
+    p.charge -= dt; ang = Math.atan2(pp.y - p.y, pp.x - p.x); sp = W2.run;
+    if (foot && d < W2.L + 8){
+      p.charge = 0; p.calm = 6; player.foot.hp -= p.kind === "moose" ? 25 : p.kind === "stag" ? 18 : 14;
+      player.foot.kvx = Math.cos(ang) * 260; player.foot.kvy = Math.sin(ang) * 260; thud(pp.x, pp.y); if (SET.shake) shake = Math.max(shake, 8);
+      popup(W2.icon + " " + W2.name + " cię staranował!", "#ff4136");
+      if (player.foot.hp <= 0){ player.foot.hp = 0; killPlayer("STARANOWANY"); }
+      p.fleeT = 2.5;
+    }
+    if (!foot || d > 400) p.charge = 0;
+  } else if (p.fleeT > 0){
+    p.fleeT -= dt; ang = Math.atan2(p.y - pp.y, p.x - pp.x) + Math.sin(p.t * 2) * 0.4; sp = W2.run || 120;
+  } else {
+    const threat = (foot && d < W2.flee && !(still && p.calm > 0)) || (pv && d < W2.flee * 0.8 && Math.hypot(pv.vx, pv.vy) > 30);
+    if (W2.flee && threat && !(p.kind === "cat" && p.fed)){ p.fleeT = 1.5 + Math.random(); if (p.kind !== "cat") wildSound(p, "alarm"); }
+    else if ((p.kind === "boar" && !p.young) || p.kind === "moose" || (p.kind === "stag" && (hourNow() >= 17 || hourNow() < 7))){
+      const aggro = p.kind === "boar" ? 55 : p.kind === "moose" ? 45 : 50;
+      if (foot && d < aggro && p.calm <= 0 && !p.fed && Math.random() < dt * 1.2){ p.charge = 2.2; say(p, p.kind === "boar" ? "CHRUM!" : p.kind === "moose" ? "MUUUH!" : "RRROAAA!", 1.4); wildSound(p, "charge"); crowdReact(p.x, p.y, "😱", 250, false); }
+    }
+    if (!(p.fleeT > 0) && !(p.charge > 0)){
+      p.wt -= dt;
+      if (p.wt <= 0){ p.wt = 1.5 + Math.random() * 3; p.wa = Math.random() * Math.PI * 2; p.ws = Math.random() < 0.45 ? 0 : W2.sp; p.graze = p.ws === 0; }
+      ang = p.wa; sp = p.ws;
+      if (p.kind === "hedgehog" && Math.random() < dt * 0.1) p.wa += (Math.random() - 0.5);
+      const hx = p.home[0] - p.x, hy = p.home[1] - p.y;
+      if (Math.hypot(hx, hy) > p.rad){ ang = Math.atan2(hy, hx); sp = Math.max(sp, W2.sp || 20); }
+    }
+  }
+  p.a = ang; p.moving = sp > 0;
+  const nx = p.x + Math.cos(ang) * sp * dt, ny = p.y + Math.sin(ang) * sp * dt;
+  p.x = nx; p.y = ny;
+  if (pushCircle(p, Math.max(5, W2.L * 0.6))){ p.wa += Math.PI / 2; if (p.fleeT > 0) p.fleeT = 0.3; }
+  if (Math.random() < dt * 0.05) wildSound(p, "idle");
+  wildCollide(p, W2);
+};
+function wildCollide(p, W2){
+  hashQuery(VH, p.x, p.y, 50, TMP_F);
+  for (const v of TMP_F){
+    if (v.wreck || VT[v.type].boat) continue;
+    const sp = Math.hypot(v.vx, v.vy);
+    if (sp < 45) continue;
+    const t = VT[v.type], c = Math.cos(v.a), s = Math.sin(v.a), rx = p.x - v.x, ry = p.y - v.y;
+    if (Math.abs(rx * c + ry * s) > t.len / 2 + W2.L * 0.6 || Math.abs(-rx * s + ry * c) > t.wid / 2 + W2.L * 0.4) continue;
+    const big = W2.mass >= 1;
+    if (W2.mass > 0.2){
+      onVehicleHit(v, sp * (0.6 + W2.mass * 0.5), p.x, p.y, null);
+      const k = big ? 0.25 : 0.65; v.vx *= k; v.vy *= k; v.spin += (Math.random() - 0.5) * W2.mass * 2;
+      if (v === player.veh) popup("💥 Zderzenie z: " + W2.name + "!", "#ff4136");
+    }
+    if (p.kind === "moose" && sp < 260){ p.fleeT = 2; p.calm = 10; say(p, "MUUUH!", 1.5); emote(p, "😠", 2); p.x += c * 18; p.y += s * 18; return; }
+    killPed(p, v.vx * 0.5, v.vy * 0.5); p.deadT = 40;
+    if (v === player.veh){ addRep(-2); crowdReact(p.x, p.y, "😢", 250, false); }
+    return;
+  }
+}
+function wildSound(p, kind){
+  if (!actx) return;
+  const a = att(p.x, p.y);
+  if (a < 0.08) return;
+  const t = actx.currentTime;
+  if (p.kind === "cat"){ if (kind === "idle" || kind === "pet") tone(720, t, 0.35, "sine", 0.05 * a, sfxBus, 520); }
+  else if (p.kind === "boar"){ burst(0.12 * a, 220, 0.25); tone(90, t, 0.25, "sawtooth", 0.05 * a, sfxBus, 70); }
+  else if (p.kind === "stag"){ tone(150, t, 1.1, "sawtooth", 0.07 * a, sfxBus, 70); }
+  else if (p.kind === "moose"){ tone(110, t, 1.4, "sawtooth", 0.08 * a, sfxBus, 60); }
+  else if (p.kind === "fox"){ tone(900, t, 0.15, "square", 0.03 * a, sfxBus, 600); }
+  else if (p.kind === "deer" && kind === "alarm"){ tone(500, t, 0.18, "square", 0.03 * a, sfxBus, 300); }
+}
+const _drawAnimalBase = drawAnimal;
+drawAnimal = function(p){
+  if (p.kind === "cat" || p.kind === "dog") return _drawAnimalBase(p);
+  const W2 = WILD[p.kind];
+  if (!W2) return _drawAnimalBase(p);
+  const L = W2.L * (p.young ? 0.6 : 1), dead = p.state === "dead";
+  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a + (dead ? 1.2 : 0));
+  if (dead) ctx.globalAlpha = 0.85;
+  ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(3, 4, L + 2, L * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+  const sw = p.moving && !dead ? Math.sin(p.t * (p.fleeT > 0 || p.charge > 0 ? 22 : 12)) * L * 0.25 : 0;
+  const col = p.col, dk = shade(col, -0.3);
+  if (p.kind === "hedgehog"){
+    ctx.fillStyle = "#5b4a3a"; ctx.beginPath(); ctx.ellipse(0, 0, L, L * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#3a2e24"; ctx.lineWidth = 0.8;
+    for (let i = 0; i < 10; i++){ const a = Math.PI * 0.6 + i / 9 * Math.PI * 0.8; ctx.beginPath(); ctx.moveTo(Math.cos(a) * L * 0.5, Math.sin(a) * L * 0.5); ctx.lineTo(Math.cos(a) * (L + 2), Math.sin(a) * (L + 2)); ctx.stroke(); }
+    ctx.fillStyle = "#c9a37c"; ctx.beginPath(); ctx.arc(L, 0, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore(); return;
+  }
+  // nogi
+  ctx.fillStyle = dk;
+  const lw = p.kind === "boar" ? 2.6 : 2;
+  for (const [lx, side] of [[L * 0.5, 1], [-L * 0.55, -1]]){ ctx.fillRect(lx + sw * side, -L * 0.42 - 1, lw, 2.5); ctx.fillRect(lx - sw * side, L * 0.42 - 1.5, lw, 2.5); }
+  // ogon
+  if (p.kind === "fox"){ ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(-L - 4, Math.sin(p.t * 4) * 1.5, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(-L - 8, Math.sin(p.t * 4) * 1.5, 1.7, 0, Math.PI * 2); ctx.fill(); }
+  // ciało
+  ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0, L, L * (p.kind === "boar" ? 0.55 : 0.42), 0, 0, Math.PI * 2); ctx.fill();
+  if (p.kind === "deer" || p.kind === "stag"){ ctx.fillStyle = "#f3eadf"; ctx.beginPath(); ctx.arc(-L + 1.5, 0, 2.4, 0, Math.PI * 2); ctx.fill(); }
+  if (p.kind === "boar"){ ctx.fillStyle = dk; ctx.fillRect(-L * 0.6, -1, L * 1.2, 2); if (p.young){ ctx.fillStyle = "rgba(255,230,180,.6)"; ctx.fillRect(-L * 0.6, -2.5, L * 1.2, 1); ctx.fillRect(-L * 0.6, 1.5, L * 1.2, 1); } }
+  if (p.kind === "moose"){ ctx.fillStyle = dk; ctx.beginPath(); ctx.ellipse(L * 0.35, 0, L * 0.35, L * 0.36, 0, 0, Math.PI * 2); ctx.fill(); }
+  // głowa i szyja
+  const hx = L + (p.graze ? L * 0.15 : L * 0.3), hr = p.kind === "moose" ? 4.6 : p.kind === "boar" ? 4.2 : p.kind === "fox" ? 3 : 3.4;
+  if (p.kind === "deer" || p.kind === "stag" || p.kind === "moose"){ ctx.strokeStyle = col; ctx.lineWidth = hr * 1.1; ctx.beginPath(); ctx.moveTo(L * 0.6, 0); ctx.lineTo(hx, 0); ctx.stroke(); }
+  ctx.fillStyle = p.kind === "moose" ? dk : col; ctx.beginPath(); ctx.ellipse(hx, 0, hr * (p.kind === "moose" || p.kind === "fox" ? 1.5 : 1.2), hr, 0, 0, Math.PI * 2); ctx.fill();
+  if (p.kind === "boar"){ ctx.fillStyle = "#2b2018"; ctx.beginPath(); ctx.arc(hx + hr, 0, 2.2, 0, Math.PI * 2); ctx.fill(); if (!p.young){ ctx.fillStyle = "#f0e8d8"; ctx.fillRect(hx + hr - 1, -3, 2.5, 1.2); ctx.fillRect(hx + hr - 1, 1.8, 2.5, 1.2); } }
+  if (p.kind === "fox"){ ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(hx + 2.5, 0, 1.6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(hx - 1, -2); ctx.lineTo(hx - 2, -5.5); ctx.lineTo(hx + 1.5, -2.5); ctx.moveTo(hx - 1, 2); ctx.lineTo(hx - 2, 5.5); ctx.lineTo(hx + 1.5, 2.5); ctx.fill(); }
+  if (p.kind === "deer"){ ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(hx - 2, -3.6, 2.2, 1.1, -0.5, 0, Math.PI * 2); ctx.ellipse(hx - 2, 3.6, 2.2, 1.1, 0.5, 0, Math.PI * 2); ctx.fill(); }
+  // poroże
+  if (p.kind === "stag"){
+    ctx.strokeStyle = "#e3d2b0"; ctx.lineWidth = 1.3; ctx.lineCap = "round";
+    for (const s of [-1, 1]){ ctx.beginPath(); ctx.moveTo(hx - 1, s * 2); ctx.lineTo(hx - 4, s * 9); ctx.lineTo(hx - 9, s * 12); ctx.moveTo(hx - 3, s * 6); ctx.lineTo(hx + 2, s * 9); ctx.moveTo(hx - 5, s * 10); ctx.lineTo(hx - 3, s * 14); ctx.stroke(); }
+  }
+  if (p.kind === "moose"){
+    ctx.fillStyle = "#cdb48c";
+    for (const s of [-1, 1]){ ctx.beginPath(); ctx.moveTo(hx - 3, s * 3); ctx.quadraticCurveTo(hx - 6, s * 14, hx - 13, s * 15); ctx.lineTo(hx - 9, s * 10); ctx.lineTo(hx - 4, s * 4); ctx.fill(); }
+  }
+  ctx.restore();
+};
+// ---------- rozmowy ze zwierzętami ----------
+const BIGWILD = { deer: 1, stag: 1, moose: 1, fox: 1, boar: 1 };
+function photoAnimal(kind, label){
+  const first = !SAVE.album[kind];
+  SAVE.album[kind] = (SAVE.album[kind] || 0) + 1; saveDirty = true;
+  camFlash = 0.8; if (actx) burst(0.15, 3000, 0.08, "highpass");
+  const have = ALBUM.filter(k => SAVE.album[k]).length;
+  if (first){ addMoney({ moose: 150, stag: 80, fox: 60, boar: 50, deer: 50, hedgehog: 40, goose: 40, gull: 30, cat: 20, pigeon: 15 }[kind] || 30, "NOWY GATUNEK"); popup("📷 Album przyrody: " + have + "/" + ALBUM.length + " – " + (label || ALBUM_N[kind]), "#9fe39f"); }
+  else if (Math.random() < 0.4) addMoney(5 + Math.random() * 10, "LAJKI ZA ZDJĘCIE");
+  if (have === ALBUM.length && first){ addMoney(500, "KOMPLET ALBUMU!"); toast("🏆 Album przyrody kompletny! Prawdziwy z ciebie przyrodnik.", 4000); }
+  return have;
+}
+function animalDialog(p){
+  const W2 = WILD[p.kind] || { name: "Kot", icon: "🐈" };
+  const w = { name: W2.name + (p.young ? " (młody)" : ""), item: p.kind === "cat" && p.fed ? "😺" : W2.icon };
+  const pp = playerPos(), d = Math.hypot(p.x - pp.x, p.y - pp.y);
+  const ch = [{ t: "📸 Zrób zdjęcie", fn: () => {
+    const n = photoAnimal(p.kind);
+    if (BIGWILD[p.kind] && Math.random() < 0.5){ p.fleeT = 2; showDialog(w, "Pstryk! Migawka spłoszyła zwierzę.\n\n📷 Album przyrody: " + n + "/" + ALBUM.length, [{ t: "📷" }]); }
+    else showDialog(w, "Pstryk! Piękne ujęcie.\n\n📷 Album przyrody: " + n + "/" + ALBUM.length, [{ t: "📷" }]);
+  } }];
+  let text = "";
+  if (p.kind === "cat"){
+    text = p.fed ? "Kot mruczy i ociera się o twoje nogi. Chyba cię polubił." : pick(["Kot przygląda ci się podejrzliwie.", "Kot siedzi i myje łapkę. Udaje, że cię nie widzi.", "Miau? Kot czeka, co zrobisz."]);
+    ch.push({ t: "🤲 Pogłaszcz", fn: () => {
+      if (p.fed || Math.random() < 0.55){ emote(p, "😻", 2); wildSound(p, "pet"); heal(5); addRep(0); showDialog(w, "Mrrrrr… Kot mruczy jak traktor. (+5 zdrowia)", [{ t: "😊" }]); }
+      else { player.foot.hp -= 3; emote(p, "😾", 2); p.fleeT = 1.5; showDialog(w, "Psssst! Kot cię podrapał i uciekł. Auć!", [{ t: "🩹" }]); }
+    } });
+    ch.push({ t: "🐟 Daj kiełbaskę ($2)", fn: () => {
+      if (SAVE.money < 2){ showDialog(w, "Nie masz nawet na kiełbaskę. Kot patrzy z pogardą.", [{ t: "😿" }]); return; }
+      SAVE.money -= 2; saveDirty = true; p.fed = true; p.follow = 90; p.calm = 99; emote(p, "😻", 3); wildSound(p, "pet");
+      showDialog(w, "Kot pałaszuje kiełbaskę i teraz chodzi za tobą krok w krok!", [{ t: "🐈" }]);
+    } });
+    if (p.fed && !SAVE.pet) ch.push({ t: "🏠 Przygarnij kota", pri: true, fn: () => {
+      const name = pick(["Mruczek", "Filemon", "Puszek", "Kicia", "Gacek", "Rudy", "Behemot", "Tygrys", "Pusia", "Klakier"]);
+      SAVE.pet = { kind: "cat", name, col: p.col }; persist();
+      const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1);
+      petEnsure(true);
+      showDialog({ name, item: "😺" }, "Od dziś to twój kot! " + name + " będzie chodzić za tobą, kiedy jesteś pieszo. Pogłaszcz go czasem (💬).", [{ t: "💛" }]);
+      addRep(2);
+    } });
+  } else if (p.kind === "hedgehog"){
+    text = "Jeż węszy w trawie i prycha cichutko: „fuk, fuk”.";
+    ch.push({ t: "🤲 Pogłaszcz", fn: () => { player.foot.hp -= 1; showDialog(w, "Auć! Kolce! Ale jeż chyba się nie gniewa.", [{ t: "🦔" }]); } });
+    ch.push({ t: "🍎 Daj jabłko", fn: () => { emote(p, "😋", 2); addRep(1); showDialog(w, "Jeż chrupie jabłko. Mlask, mlask. Uroczy!", [{ t: "🥰" }]); } });
+  } else if (p.kind === "boar"){
+    text = p.young ? "Mały warchlak w paski! Gdzieś blisko musi być mama…" : "Dzik patrzy na ciebie i groźnie chrząka. Lepiej uważać.";
+    ch.push({ t: "🍎 Rzuć mu jabłko", fn: () => { p.fed = true; p.calm = 60; p.wa = Math.random() * 6; emote(p, "😋", 2); showDialog(w, "Dzik zajada jabłko i przestaje się tobą interesować.", [{ t: "😅" }]); } });
+    ch.push({ t: "👋 Przegoń go!", fn: () => {
+      closeDialog();
+      if (Math.random() < 0.5 || p.young){ p.fleeT = 3; say(p, "Chrum!", 1); popup("🐗 Dzik uciekł do krzaków", "#9fe39f"); addRep(1); }
+      else { p.charge = 2.5; p.calm = 0; say(p, "CHRUM!!", 1.4); wildSound(p, "charge"); }
+    } });
+  } else if (p.kind === "deer"){
+    text = d > 70 ? "Sarna podnosi głowę i strzyże uszami. Jeszcze nie ucieka…" : "Sarna stoi zaskakująco blisko. Patrzy na ciebie wielkimi oczami.";
+    ch.push({ t: "🍎 Podejdź z jabłkiem", fn: () => {
+      if (Math.random() < 0.35){ p.calm = 30; emote(p, "🥰", 3); heal(10); addRep(2); showDialog(w, "Sarna ostrożnie bierze jabłko z ręki! Niesamowite przeżycie. (+10 zdrowia)", [{ t: "🥹" }]); }
+      else { p.fleeT = 3; wildSound(p, "alarm"); showDialog(w, "Sarna szczeka ostrzegawczo i ucieka w podskokach!", [{ t: "🌾" }]); }
+    } });
+  } else if (p.kind === "stag"){
+    text = "Ogromny jeleń z koroną poroża. Para bucha mu z nozdrzy.";
+    ch.push({ t: "📣 Zaryknij jak jeleń", fn: () => {
+      wildSound(p, "charge");
+      if (Math.random() < 0.4){ p.charge = 2.4; closeDialog(); say(p, "RRROAAA!", 1.5); popup("🦌 Jeleń przyjął wyzwanie!", "#ff4136"); }
+      else { say(p, "Rrroaaa…", 1.5); showDialog(w, "Jeleń odpowiada potężnym rykiem! Ciarki na plecach.", [{ t: "😮" }]); addRep(1); }
+    } });
+  } else if (p.kind === "moose"){
+    text = "ŁOŚ. Ogromny. Spokojnie przeżuwa liście i chyba w ogóle się ciebie nie boi.";
+    ch.push({ t: "🤲 Pogłaszcz łosia", fn: () => {
+      if (Math.random() < 0.4){ emote(p, "😌", 2); heal(15); addRep(2); showDialog(w, "Łoś pozwolił się pogłaskać! Nikt ci nie uwierzy. (+15 zdrowia)", [{ t: "🫎" }]); }
+      else { player.foot.hp -= 20; p.calm = 0; p.fleeT = 1; const a = Math.atan2(player.foot.y - p.y, player.foot.x - p.x); player.foot.kvx = Math.cos(a) * 300; player.foot.kvy = Math.sin(a) * 300; thud(p.x, p.y); showDialog(w, "ŁUP! Łoś kopnął cię kopytem. Szacunek dla natury… (-20 zdrowia)", [{ t: "🤕" }]); if (player.foot.hp <= 0){ player.foot.hp = 0; closeDialog(); killPlayer("KOPNIĘTY PRZEZ ŁOSIA"); } }
+    } });
+  } else if (p.kind === "fox"){
+    text = "Rudy lis zatrzymał się i przechyla łebek. Bardzo sprytne spojrzenie.";
+    ch.push({ t: "🍗 Rzuć coś do jedzenia", fn: () => { p.calm = 20; emote(p, "😋", 2); showDialog(w, "Lis łapie kąsek w locie i znika w zaroślach… po chwili wraca po więcej!", [{ t: "🦊" }]); p.follow = 20; } });
+  }
+  ch.push({ t: "👋 Zostaw", fn: closeDialog });
+  if (!BIGWILD[p.kind] || p.kind === "boar") p.calm = Math.max(p.calm || 0, 3);
+  showDialog(w, text, ch, "📷 Album przyrody: " + ALBUM.filter(k => SAVE.album[k]).length + "/" + ALBUM.length);
+}
+// ---------- zwierzak gracza ----------
+let petPed = null;
+function petEnsure(force){
+  if (!SAVE.pet) return;
+  if (player.mode !== "foot"){ if (petPed && peds.includes(petPed)){ const i = peds.indexOf(petPed); peds.splice(i, 1); } petPed = null; return; }
+  if (petPed && peds.includes(petPed) && petPed.state !== "dead") return;
+  const f = player.foot;
+  petPed = makePed(0, 0, 0);
+  Object.assign(petPed, { x: f.x - 14, y: f.y + 8, kind: "cat", pet: true, fixed: true, col: SAVE.pet.col, name: SAVE.pet.name, state: "pet", t: 0 });
+}
+function petUpdate(p, dt){
+  const f = player.foot, d = Math.hypot(f.x - p.x, f.y - p.y);
+  if (p.stay){ p.moving = false; return; }
+  if (d > 26){ const a = Math.atan2(f.y - p.y, f.x - p.x); const sp = Math.min(170, d * 2.5); p.x += Math.cos(a) * sp * dt; p.y += Math.sin(a) * sp * dt; p.a = a; p.moving = true; }
+  else { p.moving = false; if (Math.random() < dt * 0.2) p.a += (Math.random() - 0.5); }
+  if (d > 400){ p.x = f.x - 14; p.y = f.y + 8; }
+  pushCircle(p, 5);
+  if (Math.random() < dt * 0.02){ say(p, pick(["Miau!", "Mrrr…", "Miaaau?", "Prrr…"]), 1.4); wildSound(p, "idle"); }
+}
+function petDialog(p){
+  const w = { name: SAVE.pet.name, item: "😺" };
+  showDialog(w, pick([SAVE.pet.name + " patrzy na ciebie z miłością… albo czeka na jedzenie.", SAVE.pet.name + " ociera się o twoją nogę.", SAVE.pet.name + " mruczy głośno."]), [
+    { t: "🤲 Pogłaszcz", fn: () => { emote(p, "😻", 2); wildSound(p, "pet"); if (!(wild.petT > gameTime)){ wild.petT = gameTime + 60; heal(10); } showDialog(w, "Mrrrrr… (+10 zdrowia, raz na minutę)", [{ t: "💛" }]); } },
+    { t: p.stay ? "🐾 Chodź ze mną" : "✋ Zostań tutaj", fn: () => { p.stay = !p.stay; closeDialog(); say(p, p.stay ? "Miau." : "Miau!", 1.2); } },
+    { t: "📸 Zdjęcie z kotem", fn: () => { camFlash = 0.8; if (actx) burst(0.15, 3000, 0.08, "highpass"); addMoney(5, "LAJKI"); showDialog(w, "Najsłodsze zdjęcie w internecie. 💛", [{ t: "📱" }]); } },
+    { t: "👋 Pa, " + SAVE.pet.name, fn: closeDialog }
+  ], "Twój kot");
+}
+
+// ---------- 3. ptaki ----------
+const birds = [], flocks = [];
+const bird = { spawnT: 1, flyT: 20, poopT: 30 };
+const PIGEON_SPOTS = [];
+(function(){
+  const rb = blockC(1, 1); PIGEON_SPOTS.push([rb[0], rb[1] + 90], [rb[0] - 120, rb[1] + 160]);
+  parks.forEach(([x, y]) => PIGEON_SPOTS.push([x + 60, y + 60]));
+  const st = RSTATIONS[0]; if (st) PIGEON_SPOTS.push([st.x + 60, st.y + 40]);
+  for (const b of BENCHES) if (Math.random() < 0.25) PIGEON_SPOTS.push([b.x + 20, b.y + 10]);
+})();
+function birdsUpdate(dt){
+  const pp = playerPos();
+  bird.spawnT -= dt;
+  if (bird.spawnT <= 0){
+    bird.spawnT = 3;
+    for (const s of PIGEON_SPOTS){
+      const d = Math.hypot(s[0] - pp.x, s[1] - pp.y);
+      if (d > 1100 || d < 250 && onScreen(s[0], s[1], 0)) continue;
+      if (birds.some(b => b.home === s)) continue;
+      if (Math.random() > 0.5) continue;
+      const n = 4 + ((Math.random() * 6) | 0);
+      for (let i = 0; i < n; i++){ const a = Math.random() * Math.PI * 2, r = Math.random() * 40; birds.push({ home: s, x: s[0] + Math.cos(a) * r, y: s[1] + Math.sin(a) * r, z: 0, a: Math.random() * 6.28, vx: 0, vy: 0, vz: 0, st: "ground", t: Math.random() * 5, kind: pick(["pigeon", "pigeon", "pigeon", "sparrow"]), col: pick(["#8e9aa6", "#9aa3ad", "#6c7680", "#b9c0c7", "#7d6a5a"]) }); }
+    }
+    for (let i = birds.length - 1; i >= 0; i--){ const b = birds[i]; if (Math.hypot(b.x - pp.x, b.y - pp.y) > 1500) birds.splice(i, 1); }
+  }
+  // stada w powietrzu
+  bird.flyT -= dt;
+  if (bird.flyT <= 0){
+    bird.flyT = 25 + Math.random() * 30;
+    const h = hourNow(), r = Math.random();
+    const kind = r < 0.3 ? "goose" : r < 0.6 && Math.abs(pp.x - (RX0 + RX1) / 2) < 900 ? "gull" : (h > 16 || h < 8) ? "crow" : "swallow";
+    const a = Math.random() * Math.PI * 2, sx = pp.x - Math.cos(a) * 900, sy = pp.y - Math.sin(a) * 700;
+    const n = kind === "goose" ? 7 + ((Math.random() * 6) | 0) : kind === "gull" ? 3 : 5 + ((Math.random() * 6) | 0);
+    const f = { kind, x: sx, y: sy, a: a + (Math.random() - 0.5) * 0.6, sp: kind === "goose" ? 95 : kind === "gull" ? 70 : 110, n, t: 0, z: 140 + Math.random() * 60, hT: 2 };
+    flocks.push(f);
+  }
+  for (let i = flocks.length - 1; i >= 0; i--){
+    const f = flocks[i]; f.t += dt;
+    if (f.kind === "gull") f.a += dt * 0.35; else if (f.kind === "crow" || f.kind === "swallow") f.a += Math.sin(f.t * 0.7) * dt * 0.5;
+    f.x += Math.cos(f.a) * f.sp * dt; f.y += Math.sin(f.a) * f.sp * dt;
+    f.hT -= dt;
+    if (f.hT <= 0 && actx){
+      f.hT = 0.6 + Math.random() * 1.5;
+      const at = att(f.x, f.y) * 0.8, t = actx.currentTime;
+      if (at > 0.05){
+        if (f.kind === "goose"){ tone(420, t, 0.12, "square", 0.03 * at, cityBus, 360); tone(400, t + 0.16, 0.12, "square", 0.03 * at, cityBus, 340); }
+        else if (f.kind === "gull") tone(1200, t, 0.4, "sine", 0.03 * at, cityBus, 800);
+        else if (f.kind === "crow"){ burst(0.04 * at, 900, 0.18); }
+        else tone(3000, t, 0.06, "sine", 0.02 * at, cityBus, 3600);
+      }
+    }
+    if (f.t > 40 || (f.kind === "gull" && f.t > 30)) flocks.splice(i, 1);
+    // ptasia niespodzianka
+    if (player.mode === "car" && !VT[player.veh.type].human){
+      const v = player.veh;
+      bird.poopT -= dt;
+      if (bird.poopT <= 0 && Math.hypot(f.x - v.x, f.y - v.y) < 60){
+        bird.poopT = 60 + Math.random() * 60;
+        if (Math.random() < 0.5){ v.poop = Math.min(6, (v.poop || 0) + 1); popup(pick(["💩 Ptak trafił w twoją szybę!", "💩 Bombardowanie z powietrza!", "💩 Ptasia niespodzianka na dachu!"]), "#d7ccc8"); if (actx) burst(0.06, 600, 0.06); }
+      }
+    }
+  }
+  // gołębie na ziemi
+  const f0 = player.mode === "foot" ? player.foot : null;
+  for (const b of birds){
+    b.t += dt;
+    if (b.st === "ground"){
+      let scare = false;
+      if (f0 && Math.hypot(f0.x - b.x, f0.y - b.y) < (b.fed > 0 ? 18 : 55) && f0.moving) scare = true;
+      if (!scare){ hashQuery(VH, b.x, b.y, 90, TMP_P); for (const v of TMP_P) if (Math.hypot(v.vx, v.vy) > 40 && Math.hypot(v.x - b.x, v.y - b.y) < 90){ scare = true; break; } }
+      if (!scare && (bullets.length || grenades.length)) for (const q of bullets) if (Math.hypot(q.x - b.x, q.y - b.y) < 220){ scare = true; break; }
+      if (!scare) for (const p of peds) if (p.kind && p.kind !== "hedgehog" && p.state !== "dead" && Math.hypot(p.x - b.x, p.y - b.y) < 40){ scare = true; break; }
+      if (scare){ takeOff(b); continue; }
+      if (b.fed > 0 && f0){ b.fed -= dt; const d = Math.hypot(f0.x - b.x, f0.y - b.y); if (d > 22){ const a = Math.atan2(f0.y - b.y, f0.x - b.x); b.x += Math.cos(a) * 40 * dt; b.y += Math.sin(a) * 40 * dt; b.a = a; } }
+      else if (Math.random() < dt * 0.8){ b.a += (Math.random() - 0.5) * 2; b.hop = 0.25; }
+      if (b.hop > 0){ b.hop -= dt; b.x += Math.cos(b.a) * 22 * dt; b.y += Math.sin(b.a) * 22 * dt; }
+    } else {
+      b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
+      b.vz -= dt * 18; if (b.z > 80) b.vz = Math.min(b.vz, 0);
+      b.flyT -= dt;
+      if (b.flyT <= 0){
+        const tx = b.home[0] + (Math.random() - 0.5) * 80, ty = b.home[1] + (Math.random() - 0.5) * 80, a = Math.atan2(ty - b.y, tx - b.x), d = Math.hypot(tx - b.x, ty - b.y);
+        b.vx += (Math.cos(a) * 90 - b.vx) * dt; b.vy += (Math.sin(a) * 90 - b.vy) * dt; b.a = Math.atan2(b.vy, b.vx);
+        if (d < 30){ b.vz = -40; if (b.z <= 2){ b.z = 0; b.st = "ground"; b.vx = b.vy = 0; } }
+        else b.vz = Math.max(b.vz, 0) + (b.z < 40 ? 20 * dt : 0);
+      }
+      if (b.z < 0) b.z = 0;
+    }
+  }
+}
+function takeOff(b){
+  b.st = "fly"; const a = Math.random() * Math.PI * 2; b.vx = Math.cos(a) * 120; b.vy = Math.sin(a) * 120; b.vz = 70; b.flyT = 4 + Math.random() * 5; b.a = a;
+  if (actx && Math.random() < 0.3){ const at = att(b.x, b.y); if (at > 0.1) burst(0.05 * at, 1600, 0.25); }
+}
+function drawBirdShape(x, y, a, s, flap, col){
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.strokeStyle = col; ctx.lineWidth = 1.6 * s; ctx.lineCap = "round";
+  const w = 6 * s, f = flap * 3 * s;
+  ctx.beginPath(); ctx.moveTo(-1 * s, -w); ctx.quadraticCurveTo(2 * s + f, -w * 0.4, 1 * s, 0); ctx.quadraticCurveTo(2 * s + f, w * 0.4, -1 * s, w); ctx.stroke();
+  ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0, 3.2 * s, 1.3 * s, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawGroundBirds(inV){
+  for (const b of birds){
+    if (b.st !== "ground" || !inV(b.x, b.y, 10)) continue;
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a);
+    const s = b.kind === "sparrow" ? 0.7 : 1, peck = Math.sin(b.t * 6 + b.x) > 0.6 ? 1 : 0;
+    ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.beginPath(); ctx.ellipse(1, 1.5, 3.5 * s, 2 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = b.col; ctx.beginPath(); ctx.ellipse(0, 0, 3.4 * s, 2.1 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = b.kind === "sparrow" ? "#5a4636" : "#5a6470"; ctx.beginPath(); ctx.arc(3 * s + peck, 0, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+    if (b.kind === "pigeon"){ ctx.fillStyle = "rgba(120,200,140,.6)"; ctx.fillRect(1.6 * s, -1, 1, 2); }
+    ctx.restore();
+  }
+}
+function drawSky(inV){
+  // gołębie w powietrzu
+  for (const b of birds){
+    if (b.st !== "fly" || !inV(b.x, b.y, 30)) continue;
+    ctx.fillStyle = "rgba(0,0,0,.15)"; ctx.beginPath(); ctx.ellipse(b.x + b.z * 0.25, b.y + b.z * 0.4, 3, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+    drawBirdShape(b.x, b.y, b.a, b.kind === "sparrow" ? 0.7 : 1, Math.sin(b.t * 30), b.col);
+  }
+  // stada
+  for (const f of flocks){
+    for (let i = 0; i < f.n; i++){
+      let ox, oy;
+      if (f.kind === "goose"){ const k = Math.ceil(i / 2), sd = i % 2 ? 1 : -1; ox = -k * 16; oy = sd * k * 12; }
+      else if (f.kind === "gull"){ ox = Math.cos(i * 2.1 + f.t * 0.3) * 60; oy = Math.sin(i * 2.1 + f.t * 0.3) * 60; }
+      else { ox = Math.cos(i * 1.7 + f.t) * 26 - i * 4; oy = Math.sin(i * 2.3 + f.t * 1.3) * 22; }
+      const c = Math.cos(f.a), s = Math.sin(f.a), x = f.x + ox * c - oy * s, y = f.y + ox * s + oy * c;
+      if (!inV(x, y, 40)) continue;
+      const sc = f.kind === "goose" ? 1.8 : f.kind === "gull" ? 1.6 : f.kind === "crow" ? 1.3 : 0.9;
+      const col = f.kind === "goose" ? "#5b5148" : f.kind === "gull" ? "#f2f2f2" : f.kind === "crow" ? "#151515" : "#1f2a3a";
+      ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.beginPath(); ctx.ellipse(x + f.z * 0.25, y + f.z * 0.4, 3 * sc, 1.5 * sc, 0, 0, Math.PI * 2); ctx.fill();
+      drawBirdShape(x, y, f.a, sc, Math.sin(f.t * (f.kind === "gull" ? 4 : 12) + i), col);
+    }
+  }
+}
+function nearFlock(){
+  if (player.mode !== "foot") return null;
+  const f = player.foot;
+  let best = null, bd = 50;
+  for (const b of birds){ if (b.st !== "ground") continue; const d = Math.hypot(b.x - f.x, b.y - f.y); if (d < bd){ bd = d; best = b; } }
+  return best;
+}
+function pigeonDialog(b){
+  const flock = birds.filter(q => q.home === b.home && q.st === "ground");
+  const w = { name: "Gołębie", item: "🐦" };
+  showDialog(w, pick(["Gruchu, gruchu… Gołębie dreptają wokół twoich butów.", "Stado gołębi przygląda ci się wyczekująco.", "Gołąb z jedną nogą patrzy na ciebie oskarżycielsko."]), [
+    { t: "🍞 Nakarm bułką ($1)", pri: true, fn: () => {
+      if (SAVE.money < 1){ showDialog(w, "Nie masz nawet złotówki. Gołębie odwracają się plecami.", [{ t: "😅" }]); return; }
+      SAVE.money -= 1; saveDirty = true; for (const q of flock) q.fed = 20; heal(3);
+      showDialog(w, "Gołębie zlatują się z każdej strony! Masz wokół siebie małe, gruchające tornado. (+3 zdrowia, relaks)", [{ t: "🥰" }]);
+    } },
+    { t: "👟 Tupnij i przegoń", fn: () => { closeDialog(); for (const q of flock) takeOff(q); crowdReact(b.x, b.y, "😂", 150, false); } },
+    { t: "📸 Zdjęcie", fn: () => { const n = photoAnimal(b.kind === "sparrow" ? "pigeon" : "pigeon"); showDialog(w, "Fotka z gołębiami. Klasyk!\n\n📷 Album przyrody: " + n + "/" + ALBUM.length, [{ t: "📷" }]); } },
+    { t: "👋 Idź dalej", fn: closeDialog }
+  ]);
+}
+function skyPhoto(){
+  // zdjęcie stada (mewy, gęsi) – gdy są nad głową
+  const pp = playerPos();
+  for (const f of flocks){ if (f.kind !== "swallow" && Math.hypot(f.x - pp.x, f.y - pp.y) < 220) return f; }
+  return null;
+}
+
+// ---------- 4. rowery i deskorolki ----------
+function drawBicycle(g, v){
+  const t = VT.bicycle, hl = t.len / 2, col = v.wreck ? "#333" : v.cfg.col, sp = Math.hypot(v.vx, v.vy);
+  g.fillStyle = "rgba(0,0,0,.25)"; g.beginPath(); g.ellipse(2, 3, hl, 3.5, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#151515"; rrect(g, -hl, -1.2, 8, 2.4, 1.2); g.fill();
+  g.save(); g.translate(hl - 4, 0); g.rotate(v.steer * 0.5); rrect(g, -4, -1.2, 8, 2.4, 1.2); g.fill(); g.restore();
+  g.fillStyle = col; g.fillRect(-hl + 4, -1, t.len - 8, 2);
+  g.fillStyle = "#222"; g.fillRect(-3, -1.6, 4, 3.2);
+  if (v.cfg.cityBike){ g.fillStyle = "#c5e1a5"; rrect(g, hl - 5, -3, 4, 6, 1); g.fill(); }
+  g.save(); g.translate(hl - 5, 0); g.rotate(v.steer * 0.4); g.strokeStyle = "#444"; g.lineWidth = 1.3; g.beginPath(); g.moveTo(0, -5); g.lineTo(0, 5); g.stroke(); g.restore();
+  if (v.driver && !v.wreck){
+    const jac = v.driver === "player" ? SAVE.outfit.col : v.rider, ped = Math.sin(gameTime * (4 + sp * 0.06)) * (sp > 5 ? 2.2 : 0);
+    g.fillStyle = "#2a2a30"; g.fillRect(-1 + ped, -3.2, 4, 1.6); g.fillRect(-1 - ped, 1.6, 4, 1.6);
+    g.strokeStyle = jac; g.lineWidth = 1.8; g.lineCap = "round";
+    g.beginPath(); g.moveTo(-1, -3.5); g.lineTo(hl - 5.5, -4.5); g.moveTo(-1, 3.5); g.lineTo(hl - 5.5, 4.5); g.stroke();
+    g.fillStyle = jac; g.beginPath(); g.ellipse(-2.5, 0, 3.6, 5.2, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = v.driver === "player" ? SAVE.outfit.hair : v.helm; g.beginPath(); g.arc(-1.5, 0, 3.2, 0, Math.PI * 2); g.fill();
+  }
+}
+function drawSkate(g, v){
+  const t = VT.skate, hl = t.len / 2, col = v.wreck ? "#333" : v.cfg.col, sp = Math.hypot(v.vx, v.vy);
+  g.fillStyle = "rgba(0,0,0,.25)"; g.beginPath(); g.ellipse(2, 3, hl, 3, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#eee"; for (const x of [hl - 3, -hl + 3]) for (const y of [-3, 2]) g.fillRect(x - 1, y, 2, 1.2);
+  g.fillStyle = col; rrect(g, -hl, -2.6, t.len, 5.2, 2.6); g.fill();
+  g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(-hl + 3, -1.6, t.len - 6, 3.2);
+  if (v.driver && !v.wreck){
+    const jac = v.driver === "player" ? SAVE.outfit.col : v.rider, push = sp < 160 && sp > 3 ? Math.sin(gameTime * 7) * 4 : 0;
+    g.save(); if (v.trick > 0) g.rotate(v.trick * Math.PI * 2);
+    g.fillStyle = "#2a2a30"; g.fillRect(hl - 6, -3, 3, 2.5); g.fillRect(-hl + 2 + push, 1, 3, 2.5);
+    g.fillStyle = jac; g.beginPath(); g.ellipse(0, 0, 3.4, 5.6, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = jac; g.lineWidth = 1.6; g.beginPath(); g.moveTo(0, -4.5); g.lineTo(-4, -8); g.moveTo(0, 4.5); g.lineTo(4, 8); g.stroke();
+    g.fillStyle = v.driver === "player" ? SAVE.outfit.hair : v.helm; g.beginPath(); g.arc(0.5, 0, 3, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
+}
+// stojaki z rowerami miejskimi
+const RACKS = [];
+(function(){
+  const spots = parks.slice(0, 9).map(([x, y]) => [x, y]);
+  const rb = blockC(1, 1); spots.push([rb[0], rb[1]]);
+  spots.forEach(([cx, cy], i) => {
+    for (const [dx, dy] of [[0, 175], [175, 0], [-175, 0], [0, -175], [120, 120], [-120, 120]]){
+      const x = cx + dx, y = cy + dy;
+      if (pointBlocked(x, y, 22) || pointBlocked(x + 30, y, 12) || pointBlocked(x - 30, y, 12) || getGW(x, y) === G_WATER || getGW(x, y) === G_ROAD) continue;
+      RACKS.push({ x, y, n: 3, skate: i % 3 === 0 ? 1 : 0 });
+      break;
+    }
+  });
+})();
+function rackFill(r){
+  const have = vehicles.filter(v => v.cfg.cityBike && !v.driver && Math.hypot(v.x - r.x, v.y - r.y) < 50);
+  const sk = vehicles.filter(v => v.type === "skate" && v.cfg.rack && !v.driver && Math.hypot(v.x - r.x, v.y - r.y) < 50);
+  for (let k = have.length; k < r.n; k++){ const v = makeVehicle(Object.assign(defaultCfg("bicycle", "#7cb342"), { cityBike: true }), r.x - 18 + k * 14, r.y, -Math.PI / 2); v.radio = -1; }
+  for (let k = sk.length; k < r.skate; k++){ const v = makeVehicle(Object.assign(defaultCfg("skate", pick(["#e53935", "#1e88e5", "#fdd835", "#8e24aa"])), { rack: true }), r.x + 30, r.y + 4, 0); v.radio = -1; }
+}
+const rackState = { t: 0 };
+function racksUpdate(dt){
+  rackState.t -= dt;
+  if (rackState.t > 0) return;
+  rackState.t = 6;
+  const pp = playerPos();
+  for (const r of RACKS){ const d = Math.hypot(r.x - pp.x, r.y - pp.y); if (d < 1300 && !onScreen(r.x, r.y, 60)) rackFill(r); }
+  for (let i = vehicles.length - 1; i >= 0; i--){
+    const v = vehicles[i];
+    if ((v.cfg.cityBike || v.cfg.rack) && !v.driver && v !== player.veh && Math.hypot(v.x - pp.x, v.y - pp.y) > 1400 && !onScreen(v.x, v.y, 80) && !RACKS.some(r => Math.hypot(v.x - r.x, v.y - r.y) < 60)) vehicles.splice(i, 1);
+  }
+}
+function drawRacks(inV){
+  for (const r of RACKS){
+    if (!inV(r.x, r.y, 60)) continue;
+    ctx.fillStyle = "#6d7378"; ctx.fillRect(r.x - 26, r.y + 9, 52, 3); ctx.fillRect(r.x - 26, r.y - 12, 52, 3);
+    ctx.fillStyle = "#7cb342"; rrect(ctx, r.x - 34, r.y - 14, 8, 28, 2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 6px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("🚲", r.x - 30, r.y);
+  }
+}
+// deskorolkarze na chodnikach
+const _decorBase = decoratePed;
+decoratePed = function(p){
+  _decorBase(p);
+  if (!p.jog && !p.dog && Math.random() < 0.08){ p.skate = true; p.spd = 78 + Math.random() * 15; p.col = pick(["#ff7043", "#26c6da", "#ab47bc", "#ffee58", "#212121"]); p.boardCol = pick(["#e53935", "#1e88e5", "#fdd835", "#43a047", "#212121"]); p.umbC = null; }
+};
+const _drawPedL2 = drawPed;
+drawPed = function(p, isPlayer){
+  if (p.skate && !p.kind && p.state !== "dead" && !p.lying && p.state !== "inside" && !isPlayer){
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a + (p.trickT > 0 ? p.trickT * Math.PI * 4 : 0));
+    ctx.fillStyle = p.boardCol || "#e53935"; rrect(ctx, -8, -2.5, 16, 5, 2.5); ctx.fill();
+    ctx.restore();
+  }
+  _drawPedL2(p, isPlayer);
+};
+function skaterDialog(p){
+  pedName(p);
+  showDialog(who(p), pick(["Siema, ziomek! Co tam?", "Elo! Chcesz pogadać o deskach?", "Yo! Widziałeś mój ostatni trik?"]), [
+    { t: "🛹 Sprzedasz deskę? ($60)", pri: true, fn: () => {
+      if (SAVE.money < 60){ showDialog(who(p), "Za sześć dych, nie mniej. Wróć z kasą!", [{ t: "😅" }]); return; }
+      SAVE.money -= 60; saveDirty = true; cashSound();
+      p.skate = false; p.spd = 35;
+      const v = makeVehicle(defaultCfg("skate", p.boardCol || "#e53935"), p.x + 10, p.y, p.a); v.radio = -1;
+      closeDialog();
+      if (player.mode === "car" && player.veh){ player.veh.driver = null; player.veh.pUsed = true; }
+      v.driver = "player"; player.veh = v; player.mode = "car"; lastMode = "";
+      say(p, "Dbaj o nią! Łożyska mają duszę!", 2.5);
+      popup("🛹 Twoja deskorolka! (GAZ – odpychaj się, WYSIĄDŹ – zejdź)", "#9fe39f");
+    } },
+    { t: "🤙 Pokaż trik!", fn: () => { p.trickT = 0.5; emote(p, "🤘", 2); crowdReact(p.x, p.y, "👏", 160, true); showDialog(who(p), pick(["Kickflip! Widziałeś?!", "Heelflip, bejbe!", "Trzysta sześćdziesiąt! No prawie…"]), [{ t: "🤩" }]); } },
+    { t: "📍 Gdzie się dobrze jeździ?", fn: () => { const r = pick(RACKS.filter(x => x.skate)) || RACKS[0]; if (r) NAV = { x: r.x, y: r.y, name: "Deski do wypożyczenia" }; showDialog(who(p), "W parkach przy stojakach z rowerami czasem leżą deski do wzięcia. Zaznaczyłem ci jeden! A najlepsze skoki są na rampach przy obwodnicy.", [{ t: "🤙" }]); } },
+    { t: "💬 Pogadajmy", fn: () => talkPed(p) },
+    { t: "👋 Nara", fn: closeDialog }
+  ]);
+}
+// pobranie roweru miejskiego (opłata)
+const _actionBase = actionBtn;
+actionBtn = function(){
+  const was = player.mode;
+  _actionBase();
+  if (was === "foot" && player.mode === "car" && player.veh){
+    const v = player.veh;
+    if (v.cfg.cityBike && !v.paid){ v.paid = true; const fee = Math.min(2, SAVE.money); SAVE.money -= fee; saveDirty = true; popup("🚲 Rower miejski: -$" + fee + " (zostaw, gdzie chcesz)", "#9ccc65"); }
+    else if (v.type === "skate" && v.cfg.rack && !v.paid){ v.paid = true; popup("🛹 Deska z parku – za darmo, baw się!", "#9ccc65"); }
+  }
+  if (was === "car" && player.mode === "foot") petEnsure(true);
+};
+const _parkedFreeBase = parkedFree;
+parkedFree = v => _parkedFreeBase(v) && v.type !== "skate";
+// trik na desce (hamulec ręczny w miejscu)
+function skateTricks(dt){
+  if (player.mode !== "car") return;
+  const v = player.veh;
+  if (v.type !== "skate") return;
+  if (v.trick > 0){ v.trick -= dt * 2; if (v.trick <= 0){ v.trick = 0; const sp = Math.hypot(v.vx, v.vy); if (sp > 60){ addMoney(3 + sp / 40, "TRIK"); crowdReact(v.x, v.y, "🤩", 160, false); } } }
+  else if (pin.hb && !wild.hbPrev && Math.hypot(v.vx, v.vy) > 40){ v.trick = 1; if (actx) burst(0.08, 1800, 0.1); }
+  wild.hbPrev = pin.hb;
+}
+
+// ---------- 5. rozmowy: nowy wybór celu ----------
+talkTarget = function(){
+  if (state !== "play" || player.mode === "dead" || player.mode === "train") return null;
+  const car = player.mode === "car", human = car && VT[player.veh.type].human;
+  if (car && Math.hypot(player.veh.vx, player.veh.vy) > (human ? 45 : 60)) return null;
+  const pp = playerPos();
+  let best = null, bs = 1e9;
+  for (const p of peds){
+    if (p.state === "dead" || p.state === "flee" || p.state === "inside" || p.lying) continue;
+    const d = Math.hypot(p.x - pp.x, p.y - pp.y);
+    if (p.kind){
+      if (car && !human) continue;
+      if (!(p.wild || p.pet) || p.mission) continue;
+      const r = BIGWILD[p.kind] ? 130 : 44;
+      if (d < r){ const sc = BIGWILD[p.kind] ? d * 0.35 : d; if (sc < bs){ bs = sc; best = p; } }
+      continue;
+    }
+    if (car && !human && !p.npc && !p.evRole && p.state !== "rage" && p.state !== "hail") continue;
+    if (d < (car && !human ? 62 : 36) && d < bs){ bs = d; best = p; }
+  }
+  if (!best && !car){ const b = nearFlock(); if (b) return { pigeons: b, x: b.x, y: b.y }; }
+  if (!best && (!car || human)){ const f = skyPhoto(); if (f) return { sky: f, x: f.x, y: f.y }; }
+  return best;
+};
+const _tryTalkL2 = tryTalk;
+tryTalk = function(){
+  const p = talkTarget();
+  if (!p) return;
+  if (p.pigeons) return pigeonDialog(p.pigeons);
+  if (p.sky){
+    const f = p.sky, nm = { goose: "Klucz gęsi", gull: "Mewy", crow: "Stado wron" }[f.kind] || "Ptaki";
+    showDialog({ name: nm, item: f.kind === "goose" ? "🪿" : f.kind === "gull" ? "🕊️" : "🐦‍⬛" }, f.kind === "goose" ? "Nad głową przelatuje klucz gęsi. Gęgają, lecąc na południe. Jesień w mieście…" : f.kind === "gull" ? "Mewy krążą nad rzeką i wrzeszczą jak opętane." : "Stado wron kracze nad dachami. Trochę złowieszczo.", [
+      { t: "📸 Sfotografuj", pri: true, fn: () => { const n = photoAnimal(f.kind); showDialog({ name: nm, item: "📷" }, "Pstryk! Ptaki na tle nieba.\n\n📷 Album przyrody: " + n + "/" + ALBUM.length, [{ t: "📷" }]); } },
+      { t: "👋 Patrz dalej", fn: closeDialog }]);
+    return;
+  }
+  if (p.pet) return petDialog(p);
+  if (p.kind) return animalDialog(p);
+  if (p.skate && !p.cop && !p.thief) return skaterDialog(p);
+  _tryTalkL2();
+};
+
+// ---------- zarządzanie ----------
+function natureUpdate(dt){
+  chatterUpdate(dt);
+  wildSpawn(dt);
+  birdsUpdate(dt);
+  racksUpdate(dt);
+  skateTricks(dt);
+  petEnsure(false);
+  for (const p of peds) if (p.trickT > 0) p.trickT -= dt;
+  // ptaki z przelotu do albumu: zdjęcie automatyczne nie – tylko przez dialog z mewami/gęsiami
+}
+function drawNatureWorld(inV){
+  drawRacks(inV);
+  drawGroundBirds(inV);
+  // ptasie kupy na aucie gracza
+  if (player.mode === "car" && player.veh.poop){
+    const v = player.veh;
+    ctx.save(); ctx.translate(v.x, v.y); ctx.rotate(v.a);
+    ctx.fillStyle = "rgba(245,245,240,.9)";
+    for (let i = 0; i < v.poop; i++){ const x = ((i * 37) % 17) - 8, y = ((i * 23) % 11) - 5; ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.arc(x + 1.8, y + 1, 1.2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+}
+
+function knockPed(p, v){
+  if (p.lying) return;
+  p.lying = true; p.state = "down"; p.downT = 2.5; p.fixed = true; thud(p.x, p.y);
+  say(p, pick(["Uważaj, rowerzysto!", "Ała! Patrz, gdzie jedziesz!", "Chodnik jest dla pieszych!", "Wariat na desce!", "Moje kolano!"]), 2);
+  v.vx *= 0.5; v.vy *= 0.5;
+  if (v === player.veh) addRep(-1);
+  if (v.driver && Math.random() < 0.3) throwRider(v, 300);
+}
 
 // START
 // =====================================================================
