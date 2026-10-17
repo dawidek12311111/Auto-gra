@@ -1910,7 +1910,7 @@ function onVehicleHit(v, imp, hx, hy, other){
   if (isP && imp > 130) loseDrift();
   if (SET.damage !== "off" && !v.wreck && imp > 90){
     const f = SET.damage === "hard" ? 1.8 : 1;
-    v.hp -= (imp - 90) / 6.5 * f / VT[v.type].mass / (1 + 0.4 * v.cfg.armor) * (v.driver === "race" ? 0.35 : 1);
+    v.hp -= (imp - 90) / 6.5 * f / VT[v.type].mass / (1 + 0.4 * v.cfg.armor) * (v.driver === "race" ? 0.35 : 1) * (v === player.veh ? 0.45 : 0.75);
     addDent(v, hx, hy);
     if (v.hp <= 0){ v.hp = 0; explode(v); }
   }
@@ -1918,7 +1918,7 @@ function onVehicleHit(v, imp, hx, hy, other){
     v.ai.hitT = 0.8 + Math.random() * 0.8;
     if (other && other === player.veh) v.ai.honkT = Math.min(v.ai.honkT, 0.3), v.ai.angry = 4;
   }
-  if (imp > 120 && other && other === player.veh && player.mode === "car" && isCop(v) && crimeCd <= 0){ crimeCd = 4; crime(1, v.x, v.y); }
+  if (imp > 220 && other && other === player.veh && player.mode === "car" && isCop(v) && crimeCd <= 0 && police.stars === 0){ crimeCd = 8; crime(1, v.x, v.y); }
 }
 function explode(v){
   if (v.wreck) return;
@@ -2300,7 +2300,7 @@ function pedVsVehicles(p, isPlayer){
       } else if (VT[v.type].human) knockPed(p, v);
       else {
         killPed(p, v.vx * 0.7, v.vy * 0.7);
-        if (v === player.veh && player.mode === "car" && !p.thief) crime(p.cop ? 2 : 1, p.x, p.y);
+        if (v === player.veh && player.mode === "car" && !p.thief && (p.cop || Math.random() < 0.6)) crime(p.cop ? 2 : 1, p.x, p.y);
       }
       v.vx *= 0.94; v.vy *= 0.94;
       return;
@@ -2356,7 +2356,7 @@ function actionBtn(){
       v.ai = null; v.cop = null; v.siren = false;
       police.units = police.units.filter(u => u !== v);
     }
-    if (isCop(v)) crime(2, v.x, v.y); else if (jacked) crime(1, v.x, v.y);
+    if (isCop(v)) crime(2, v.x, v.y); else if (jacked && Math.random() < 0.5) crime(1, v.x, v.y);
     v.driver = "player"; player.veh = v; player.mode = "car"; v.fallen = false; v.bai = null;
     if (v.radio === undefined) v.radio = SET.autoRadio ? (Math.random() * STATIONS.length) | 0 : -1;
     if (v.radio >= 0) toast("📻 " + STATIONS[v.radio].name + " · " + STATIONS[v.radio].genre, 1600);
@@ -2558,7 +2558,7 @@ function update(dt){
   workUpdate(dt);
   railUpdate(dt);
   if (state === "play"){ economy(dt); if (!race) checkGarage(); checkRaceFlags(); taxiUpdate(dt); missionUpdate(dt); raceUpdate(dt); eventsUpdate(dt); }
-  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); }
+  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); itemsUpdate(dt); armorUpdate(); }
   managePickups(dt);
   updateFx(dt);
 }
@@ -3216,6 +3216,7 @@ function render(){
   drawBulletsWorld(inV);
   drawLife2World(inV);
   drawNatureWorld(inV);
+  drawItems(inV);
   ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of peds){
     if (p.state === "dead" || !inV(p.x, p.y, 30)) continue;
@@ -3275,6 +3276,7 @@ function render(){
   drawHUD(h);
   drawPoliceHUD();
   drawLife2HUD();
+  drawItemsHUD();
 }
 
 const lc = document.createElement("canvas"), lctx = lc.getContext("2d");
@@ -3454,6 +3456,8 @@ function drawHUD(h){
     const toR = (x, y) => [mx + (x - pp.x + RAD) / (RAD * 2) * sz, my + (y - pp.y + RAD) / (RAD * 2) * sz];
     ctx.fillStyle = "#5cd65c";
     for (const k of pickups){ const q = toR(k.x, k.y); ctx.fillRect(q[0] - 1.5, q[1] - 1.5, 3, 3); }
+    ctx.fillStyle = "#ffd54f";
+    for (const it of items){ const q = toR(it.x, it.y); ctx.fillRect(q[0] - 1.5, q[1] - 1.5, 3, 3); }
     ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     for (const o of pois){ const q = toR(o.x, o.y); if (q[0] > mx - 8 && q[0] < mx + sz + 8 && q[1] > my - 8 && q[1] < my + sz + 8) ctx.fillText(o.icon, q[0], q[1]); }
     for (const k of pickups) if (k.special){ const q = toR(k.x, k.y); ctx.fillText("🎁", q[0], q[1]); }
@@ -7720,13 +7724,13 @@ function copsNear(x, y, r){
   return false;
 }
 function witnesses(x, y, r){
-  if (r < 450) r = 450; let n = 0; for (const p of peds){ if (p.state === "dead" || p.kind || p.cop) continue; if (Math.abs(p.x - x) < r && Math.abs(p.y - y) < r) n++; } return n; }
+  if (r < 260) r = 260; let n = 0; for (const p of peds){ if (p.state === "dead" || p.kind || p.cop) continue; if (Math.abs(p.x - x) < r && Math.abs(p.y - y) < r) n++; } return n; }
 let crimeCd = 0;
 function crime(n, x, y){
   if (player.mode !== "dead") addRep(-n);
   if (!SET.police || player.mode === "dead") return;
-  if (copsNear(x, y, 650)) addStars(n);
-  else if (n >= 2 || (witnesses(x, y, 300) > 0 && Math.random() < 0.8) || Math.random() < 0.3){
+  if (copsNear(x, y, 420)) addStars(n);
+  else if ((n >= 2 && Math.random() < 0.6) || (witnesses(x, y, 300) > 0 && Math.random() < 0.35) || Math.random() < 0.05){
     police.pending = Math.max(police.pending, n);
     if (police.callT <= 0){ police.callT = 3.5; popup("📞 Ktoś dzwoni na policję!", "#9fd4ff"); }
   }
@@ -7942,8 +7946,8 @@ function policeUpdate(dt){
   if (player.mode === "car" && state === "play"){
     const pv = player.veh, sp = Math.hypot(pv.vx, pv.vy);
     police.speedT -= dt;
-    if (sp > 400 && police.speedT <= 0 && police.stars === 0){
-      for (const v of ACT) if (isCop(v) && v.driver === "ai" && Math.hypot(v.x - pv.x, v.y - pv.y) < 230){ police.speedT = 25; popup("🚓 Przekroczenie prędkości!", "#9fd4ff"); addStars(1); break; }
+    if (sp > 480 && police.speedT <= 0 && police.stars === 0){
+      for (const v of ACT) if (isCop(v) && v.driver === "ai" && Math.hypot(v.x - pv.x, v.y - pv.y) < 180 && Math.random() < 0.4){ police.speedT = 45; popup("🚓 Przekroczenie prędkości!", "#9fd4ff"); addStars(1); break; }
     }
   }
   const pp = playerPos();
@@ -7956,7 +7960,7 @@ function policeUpdate(dt){
     if (seen) police.lostT = 0;
     else {
       police.lostT += dt;
-      if (police.lostT > 9 + police.stars * 3){
+      if (police.lostT > 5 + police.stars * 2.5){
         police.stars--; police.lostT = 0;
         if (police.stars === 0){ SAVE.stats.escapes = (SAVE.stats.escapes || 0) + 1; saveDirty = true; clearWanted(null); popup("😎 Zgubiłeś policję!", "#5cd65c"); radio("Straciliśmy go z oczu. Kończymy pościg."); }
         else popup("★ Policja traci trop...", "#ffd400");
@@ -7970,7 +7974,7 @@ function policeUpdate(dt){
     });
     for (const v of ACT) if (isCop(v) && v.driver === "ai" && Math.hypot(v.x - pp.x, v.y - pp.y) < 900 && police.units.length < police.stars + 1){ convertPatrol(v); police.units.push(v); }
     police.spawnT -= dt;
-    const want = [0, 1, 2, 3, 4, 5][police.stars];
+    const want = [0, 1, 1, 2, 3, 4][police.stars];
     if (police.units.length < want && police.spawnT <= 0){
       police.spawnT = 2.5;
       const v = spawnCop(pp, police.stars >= 5 && Math.random() < 0.5 ? "swat" : "police");
@@ -7994,7 +7998,7 @@ function policeUpdate(dt){
       for (const p of peds) if (p.cop && p.chase && p.state !== "dead" && Math.hypot(p.x - pp.x, p.y - pp.y) < 22){ close = true; break; }
     }
     if (close) police.bustT += dt; else police.bustT = Math.max(0, police.bustT - dt * 1.5);
-    if (police.bustT > 2.2) busted();
+    if (police.bustT > 3.2) busted();
   }
   // blokady
   for (let i = police.blocks.length - 1; i >= 0; i--){ const b = police.blocks[i]; b.t -= dt; if (b.t <= 0){ for (const v of b.cars){ v.siren = false; v.kill = true; } police.blocks.splice(i, 1); } }
@@ -8173,7 +8177,7 @@ function updateBullets(dt){
           if (b.owner === "player"){
             if (isCop(v) && v.driver) crime(2, v.x, v.y);
             if (v.driver === "ai" && v.ai){ v.ai.cruise = 300; v.ai.pers = "pirate"; }
-          } else if (v === player.veh && SET.damage !== "off"){ v.hp -= b.dmg * 0.25; if (v.hp <= 0){ v.hp = 0; explode(v); } }
+          } else if (v === player.veh && SET.damage !== "off"){ v.hp -= b.dmg * 0.15; if (v.hp <= 0){ v.hp = 0; explode(v); } }
           break;
         }
       }
@@ -8301,7 +8305,7 @@ function drawPoliceHUD(){
   ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
   {
     if (police.bustT > 0.2){
-      const f = clamp(police.bustT / 2.2, 0, 1);
+      const f = clamp(police.bustT / 3.2, 0, 1);
       ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(W / 2 - 80, H * 0.55, 160, 24);
       ctx.fillStyle = "#2a6bff"; ctx.fillRect(W / 2 - 76, H * 0.55 + 17, 152 * f, 4);
       ctx.font = "800 12px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText("🚓 Aresztowanie! Uciekaj!", W / 2, H * 0.55 + 13);
@@ -9118,7 +9122,7 @@ function copsSpot(dt){
   for (const p of peds){
     if (!p.cop || p.chase || p.state === "dead" || p.state === "cuffed") continue;
     const d = Math.hypot(p.x - pp.x, p.y - pp.y);
-    if (d < 300 && los(p.x, p.y, pp.x, pp.y)){ p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; p.lead = null; say(p, pick(["Stój! Policja!", "To on! Stać!"]), 1.8); police.lostT = 0; }
+    if (d < 190 && los(p.x, p.y, pp.x, pp.y)){ p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; p.lead = null; say(p, pick(["Stój! Policja!", "To on! Stać!"]), 1.8); police.lostT = 0; }
   }
 }
 
@@ -10329,6 +10333,222 @@ function knockPed(p, v){
   v.vx *= 0.5; v.vy *= 0.5;
   if (v === player.veh) addRep(-1);
   if (v.driver && Math.random() < 0.3) throwRider(v, 300);
+}
+
+// =====================================================================
+// PRZEDMIOTY NA ULICY I UKRYTE ZŁOTE KRASNALE
+// =====================================================================
+const ITEMS = {
+  cash:    { icon: "💵", col: "#5cd65c", w: 2.2, name: "Plik banknotów" },
+  wallet:  { icon: "👛", col: "#ffb300", w: 0.8, name: "Zgubiony portfel" },
+  pistol:  { icon: "🔫", col: "#ff6b5e", w: 1.1, name: "Pistolet", gun: "pistol", ammo: 15 },
+  uzi:     { icon: "🔫", col: "#ff6b5e", w: 0.6, name: "Uzi", gun: "uzi", ammo: 45 },
+  shotgun: { icon: "💥", col: "#ff6b5e", w: 0.5, name: "Strzelba", gun: "shotgun", ammo: 8 },
+  grenade: { icon: "💣", col: "#ff6b5e", w: 0.4, name: "Granaty", gun: "grenade", ammo: 2 },
+  med:     { icon: "🩹", col: "#ff8a80", w: 1, name: "Apteczka" },
+  kit:     { icon: "🧰", col: "#90caf9", w: 0.8, name: "Zestaw naprawczy" },
+  nitro:   { icon: "🧪", col: "#80d8ff", w: 0.5, name: "Butla nitro" },
+  coffee:  { icon: "☕", col: "#d7a86e", w: 0.7, name: "Kawa na wynos" },
+  ticket:  { icon: "🎟️", col: "#ce93d8", w: 0.7, name: "Zdrapka" },
+  donut:   { icon: "🍩", col: "#f48fb1", w: 0.6, name: "Pączek dla policji" },
+  mystery: { icon: "🎁", col: "#ffd54f", w: 0.5, name: "Paczka niespodzianka" },
+  armor:   { icon: "🦺", col: "#ffcc80", w: 0.5, name: "Kamizelka" }
+};
+const items = [];
+const itemState = { t: 1, glowT: 0 };
+let armorHP = 0;
+function itemKinds(){
+  const out = [];
+  for (const k in ITEMS){
+    const it = ITEMS[k];
+    if (it.gun && !SET.weapons) continue;
+    if (k === "donut" && police.stars === 0 && Math.random() < 0.7) continue;
+    if (k === "nitro" && !(player.mode === "car" && player.veh.cfg.nitro)) continue;
+    out.push([k, it.w]);
+  }
+  return out;
+}
+function rollKind(){
+  const ks = itemKinds();
+  let tot = 0; for (const [, w] of ks) tot += w;
+  let r = Math.random() * tot;
+  for (const [k, w] of ks){ r -= w; if (r <= 0) return k; }
+  return "cash";
+}
+function itemsUpdate(dt){
+  const pp = playerPos();
+  // zbieranie
+  if (player.mode === "car" || player.mode === "foot"){
+    const rad = player.mode === "car" ? 30 : 20;
+    for (let i = items.length - 1; i >= 0; i--){
+      const it = items[i];
+      it.t += dt;
+      if (Math.hypot(it.x - pp.x, it.y - pp.y) < rad){ items.splice(i, 1); takeItem(it.kind, it.x, it.y); }
+    }
+    for (let i = 0; i < GNOMES.length; i++){
+      if (SAVE.gnomes[i]) continue;
+      const g = GNOMES[i];
+      if (Math.abs(g.x - pp.x) < rad && Math.abs(g.y - pp.y) < rad && Math.hypot(g.x - pp.x, g.y - pp.y) < rad) takeGnome(i);
+    }
+  }
+  itemState.t -= dt;
+  if (itemState.t > 0) return;
+  itemState.t = 1.5;
+  for (let i = items.length - 1; i >= 0; i--) if (Math.hypot(items[i].x - pp.x, items[i].y - pp.y) > 1900) items.splice(i, 1);
+  if (items.length >= 9) return;
+  for (let tries = 0; tries < 6; tries++){
+    let x, y;
+    if (inCity(pp.x, pp.y) || Math.random() < 0.8){
+      const bx = clamp(Math.floor((pp.x / T - OFF) / P) + ((Math.random() * 5) | 0) - 2, 0, NB - 1);
+      const by = clamp(Math.floor((pp.y / T - OFF) / P) + ((Math.random() * 5) | 0) - 2, 0, NB - 1);
+      if (zoneOf(bx, by) === "river") continue;
+      const pt = ringPoint(bx, by, Math.random() * 4 * RL); x = pt[0]; y = pt[1];
+      if (Math.random() < 0.3){ const pk = parks.find(([px, py]) => Math.hypot(px - x, py - y) < 400); if (pk){ x = pk[0] + (Math.random() - 0.5) * 300; y = pk[1] + (Math.random() - 0.5) * 300; } }
+    } else { const c = outPoint(300, 900); if (!c) continue; x = c.x; y = c.y; }
+    const d = Math.hypot(x - pp.x, y - pp.y);
+    if (d < 280 || d > 1100 || pointBlocked(x, y, 8) || getGW(x, y) === G_WATER || onScreen(x, y, 20)) continue;
+    if (items.some(o => Math.hypot(o.x - x, o.y - y) < 150)) continue;
+    items.push({ x, y, kind: rollKind(), t: Math.random() * 6 });
+    break;
+  }
+}
+function takeItem(k, x, y){
+  const it = ITEMS[k];
+  if (actx){ const t = actx.currentTime; tone(880, t, 0.08, "sine", 0.08); tone(1320, t + 0.07, 0.12, "sine", 0.08); }
+  for (let i = 0; i < 10; i++){ const a = i / 10 * Math.PI * 2; addPart(x, y, Math.cos(a) * 90, Math.sin(a) * 90, 0.4, 2, 5); }
+  if (it.gun){
+    SAVE.guns[it.gun] = (SAVE.guns[it.gun] || 0) + it.ammo; saveDirty = true;
+    if (curWeap === "fist" || ammoOf(curWeap) <= 0) curWeap = it.gun;
+    lastMode = "";
+    popup(it.icon + " " + it.name + " +" + it.ammo + (it.gun === "grenade" ? " szt." : " nab."), it.col);
+    return;
+  }
+  switch (k){
+    case "cash": addMoney(80 + ((Math.random() * 9) | 0) * 25, "BANKNOTY"); break;
+    case "wallet": {
+      const v = 40 + ((Math.random() * 8) | 0) * 20;
+      showDialog({ name: "Portfel", item: "👛" }, "W środku " + fmt(v) + " i dowód osobisty. Co robisz?", [
+        { t: "💰 Zatrzymuję kasę", fn: () => { addMoney(v, "PORTFEL"); addRep(-1); closeDialog(); } },
+        { t: "📮 Wrzucę do skrzynki (dla właściciela)", pri: true, fn: () => { addRep(3); addMoney(Math.round(v * 0.3), "ZNALEŹNE"); closeDialog(); popup("😇 Właściciel będzie wdzięczny! +reputacja", "#9fe39f"); } }]);
+      break;
+    }
+    case "med":
+      if (player.mode === "foot" && player.foot.hp < 70){ heal(40); popup("🩹 +40 zdrowia", it.col); }
+      else { invAdd("med"); popup("🩹 Apteczka do plecaka", it.col); }
+      break;
+    case "kit":
+      if (player.mode === "car" && player.veh.hp < 70 && !player.veh.wreck){ player.veh.hp = Math.min(100, player.veh.hp + 40); player.veh.burning = false; popup("🧰 Naprawa +40%", it.col); }
+      else { invAdd("kit"); popup("🧰 Zestaw naprawczy do plecaka", it.col); }
+      break;
+    case "nitro": invAdd("nitro"); popup("🧪 Butla nitro do plecaka", it.col); break;
+    case "coffee": buffCoffee(); heal(5); popup("☕ Kawa! Szybszy krok przez 2 min", it.col); break;
+    case "ticket": {
+      const r = Math.random(), win = r < 0.45 ? 0 : r < 0.8 ? 20 : r < 0.95 ? 100 : 1000;
+      if (win) addMoney(win, win >= 1000 ? "ZDRAPKA – GŁÓWNA WYGRANA!" : "ZDRAPKA"); else popup("🎟️ Zdrapka: pudło. Spróbuj następnej!", "#bbb");
+      break;
+    }
+    case "donut":
+      if (police.stars > 0){ police.stars--; police.lostT = 0; if (!police.stars) clearWanted(null); popup("🍩 Pączek dla patrolu: −1 ★", it.col); }
+      else { heal(10); popup("🍩 Pyszny pączek! +10 zdrowia", it.col); }
+      break;
+    case "armor": armorHP = 100; popup("🦺 Kamizelka! Przyjmie część obrażeń", it.col); break;
+    case "mystery": {
+      const pool = ["cash", "cash", "med", "kit", "ticket", "coffee", "armor"].concat(SET.weapons ? ["pistol", "uzi", "shotgun", "grenade"] : []);
+      const k2 = pick(pool);
+      popup("🎁 W paczce: " + ITEMS[k2].name + "!", "#ffd54f");
+      takeItem(k2, x, y);
+      break;
+    }
+  }
+}
+// kamizelka: przejmuje 60% obrażeń pieszo
+let lastFootHP = 100;
+function armorUpdate(){
+  const f = player.foot;
+  if (player.mode !== "foot"){ lastFootHP = f.hp; return; }
+  if (armorHP > 0 && f.hp < lastFootHP){
+    const dmg = lastFootHP - f.hp, absorb = Math.min(armorHP, dmg * 0.6);
+    armorHP -= absorb; f.hp += absorb;
+    if (armorHP <= 0){ armorHP = 0; popup("🦺 Kamizelka zniszczona", "#ffcc80"); }
+  }
+  lastFootHP = f.hp;
+}
+// złote krasnale – ukryte znajdźki
+const GNOMES = [];
+(function(){
+  let seed = 7;
+  const rnd2 = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; GNOMES.length < 40 && i < 400; i++){
+    let x, y;
+    if (GNOMES.length < 34){
+      const bx = (rnd2() * NB) | 0, by = (rnd2() * NB) | 0;
+      if (zoneOf(bx, by) === "river") continue;
+      const pt = ringPoint(bx, by, rnd2() * 4 * RL);
+      const s = blockC(bx, by), k = 0.15 + rnd2() * 0.25;
+      x = pt[0] + (s[0] - pt[0]) * k; y = pt[1] + (s[1] - pt[1]) * k;
+    } else {
+      const a = rnd2() * Math.PI * 2, r = 0.5 * (GT(MT) - GT(0)) + 380;
+      x = (GT(0) + GT(MT)) / 2 + Math.cos(a) * r; y = (GT(0) + GT(MT)) / 2 + Math.sin(a) * r;
+      if (x < 100 || y < 100 || x > WORLD - 100 || y > WORLD - 100) continue;
+    }
+    if (pointBlocked(x, y, 7) || getGW(x, y) === G_WATER) continue;
+    if (GNOMES.some(g => Math.hypot(g.x - x, g.y - y) < 500)) continue;
+    GNOMES.push({ x, y });
+  }
+})();
+if (!Array.isArray(SAVE.gnomes)) SAVE.gnomes = [];
+function takeGnome(i){
+  SAVE.gnomes[i] = 1; saveDirty = true; persist();
+  const n = SAVE.gnomes.filter(Boolean).length;
+  addMoney(100, "ZŁOTY KRASNAL");
+  popup("🗿 Złoty krasnal " + n + "/" + GNOMES.length + "!", "#ffd700");
+  if (actx){ const t = actx.currentTime; [784, 988, 1175, 1568].forEach((f, k) => tone(f, t + k * 0.08, 0.2, "triangle", 0.08)); }
+  if (n === 10 || n === 20 || n === 30) { addMoney(n * 50, "KOLEKCJONER " + n); toast("🗿 " + n + " krasnali! Premia " + fmt(n * 50), 2500); }
+  if (n === GNOMES.length){ addMoney(5000, "WSZYSTKIE KRASNALE!"); toast("🏆 Zebrałeś wszystkie złote krasnale! Jesteś legendą miasta.", 5000); }
+}
+function gnomeHint(){
+  const pp = playerPos();
+  let best = -1, bd = 1e18;
+  GNOMES.forEach((g, i) => { if (SAVE.gnomes[i]) return; const d = Math.hypot(g.x - pp.x, g.y - pp.y); if (d < bd){ bd = d; best = i; } });
+  if (best < 0) return null;
+  const g = GNOMES[best];
+  return "Słyszałem, że gdzieś " + dirText(pp, g) + " stąd stoi złoty krasnal. Zbieram je… znaczy, kolega zbiera!";
+}
+// plotki mogą zdradzić krasnala
+const _rumorBase = makeRumor;
+makeRumor = function(){
+  if (Math.random() < 0.25){ const h = gnomeHint(); if (h) return h; }
+  return _rumorBase();
+};
+function drawItems(inV){
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const it of items){
+    if (!inV(it.x, it.y, 30)) continue;
+    const I = ITEMS[it.kind], b = Math.sin(it.t * 3) * 2.5, pulse = 0.5 + 0.5 * Math.sin(it.t * 4);
+    ctx.globalAlpha = 0.25 + 0.2 * pulse; ctx.fillStyle = I.col;
+    ctx.beginPath(); ctx.arc(it.x, it.y, 14 + pulse * 3, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(it.x + 2, it.y + 7, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.font = "16px system-ui, sans-serif"; ctx.fillText(I.icon, it.x, it.y - 3 + b);
+  }
+  for (let i = 0; i < GNOMES.length; i++){
+    if (SAVE.gnomes[i]) continue;
+    const g = GNOMES[i];
+    if (!inV(g.x, g.y, 30)) continue;
+    const sh = 0.5 + 0.5 * Math.sin(gameTime * 5 + i);
+    ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.beginPath(); ctx.ellipse(g.x + 2, g.y + 5, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#d4a017"; ctx.beginPath(); ctx.ellipse(g.x, g.y + 1, 4, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffd700"; ctx.beginPath(); ctx.moveTo(g.x - 3.5, g.y - 2); ctx.lineTo(g.x, g.y - 10); ctx.lineTo(g.x + 3.5, g.y - 2); ctx.fill();
+    ctx.fillStyle = "#fff6c0"; ctx.beginPath(); ctx.arc(g.x, g.y - 1, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,240,150," + (0.6 * sh).toFixed(2) + ")"; ctx.beginPath(); ctx.arc(g.x + 4, g.y - 8, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function drawItemsHUD(){
+  if (state !== "play") return;
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "800 11px system-ui, sans-serif";
+  let y = 172;
+  if (armorHP > 0 && player.mode === "foot"){ ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillText("🦺 " + Math.round(armorHP), 15, y + 1); ctx.fillStyle = "#ffcc80"; ctx.fillText("🦺 " + Math.round(armorHP), 14, y); y += 16; }
+  ctx.textAlign = "center";
 }
 
 // START
