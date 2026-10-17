@@ -354,7 +354,7 @@ const qual = () => QUAL[SET.quality] || QUAL.high;
 // =====================================================================
 // ŚWIAT
 // =====================================================================
-const T = 48, P = 14, NB = 12, MT = NB * P + 3, OFF = 16, MW = MT + OFF * 2, WORLD = MW * T;
+const XT = 252, T = 48, P = 14, NB = 12, MT = NB * P + 3, OFF = 16 + XT, MW = MT + OFF * 2, WORLD = MW * T, EXTP = XT * T;
 const BRAKE = 950, REV = 230, MAXREV = 190;
 let gameTime = 0;
 
@@ -458,7 +458,7 @@ function scatterTrees(X0, Y0, n, rMin, rMax, avoid){
 }
 
 // --- geometria obwodnicy ---
-const RA = 300, RB = WORLD - 300, RR = 420, RHW = 86;
+const RA = EXTP + 300, RB = WORLD - RA, RR = 420, RHW = 86;
 const RLEN = RB - RA - 2 * RR, RARC = Math.PI / 2 * RR, RSEG = RLEN + RARC, RPER = 4 * RSEG;
 const RSTART = [[RA + RR, RA, 1, 0], [RB, RA + RR, 0, 1], [RB - RR, RB, -1, 0], [RA, RB - RR, 0, -1]];
 function ringPt(s, off){
@@ -894,13 +894,242 @@ for (let j = 0; j <= NB; j++) for (let i = 0; i <= NB; i++){
 }
 for (let s = 0; s < RPER; s += 380){ const p = ringPt(s, 0); lamps.push([p[0], p[1]]); }
 for (let i = 0; i < 1100; i++){
-  const x = rr(60, WORLD - 60), y = rr(60, WORLD - 60);
+  const x = rr(EXTP + 60, WORLD - EXTP - 60), y = rr(EXTP + 60, WORLD - EXTP - 60);
   if (x > GT(0) - 60 && x < GT(MT) + 60 && y > GT(0) - 60 && y < GT(MT) + 60) continue;
   if (Math.abs(ringDist(x, y)) < RHW + 60) continue;
   let ok = true;
   for (const [dx, dy] of [[0, 0], [60, 0], [-60, 0], [0, 60], [0, -60]]) if (getGW(x + dx, y + dy) !== G_FIELD){ ok = false; break; }
   if (ok) addTree(x, y, rr(14, 28));
 }
+// =====================================================================
+// NOWE KRAINY WOKÓŁ MIASTA: GÓRY (PÓŁNOC), WIELKIE JEZIORO (WSCHÓD),
+// DROGI SZYBKIEGO RUCHU W 4 STRONY ŚWIATA
+// =====================================================================
+const G_ROCK = 9, G_SNOW = 10, G_SAND = 11, G_DECK = 12, G_DIRT = 13;
+const WCX = WORLD / 2, WCY = WORLD / 2;
+const HEIGHT = new Float32Array(MW * MW), SHADE = new Int8Array(MW * MW);
+let wseed = 12345;
+const wrnd = () => { wseed = (wseed * 16807) % 2147483647; return wseed / 2147483647; };
+function vhash(ix, iy, s){ const x = Math.sin(ix * 127.1 + iy * 311.7 + s * 74.7) * 43758.5453; return x - Math.floor(x); }
+function vnoise(x, y, s){
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = vhash(ix, iy, s), b = vhash(ix + 1, iy, s), c = vhash(ix, iy + 1, s), d = vhash(ix + 1, iy + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+const fbm = (x, y, s) => vnoise(x, y, s) * 0.55 + vnoise(x * 2.1, y * 2.1, s + 7) * 0.3 + vnoise(x * 4.3, y * 4.3, s + 13) * 0.15;
+const wsetG = (tx, ty, g) => { if (tx >= 0 && ty >= 0 && tx < MW && ty < MW) ground[ty * MW + tx] = g; };
+const getGT = (tx, ty) => (tx < 0 || ty < 0 || tx >= MW || ty >= MW) ? G_FIELD : ground[ty * MW + tx];
+// ---------- drogi (ścieżki) ----------
+const ROADS = [];
+function chaikin(pts, it){
+  for (let k = 0; k < it; k++){
+    const out = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++){
+      const a = pts[i], b = pts[i + 1];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    out.push(pts[pts.length - 1]); pts = out;
+  }
+  return pts;
+}
+function densify(pts, step){
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i + 1], d = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(d / step));
+    for (let k = 0; k < n; k++) out.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+function addRoad(raw, hw, o){
+  o = o || {};
+  const pts = densify(o.smooth ? chaikin(raw, o.smooth) : raw, 12);
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const R = { pts, cum, len: cum[cum.length - 1], hw, name: o.name || "", lanes: o.lanes || 1, surf: o.surf || G_ROAD, cruise: o.cruise || 230, toRing: !!o.toRing, lamp: !!o.lamp };
+  // malowanie podłoża
+  const rt = Math.ceil(hw / T) + 1;
+  for (let i = 0; i < pts.length; i += 2){
+    const [x, y] = pts[i], tx = Math.floor(x / T), ty = Math.floor(y / T);
+    for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
+      const cx = (tx + dx + 0.5) * T, cy = (ty + dy + 0.5) * T;
+      if (Math.hypot(cx - x, cy - y) <= hw + 6){ const g = getGT(tx + dx, ty + dy); if (g !== G_WATER) wsetG(tx + dx, ty + dy, R.surf); }
+    }
+  }
+  // oznakowanie jako dekale (kawałkami, żeby działało przycinanie do widoku)
+  if (R.surf === G_ROAD){
+    for (let i = 0; i < pts.length - 1; i += 48){
+      const seg = pts.slice(i, Math.min(pts.length, i + 50));
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const p of seg){ x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+      decal("road", x0 - hw, y0 - hw, x1 - x0 + hw * 2, y1 - y0 + hw * 2, { pts: seg, hw, lanes: R.lanes });
+    }
+  }
+  if (R.lamp) for (let s = 200; s < R.len; s += 420){ const p = roadAt(R, s); lamps.push([p[0] - p[3] * (hw + 14), p[1] + p[2] * (hw + 14)]); }
+  ROADS.push(R);
+  return R;
+}
+function roadAt(R, s){
+  s = clamp(s, 0, R.len);
+  let lo = 0, hi = R.cum.length - 1;
+  while (lo < hi - 1){ const m = (lo + hi) >> 1; if (R.cum[m] <= s) lo = m; else hi = m; }
+  const a = R.pts[lo], b = R.pts[Math.min(R.pts.length - 1, lo + 1)], seg = (R.cum[lo + 1] || R.cum[lo]) - R.cum[lo] || 1, u = (s - R.cum[lo]) / seg;
+  const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1;
+  return [a[0] + dx * u, a[1] + dy * u, dx / d, dy / d];
+}
+function roadNearestS(R, x, y){
+  let best = 0, bd = 1e18;
+  for (let i = 0; i < R.pts.length; i += 3){ const p = R.pts[i], d = (p[0] - x) ** 2 + (p[1] - y) ** 2; if (d < bd){ bd = d; best = i; } }
+  return { s: R.cum[best], d: Math.sqrt(bd) };
+}
+// ---------- GÓRY (północ) ----------
+const MOUNT = { yb: RA - RHW - 260 };
+(function genMountains(){
+  const yb = MOUNT.yb, tyb = Math.floor(yb / T);
+  for (let ty = 0; ty < tyb; ty++) for (let tx = 0; tx < MW; tx++){
+    const x = (tx + 0.5) * T, y = (ty + 0.5) * T, t = 1 - y / yb;
+    const n = fbm(x / 2600, y / 2600, 3), ridge = 1 - Math.abs(fbm(x / 1700, y / 1700, 9) * 2 - 1);
+    let h = Math.pow(clamp(t, 0, 1), 0.9) * (0.55 + 0.45 * n) + ridge * 0.25 * t;
+    const sx = WCX - 220, sy = 1500, dp = Math.hypot(x - sx, y - sy);
+    h += Math.max(0, 0.5 - dp / 4200);
+    h = clamp(h, 0, 1);
+    HEIGHT[ty * MW + tx] = h;
+    if (ground[ty * MW + tx] === G_WATER) continue;
+    const g = h < 0.2 ? G_FIELD : h < 0.46 ? G_GRASS : h < 0.62 ? (vhash(tx, ty, 5) < 0.35 + (h - 0.46) * 3 ? G_ROCK : G_GRASS) : h < 0.8 ? G_ROCK : G_SNOW;
+    ground[ty * MW + tx] = g;
+  }
+  // górskie jeziorko
+  const lx = WCX - 2600, ly = 2900;
+  for (let ty = Math.floor((ly - 300) / T); ty < (ly + 300) / T; ty++) for (let tx = Math.floor((lx - 450) / T); tx < (lx + 450) / T; tx++){
+    const x = (tx + 0.5) * T, y = (ty + 0.5) * T;
+    if (((x - lx) / 420) ** 2 + ((y - ly) / 270) ** 2 + (fbm(x / 300, y / 300, 21) - 0.5) * 0.5 < 1) ground[ty * MW + tx] = G_WATER;
+  }
+  MOUNT.tarn = [lx, ly];
+  // serpentyna na szczyt
+  const sx = WCX - 220, sy = 1500;
+  const raw = [[WCX, RA - RHW + 4], [WCX, yb + 300], [WCX, yb - 300]];
+  let y = yb - 300, side = 1;
+  const A = 700, stepY = (yb - 300 - (sy + 600)) / 7;
+  for (let k = 0; k < 7; k++){ y -= stepY; raw.push([WCX + side * A, y]); side = -side; }
+  raw.push([sx, sy + 420], [sx, sy + 160]);
+  MOUNT.road = addRoad(raw, 40, { smooth: 3, name: "Serpentyna", lanes: 1, cruise: 170, toRing: true, lamp: false });
+  MOUNT.summit = [sx, sy];
+  // plac na szczycie i schronisko
+  for (let ty = Math.floor((sy - 170) / T); ty < (sy + 200) / T; ty++) for (let tx = Math.floor((sx - 260) / T); tx < (sx + 260) / T; tx++) wsetG(tx, ty, G_LOT);
+  curB = [];
+  MOUNT.hut = addB(sx - 240, sy - 330, 190, 130, { kind: "pitched", col: "#6d4c41", wallCol: "#a1887f", ht: 0.18, label: "SCHRONISKO", labelSize: 11, det: false, chim: true });
+  addB(sx + 120, sy - 280, 110, 90, { col: "#90a4ae", wallCol: "#b0bec5", ht: 0.12, label: "🚡 GÓRNA STACJA", labelSize: 9, det: false });
+  MOUNT.cableTop = [sx + 175, sy - 175];
+  MOUNT.cableBot = [WCX + 900, yb - 220];
+  for (let ty = Math.floor((MOUNT.cableBot[1] - 120) / T); ty < (MOUNT.cableBot[1] + 140) / T; ty++) for (let tx = Math.floor((MOUNT.cableBot[0] - 160) / T); tx < (MOUNT.cableBot[0] + 160) / T; tx++) wsetG(tx, ty, G_LOT);
+  addB(MOUNT.cableBot[0] - 60, MOUNT.cableBot[1] - 130, 120, 80, { col: "#90a4ae", wallCol: "#b0bec5", ht: 0.12, label: "🚡 KOLEJKA", labelSize: 9, det: false });
+  addRoad([[WCX + A * 0.15, yb + 150], [MOUNT.cableBot[0] - 140, yb + 40], [MOUNT.cableBot[0] - 120, MOUNT.cableBot[1] + 60]], 26, { smooth: 2, name: "Dojazd do kolejki", cruise: 140 });
+  poi("🏔️", "Szczyt Orli", sx, sy - 60); poi("🚡", "Kolejka linowa", MOUNT.cableBot[0], MOUNT.cableBot[1]);
+  // las górski
+  for (let i = 0; i < 9000; i++){
+    const x = 80 + wrnd() * (WORLD - 160), y = 80 + wrnd() * (yb - 200), tx = Math.floor(x / T), ty = Math.floor(y / T), h = HEIGHT[ty * MW + tx], g = getGT(tx, ty);
+    if (g !== G_GRASS && g !== G_FIELD) continue;
+    if (h < 0.16 || h > 0.6 || fbm(x / 900, y / 900, 31) < 0.47) continue;
+    if (Math.abs(x - RX0 / 2 - RX1 / 2) < 400 || nearAnyRoad(x, y, 70)) continue;
+    addTree(x, y, 14 + wrnd() * 14);
+  }
+})();
+function nearAnyRoad(x, y, m){
+  for (const R of ROADS){ for (let i = 0; i < R.pts.length; i += 4){ const p = R.pts[i]; if (Math.abs(p[0] - x) < R.hw + m && Math.abs(p[1] - y) < R.hw + m) return true; } }
+  return false;
+}
+// cieniowanie zboczy
+(function hillshade(){
+  for (let ty = 1; ty < MW - 1; ty++) for (let tx = 1; tx < MW - 1; tx++){
+    const i = ty * MW + tx;
+    if (!HEIGHT[i]) continue;
+    const dx = HEIGHT[i + 1] - HEIGHT[i - 1], dy = HEIGHT[i + MW] - HEIGHT[i - MW];
+    SHADE[i] = clamp(Math.round((-dx - dy) * 900), -110, 110);
+  }
+})();
+// ---------- WIELKIE JEZIORO (wschód) ----------
+const LAKE = {};
+(function genLake(){
+  const x0 = RB + RHW + 900, lx = (x0 + WORLD) / 2 + 200, ly = WCY, rx = (WORLD - x0) * 0.42, ry = 4300;
+  LAKE.c = [lx, ly]; LAKE.rx = rx; LAKE.ry = ry;
+  const isl = [lx + rx * 0.25, ly - ry * 0.3], ir = [700, 480];
+  LAKE.isl = isl;
+  for (let ty = Math.floor((ly - ry - 400) / T); ty < (ly + ry + 400) / T; ty++) for (let tx = Math.floor((lx - rx - 400) / T); tx < Math.min(MW, (lx + rx + 400) / T); tx++){
+    const x = (tx + 0.5) * T, y = (ty + 0.5) * T;
+    const e = ((x - lx) / rx) ** 2 + ((y - ly) / ry) ** 2 + (fbm(x / 900, y / 900, 41) - 0.5) * 0.7;
+    const ie = ((x - isl[0]) / ir[0]) ** 2 + ((y - isl[1]) / ir[1]) ** 2 + (fbm(x / 400, y / 400, 43) - 0.5) * 0.6;
+    if (e < 1 && ie > 1) wsetG(tx, ty, G_WATER);
+    else if (ie <= 1) wsetG(tx, ty, ie > 0.82 ? G_SAND : G_GRASS);
+    else if (e < 1.22) wsetG(tx, ty, x < lx ? G_SAND : G_GRASS);
+  }
+  // droga szybkiego ruchu na wschód i przystań
+  const shoreX = (() => { const ty = Math.floor(ly / T); for (let tx = Math.floor((RB + RHW) / T); tx < MW; tx++) if (getGT(tx, ty) === G_WATER) return tx * T; return lx - rx; })();
+  LAKE.shoreX = shoreX;
+  addRoad([[RB + RHW - 4, ly], [shoreX - 420, ly]], 70, { name: "Droga na jezioro", lanes: 2, cruise: 290, toRing: true, lamp: true });
+  for (let ty = Math.floor((ly - 260) / T); ty < (ly + 260) / T; ty++) for (let tx = Math.floor((shoreX - 420) / T); tx < (shoreX - 140) / T; tx++) wsetG(tx, ty, G_LOT);
+  for (let i = 0; i < 5; i++) addParkedCar(shoreX - 380 + i * 52, ly - 200, Math.PI / 2, null, null);
+  curB = [];
+  addB(shoreX - 400, ly + 270, 180, 100, { col: "#0277bd", wallCol: "#4fc3f7", ht: 0.12, label: "⛵ PRZYSTAŃ", labelSize: 10, det: false });
+  addB(shoreX - 190, ly + 300, 110, 70, { kind: "pitched", col: "#ef6c00", wallCol: "#ffcc80", ht: 0.1, label: "SMAŻALNIA", labelSize: 8, det: false });
+  // pomosty i molo
+  LAKE.piers = [];
+  for (const [py, len] of [[ly - 140, 380], [ly + 20, 380], [ly + 520, 820]]){
+    for (let ty = Math.floor((py - 20) / T); ty <= Math.floor((py + 20) / T); ty++) for (let tx = Math.floor((shoreX - 160) / T); tx < (shoreX + len) / T; tx++) wsetG(tx, ty, G_DECK);
+    LAKE.piers.push({ x0: shoreX - 160, x1: shoreX + len, y: py, molo: len > 500 });
+  }
+  LAKE.fish = [[shoreX + 800, ly + 520], [shoreX + 740, ly + 545]];
+  // plaża z leżakami
+  LAKE.beach = [];
+  for (let i = 0; i < 14; i++){ const y = ly - 1300 + i * 75 + wrnd() * 30; let x = shoreX - 60; for (let k = 0; k < 40 && getGW(x, y) !== G_SAND; k++) x -= 24; LAKE.beach.push([x - 30 - wrnd() * 80, y, wrnd()]); }
+  // camping na północnym brzegu
+  LAKE.camp = [lx - rx * 0.25, ly - ry * 0.95];
+  for (let ty = Math.floor((LAKE.camp[1] - 260) / T); ty < (LAKE.camp[1] + 200) / T; ty++) for (let tx = Math.floor((LAKE.camp[0] - 360) / T); tx < (LAKE.camp[0] + 360) / T; tx++) if (getGT(tx, ty) !== G_WATER) wsetG(tx, ty, G_GRASS);
+  const tc = ["#e53935", "#1e88e5", "#43a047", "#fdd835", "#8e24aa", "#fb8c00"];
+  for (let i = 0; i < 6; i++) addB(LAKE.camp[0] - 300 + i * 100 + wrnd() * 20, LAKE.camp[1] - 200 + (i % 2) * 90, 50, 40, { kind: "pitched", col: tc[i], wallCol: shade(tc[i], -0.2), ht: 0.05, det: false });
+  lamps.push([LAKE.camp[0], LAKE.camp[1] + 40]);
+  addRoad([[shoreX - 300, ly - 260], [shoreX - 600, ly - 1800], [LAKE.camp[0] - 200, LAKE.camp[1] + 200]], 22, { smooth: 3, surf: G_DIRT, name: "Leśna droga", cruise: 120 });
+  poi("⛵", "Przystań", shoreX - 300, ly + 320); poi("🏖️", "Plaża", shoreX - 180, ly - 700); poi("🎣", "Molo", shoreX + 700, ly + 520); poi("⛺", "Camping", LAKE.camp[0], LAKE.camp[1]);
+  // las wokół jeziora i na wyspie
+  for (let i = 0; i < 6000; i++){
+    const x = x0 - 600 + wrnd() * (WORLD - x0 + 500), y = MOUNT.yb + 300 + wrnd() * (WORLD - MOUNT.yb - 600), tx = Math.floor(x / T), ty = Math.floor(y / T), g = getGT(tx, ty);
+    if (g !== G_GRASS && g !== G_FIELD) continue;
+    if (x < RB + RHW + 300 || fbm(x / 800, y / 800, 51) < 0.48 || nearAnyRoad(x, y, 60)) continue;
+    if (Math.hypot(x - LAKE.camp[0], y - LAKE.camp[1]) < 450 || Math.hypot(x - shoreX, y - ly) < 900) continue;
+    addTree(x, y, 13 + wrnd() * 15);
+  }
+  for (let i = 0; i < 120; i++){ const a = wrnd() * 6.28, r = wrnd(); const x = isl[0] + Math.cos(a) * ir[0] * 0.7 * r, y = isl[1] + Math.sin(a) * ir[1] * 0.7 * r; if (getGW(x, y) === G_GRASS) addTree(x, y, 12 + wrnd() * 12); }
+  addRound(isl[0] + 200, isl[1] - 100, 26, 0.5, "#e53935", "tower");
+  // brzeg jeziora blokuje auta
+  for (let ty = Math.floor((ly - ry - 500) / T); ty < (ly + ry + 500) / T; ty++) for (let tx = Math.floor((lx - rx - 500) / T); tx < Math.min(MW - 1, (lx + rx + 500) / T); tx++){
+    if (getGT(tx, ty) !== G_WATER) continue;
+    const nb = [getGT(tx + 1, ty), getGT(tx - 1, ty), getGT(tx, ty + 1), getGT(tx, ty - 1)];
+    if (nb.some(g => g !== G_WATER)) solids.push({ t: "r", x: tx * T + 4, y: ty * T + 4, w: T - 8, h: T - 8, lake: true });
+  }
+})();
+// ---------- drogi na zachód i południe (do rozbudowy w kolejnej paczce) ----------
+const WEST = {}, SOUTH = {};
+(function genOtherRoads(){
+  WEST.road = addRoad([[RA - RHW + 4, WCY], [RA - 3600, WCY + 200], [RA - 6200, WCY - 300]], 70, { smooth: 2, name: "Droga na zachód", lanes: 2, cruise: 290, toRing: true, lamp: true });
+  SOUTH.road = addRoad([[WCX - 900, RB - RHW - 4 + RHW * 2], [WCX - 1100, RB + 3500], [WCX - 600, RB + 6500]], 70, { smooth: 2, name: "Droga na południe", lanes: 2, cruise: 290, toRing: true, lamp: true });
+  // MOP-y na końcach
+  for (const [x, y] of [[RA - 6200, WCY - 300], [WCX - 600, RB + 6500]]){
+    for (let ty = Math.floor((y - 220) / T); ty < (y + 220) / T; ty++) for (let tx = Math.floor((x - 220) / T); tx < (x + 220) / T; tx++) wsetG(tx, ty, G_LOT);
+    curB = [];
+    addB(x - 90, y - 210, 180, 80, { kind: "canopy", col: "#eef0f2", ht: 0.08, solid: false, label: "⛽ MOP", labelCol: "#d63b2f", labelSize: 12, det: false });
+    addParkedCar(x - 120, y + 120, 0, null, null); addParkedCar(x + 80, y + 120, 0, null, null);
+  }
+  // pola i zagajniki przy drogach
+  for (let i = 0; i < 2500; i++){
+    const x = 80 + wrnd() * (WORLD - 160), y = MOUNT.yb + 200 + wrnd() * (WORLD - MOUNT.yb - 300);
+    if (x > EXTP - 200 && x < WORLD - EXTP + 200 && y > EXTP - 200 && y < WORLD - EXTP + 200) continue;
+    if (x > RB + RHW + 300) continue;
+    const g = getGW(x, y);
+    if (g !== G_FIELD || fbm(x / 700, y / 700, 61) < 0.55 || nearAnyRoad(x, y, 60)) continue;
+    addTree(x, y, 13 + wrnd() * 14);
+  }
+})();
+
 buildings.sort((a, b) => a.ht - b.ht);
 
 // siatka kolizji statycznych
@@ -950,15 +1179,16 @@ function pointBlocked(x, y, r){
 }
 
 // mapa miasta (do radaru i pełnej mapy)
-const MAPS = 4;
+const MAPS = MW > 400 ? 2 : 4;
 const mapCv = document.createElement("canvas");
 mapCv.width = mapCv.height = MW * MAPS;
 (function(){
   const m = mapCv.getContext("2d");
-  const cols = ["#5b5e64", "#8c8e8a", "#4a8a43", "#7a7c7e", "#4a4c51", "#8e7f6d", "#606368", "#2f6fa2", "#7c9848"];
+  const cols = ["#5b5e64", "#8c8e8a", "#4a8a43", "#7a7c7e", "#4a4c51", "#8e7f6d", "#606368", "#2f6fa2", "#7c9848", "#8a8c90", "#eef3f8", "#dcc792", "#8a6a48", "#7d6a52"];
   for (let y = 0; y < MW; y++) for (let x = 0; x < MW; x++){
     m.fillStyle = cols[ground[y * MW + x]];
     m.fillRect(x * MAPS, y * MAPS, MAPS, MAPS);
+    const sh = SHADE[y * MW + x]; if (sh){ m.fillStyle = sh > 0 ? "rgba(255,255,255," + (sh / 400).toFixed(3) + ")" : "rgba(0,0,30," + (-sh / 260).toFixed(3) + ")"; m.fillRect(x * MAPS, y * MAPS, MAPS, MAPS); }
   }
   m.save(); m.scale(MAPS / T, MAPS / T);
   m.strokeStyle = "#5b5e64"; m.lineWidth = RHW * 2; ringPath(m, 0); m.stroke();
@@ -1770,7 +2000,7 @@ function drive(v, inp, dt){
   v.nitroOn = nit;
   if (nit) v.nitroFuel = Math.max(0, v.nitroFuel - dt);
   else if (m.nitro) v.nitroFuel = Math.min(nitroCap(v), v.nitroFuel + dt * (0.08 + 0.04 * m.nitro));
-  const maxF = t.maxF * (1 + 0.08 * m.eng) * (nit ? 1.3 : 1) * (v.pmul || 1) * (v.flat ? 0.5 : 1);
+  const maxF = t.maxF * (1 + 0.08 * m.eng) * (nit ? 1.3 : 1) * (v.pmul || 1) * (v.flat ? 0.5 : 1) * surfK(v, 1);
   const acc = t.acc * (1 + 0.1 * m.eng + 0.07 * m.gbx) * (nit ? 2 : 1) * power;
   const brk = BRAKE * (1 + 0.18 * m.brakes);
   if (inp.thr || nit){
@@ -1788,7 +2018,7 @@ function drive(v, inp, dt){
   }
   vF -= vF * 0.22 * dt;
   if (inp.hb) vF *= Math.exp(-0.9 * dt);
-  const g0 = (t.grip + 0.55 * m.tires + 0.25 * m.susp) * (v.flat ? 0.55 : 1);
+  const g0 = (t.grip + 0.55 * m.tires + 0.25 * m.susp) * (v.flat ? 0.55 : 1) * surfK(v, 0);
   const grip = v.wreck ? 4 : inp.hb ? 1.0 + 0.1 * m.tires : (braking && Math.abs(vF) > 250 ? 3.5 + 0.3 * m.tires : g0);
   vR *= Math.exp(-(t.boat ? grip : grip * (1 - 0.28 * WX.wet)) * dt);
   v.vx = fx * vF + rx * vR; v.vy = fy * vF + ry * vR;
@@ -2514,6 +2744,7 @@ function update(dt){
     else if (v.driver === "race") v.curInp = raceInput(v, dt);
     else if (v.driver === "boatai") v.curInp = boatInput(v, dt);
     else if (v.driver === "cop") v.curInp = copInput(v, dt);
+    else if (v.driver === "lakeai") v.curInp = lakeAIInput(v, dt);
     else v.curInp = NOINP;
     v.sleep = !v.driver && !v.burning && Math.abs(v.vx) + Math.abs(v.vy) < 1 && Math.abs(v.spin) < 0.05;
     if (v.sleep){ v.vx = v.vy = 0; v.spin = 0; v.slip = 0; v.skidding = false; }
@@ -2560,7 +2791,7 @@ function update(dt){
   workUpdate(dt);
   railUpdate(dt);
   if (state === "play"){ economy(dt); if (!race) checkGarage(); checkRaceFlags(); taxiUpdate(dt); missionUpdate(dt); raceUpdate(dt); eventsUpdate(dt); }
-  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); itemsUpdate(dt); armorUpdate(); roofUpdate(dt); careerUpdate(dt); }
+  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); itemsUpdate(dt); armorUpdate(); roofUpdate(dt); careerUpdate(dt); regionsUpdate(dt); }
   gfxUpdate(dt);
   managePickups(dt);
   updateFx(dt);
@@ -3005,6 +3236,7 @@ function drawGroundStatic(x0, y0, x1, y1, inV, dyn, ctx = MAINCTX){
     if (g === G_WATER) hasWater = true;
     ctx.fillStyle = GFX.painting ? pats().g[g] : (g === G_FIELD ? GCOL[8][(((x / 7) | 0) * 31 + ((y / 7) | 0) * 17) % 3] : GCOL[g][variant[i]]);
     ctx.fillRect(x * T, y * T, T + 0.6, T + 0.6);
+    const shd = SHADE[i]; if (shd){ ctx.fillStyle = shd > 0 ? "rgba(255,250,235," + (shd / 480).toFixed(3) + ")" : "rgba(10,20,45," + (-shd / 300).toFixed(3) + ")"; ctx.fillRect(x * T, y * T, T + 0.6, T + 0.6); }
     if (GFX.painting && variant[i] && g !== G_FIELD){ ctx.fillStyle = variant[i] === 1 ? "rgba(0,0,0,.035)" : "rgba(255,255,255,.03)"; ctx.fillRect(x * T, y * T, T, T); }
   }
   if (hasWater && dyn){
@@ -3229,13 +3461,14 @@ function render(){
   for (const p of peds) if (p.state !== "dead" && inV(p.x, p.y, 20)) drawPed(p, false);
   for (const p of peds) if (p.state !== "dead" && !p.kind && inV(p.x, p.y, 30)) drawPedExtras(p);
   drawBalloon();
-  if (player.mode === "foot" && !onRoofNow()) drawPed(player.foot, true);
+  if (player.mode === "foot" && !onRoofNow() && !CABLE.ride) drawPed(player.foot, true);
   drawBulletsWorld(inV);
   drawLife2World(inV);
   drawNatureWorld(inV);
   drawItems(inV);
   drawAccessGround(inV);
   drawBizWorld(inV);
+  drawRegionsWorld(inV);
   ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of peds){
     if (p.state === "dead" || !inV(p.x, p.y, 30)) continue;
@@ -3285,6 +3518,7 @@ function render(){
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
   }
   drawSky(inV);
+  drawRegionsSky(inV);
   drawWeatherWorld(inV, x0, y0, x1, y1);
   if (dark > 0.02 && dark < 0.98 && WX.gloom < 0.1){
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -3302,6 +3536,7 @@ function render(){
   drawItemsHUD();
   drawRoofHUD();
   drawCareerHUD();
+  drawRegionsHUD();
 }
 
 const lc = document.createElement("canvas"), lctx = lc.getContext("2d");
@@ -5607,7 +5842,7 @@ const PIERS = [], boatSolids = [];
   });
   for (let i = 0; i < 3; i++){
     const cfg = defaultCfg(i === 1 ? "speedboat" : "boat", pick(["#ecf0f1", "#2980b9", "#d35400", "#8e44ad"]));
-    const dir = i % 2 ? -1 : 1, y = WORLD * (0.25 + i * 0.25);
+    const dir = i % 2 ? -1 : 1, y = EXTP + (WORLD - 2 * EXTP) * (0.25 + i * 0.25);
     const v = makeVehicle(cfg, (RX0 + RX1) / 2 - dir * 110, y, dir > 0 ? Math.PI / 2 : -Math.PI / 2);
     v.driver = "boatai"; v.bai = { dir }; v.rider = pick(HELMS);
   }
@@ -5642,8 +5877,8 @@ function collideBoat(v){
 function boatInput(v, dt){
   const ai = v.bai, inp = v.inp;
   inp.thr = inp.brk = inp.hb = inp.nitro = false; inp.steer = 0; inp.hold = false;
-  if (ai.dir > 0 && v.y > WORLD - 450) ai.dir = -1;
-  else if (ai.dir < 0 && v.y < 450) ai.dir = 1;
+  if (ai.dir > 0 && v.y > WORLD - EXTP - 450) ai.dir = -1;
+  else if (ai.dir < 0 && v.y < EXTP + 450) ai.dir = 1;
   let tx = (RX0 + RX1) / 2 - ai.dir * 110, ty = v.y + ai.dir * 280;
   const fx = Math.cos(v.a), fy = Math.sin(v.a), sp = v.vx * fx + v.vy * fy;
   hashQuery(VH, v.x + fx * 80, v.y + fy * 80, 100, TMP_E);
@@ -7095,7 +7330,7 @@ function aliveUpdate(dt){
 // =====================================================================
 // KOLEJ: TORY, STACJE, POCIĄGI, PRZEJAZDY, PRACA MASZYNISTY
 // =====================================================================
-const RAIL_O = 540, RAIL_I = 590, RAIL_RO = 340, RAIL_RI = 290, RAIL_ROW = nodePos(4), RAIL_JR = 120;
+const RAIL_O = EXTP + 540, RAIL_I = EXTP + 590, RAIL_RO = 340, RAIL_RI = 290, RAIL_ROW = nodePos(4), RAIL_JR = 120;
 const RSTEP = 4;
 function buildPath(segs){
   const raw = [];
@@ -7197,9 +7432,9 @@ const CH_R = makeChunks(PATH_R), CH_M = makeChunks(PATH_M);
 const yTop = RAIL_O, xL = RAIL_O;
 const RSTATIONS = [
   { id: "dworzec", name: "Dworzec", x: blockC(7, 4)[0], y: RAIL_ROW, lines: ["M"], elev: true },
-  { id: "zachod", name: "Zachód", x: (RAIL_O + RAIL_I) / 2, y: 2300, lines: ["R", "M"] },
+  { id: "zachod", name: "Zachód", x: (RAIL_O + RAIL_I) / 2, y: EXTP + 2300, lines: ["R", "M"] },
   { id: "rzeka", name: "Nad Rzeką", x: RX0 - 320, y: (RAIL_O + RAIL_I) / 2, lines: ["R", "M"] },
-  { id: "wschod", name: "Wschód", x: WORLD - (RAIL_O + RAIL_I) / 2, y: 2300, lines: ["R", "M"] },
+  { id: "wschod", name: "Wschód", x: WORLD - (RAIL_O + RAIL_I) / 2, y: EXTP + 2300, lines: ["R", "M"] },
   { id: "przem", name: "Przemysłówka", x: blockC(10, 11)[0], y: WORLD - RAIL_O - 28, lines: ["R"] }
 ];
 const LINES = {
@@ -9708,7 +9943,8 @@ function outPoint(minD, maxD){
   for (let i = 0; i < 20; i++){
     const a = Math.random() * Math.PI * 2, d = minD + Math.random() * (maxD - minD), x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d;
     if (x < 80 || y < 80 || x > WORLD - 80 || y > WORLD - 80 || !isOut(x, y)) continue;
-    if (getGW(x, y) !== G_FIELD || pointBlocked(x, y, 18) || Math.abs(ringDist(x, y)) < RHW + 40) continue;
+    const gg = getGW(x, y);
+    if ((gg !== G_FIELD && gg !== G_GRASS && gg !== G_ROCK && gg !== G_SNOW && gg !== G_SAND) || pointBlocked(x, y, 18) || Math.abs(ringDist(x, y)) < RHW + 40) continue;
     if (onScreen(x, y, 40)) continue;
     return { x, y };
   }
@@ -12130,6 +12366,474 @@ function careerUpdate(dt){
   wrap.querySelectorAll("[data-t]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.t; render(); }));
   window.openProf = open;
 })();
+
+// =====================================================================
+// KRAINY: RUCH NA DROGACH, JEZIORO, KOLEJKA, WĘDKOWANIE, OGNISKO,
+// SZCZYT ORLI, WYŚCIG GÓRSKI, NAWIERZCHNIE, KRASNALE
+// =====================================================================
+GCOL.push(["#7b7d80", "#77797c", "#808285"], ["#e8eef4", "#e2e9f0", "#edf2f7"], ["#d9c48f", "#d4bf8a", "#ddc995"], ["#8a6a48", "#86664a", "#8e6e4c"], ["#7d6a52", "#79664e", "#826e56"]);
+// ---------- tekstury nowych nawierzchni ----------
+TEX.rock = noiseTex(128, "#7c7e81", 26, 101, (g, n, r) => { for (let i = 0; i < 40; i++){ g.strokeStyle = "rgba(40,40,45,.35)"; g.lineWidth = 1; g.beginPath(); let x = r() * n, y = r() * n; g.moveTo(x, y); for (let k = 0; k < 4; k++){ x += (r() - 0.5) * 20; y += (r() - 0.5) * 20; g.lineTo(x, y); } g.stroke(); } for (let i = 0; i < 25; i++){ g.fillStyle = "rgba(255,255,255,.06)"; g.beginPath(); g.ellipse(r() * n, r() * n, 4 + r() * 10, 3 + r() * 6, r() * 3, 0, 6.3); g.fill(); } });
+TEX.snow = noiseTex(128, "#eef3f8", 8, 103, (g, n, r) => { for (let i = 0; i < 30; i++){ g.fillStyle = "rgba(170,195,225,.18)"; g.beginPath(); g.ellipse(r() * n, r() * n, 8 + r() * 18, 4 + r() * 8, r() * 3, 0, 6.3); g.fill(); } });
+TEX.sand = noiseTex(128, "#dcc792", 14, 107, (g, n, r) => { for (let y = 0; y < n; y += 9){ g.strokeStyle = "rgba(170,140,90,.18)"; g.lineWidth = 1.2; g.beginPath(); for (let x = 0; x <= n; x += 8) g.lineTo(x, y + Math.sin(x * 0.15 + y) * 2); g.stroke(); } });
+TEX.deck = noiseTex(64, "#8a6a48", 10, 109, (g, n) => { for (let y = 0; y < n; y += 8){ g.fillStyle = "rgba(0,0,0,.28)"; g.fillRect(0, y, n, 1); g.fillStyle = "rgba(255,255,255,.07)"; g.fillRect(0, y + 1, n, 1); } g.fillStyle = "rgba(30,20,10,.5)"; for (let y = 4; y < n; y += 8){ g.fillRect(6, y - 1, 1.5, 1.5); g.fillRect(38, y - 1, 1.5, 1.5); } });
+TEX.dirt = noiseTex(128, "#7e6b53", 22, 113, (g, n, r) => { for (let i = 0; i < 260; i++){ g.fillStyle = r() < 0.5 ? "rgba(60,45,30,.4)" : "rgba(170,150,120,.35)"; g.fillRect(r() * n, r() * n, 2, 2); } });
+const _patsR = pats;
+pats = function(){
+  const P2 = _patsR();
+  if (!P2.ext){ const p = t => ctx.createPattern(TEX[t], "repeat"); P2.g[G_ROCK] = p("rock"); P2.g[G_SNOW] = p("snow"); P2.g[G_SAND] = p("sand"); P2.g[G_DECK] = p("deck"); P2.g[G_DIRT] = p("dirt"); P2.ext = true; }
+  return P2;
+};
+// ---------- oznakowanie dróg w krainach ----------
+function drawRoadDecal(d, c){
+  const pts = d.pts, hw = d.hw;
+  if (pts.length < 2) return;
+  const off = (k) => {
+    const out = [];
+    for (let i = 0; i < pts.length; i++){
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], dl = Math.hypot(dx, dy) || 1;
+      out.push([pts[i][0] - dy / dl * k, pts[i][1] + dx / dl * k]);
+    }
+    return out;
+  };
+  const line = (P) => { c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.stroke(); };
+  c.lineJoin = "round"; c.lineCap = "butt";
+  c.strokeStyle = "rgba(240,240,230,.8)"; c.lineWidth = 3;
+  line(off(hw - 8)); line(off(-(hw - 8)));
+  if (d.lanes === 2){
+    c.setLineDash([26, 30]); line(off(hw / 2 - 2)); line(off(-(hw / 2 - 2))); c.setLineDash([]);
+    c.strokeStyle = "rgba(240,200,60,.85)"; c.lineWidth = 2.5; line(off(3)); line(off(-3));
+  } else { c.setLineDash([22, 22]); line(pts); c.setLineDash([]); }
+}
+const _drawDecalR = drawDecal;
+drawDecal = function(d, c){ if (d.type === "road") return drawRoadDecal(d, c || MAINCTX); return _drawDecalR(d, c); };
+// ---------- nawierzchnie ----------
+const SURF = { [G_SNOW]: [0.45, 0.72], [G_SAND]: [0.6, 0.68], [G_ROCK]: [0.85, 0.85], [G_DIRT]: [0.78, 0.88], [G_FIELD]: [0.85, 0.82], [G_GRASS]: [0.88, 0.85] };
+function surfK(v, i){ if (VT[v.type].boat) return 1; const s = SURF[getGW(v.x, v.y)]; return s ? s[i] : 1; }
+// ---------- ruch na drogach w krainach ----------
+const roadTr = { t: 1 };
+function roadTrafficUpdate(dt){
+  roadTr.t -= dt;
+  if (roadTr.t > 0) return;
+  roadTr.t = 0.8;
+  const pp = playerPos(), mult = [0, 0.5, 1, 1.5][SET.traffic] || 0;
+  if (!mult) return;
+  for (const R of ROADS){
+    if (R.surf !== G_ROAD && R.surf !== G_DIRT) continue;
+    const near = roadNearestS(R, pp.x, pp.y);
+    if (near.d > 1400) continue;
+    let n = 0; for (const v of vehicles) if (v.ai && v.ai.road === R) n++;
+    const want = Math.round((R.lanes === 2 ? 8 : R.surf === G_DIRT ? 1 : 3) * mult);
+    if (n >= want) continue;
+    for (let k = 0; k < 4; k++){
+      const s = near.s + (Math.random() < 0.5 ? -1 : 1) * (650 + Math.random() * 700);
+      if (s < 30 || s > R.len - 30) continue;
+      const dir = Math.random() < 0.5 ? 1 : -1, lane = R.lanes === 2 ? (Math.random() < 0.5 ? 18 : 50) : 16;
+      const p = roadAt(R, s), nx = -p[3] * dir, ny = p[2] * dir, x = p[0] + nx * lane, y = p[1] + ny * lane;
+      if (onScreen(x, y, 70) || vehicles.some(o => Math.abs(o.x - x) < 90 && Math.abs(o.y - y) < 90)) continue;
+      const tp = R.surf === G_DIRT ? pick(["pickup", "suv", "van"]) : Math.random() < 0.2 ? pick(["van", "bus", "pickup"]) : pickType(Math.random());
+      if (tp === "bus" && R.lanes !== 2) continue;
+      const a = Math.atan2(p[3] * dir, p[2] * dir), v = makeVehicle(defaultCfg(tp), x, y, a);
+      const cr = Math.min(VT[tp].maxF * 0.85, R.cruise * (0.85 + Math.random() * 0.3));
+      v.vx = Math.cos(a) * cr * 0.7; v.vy = Math.sin(a) * cr * 0.7;
+      v.driver = "ai";
+      v.ai = { road: R, s, dir, lane, cruise: cr, hitT: 0, blockT: 0, honkT: 0, stuckT: 0, waiting: false, blockedByPlayer: false, angry: 0, pers: "normal", rr: Math.random() };
+      break;
+    }
+  }
+}
+function aiRoadInput(v, dt){
+  const ai = v.ai, R = ai.road, inp = v.inp;
+  inp.thr = inp.brk = inp.hb = inp.nitro = false; inp.steer = 0; inp.hold = false;
+  ai.honkT -= dt;
+  if (ai.hitT > 0){ ai.hitT -= dt; inp.brk = true; inp.hold = true; return inp; }
+  const fx = Math.cos(v.a), fy = Math.sin(v.a);
+  const here = roadAt(R, ai.s);
+  ai.s += (v.vx * here[2] + v.vy * here[3]) * dt;
+  if (Math.hypot(here[0] - v.x, here[1] - v.y) > 140){ ai.s = roadNearestS(R, v.x, v.y).s; }
+  // końce drogi
+  if (ai.dir > 0 && ai.s > R.len - 50){ ai.dir = -1; ai.s = R.len - 60; }
+  if (ai.dir < 0 && ai.s < 30){
+    if (R.toRing){ v.ai = { ring: true, s: ringNearestS(v.x, v.y), dir: Math.random() < 0.5 ? 1 : -1, off: 0, cruise: Math.min(VT[v.type].maxF * 0.85, 260), hitT: 0, blockT: 0, honkT: 0, stuckT: 0, waiting: false, blockedByPlayer: false, angry: 0 }; v.ai.off = v.ai.dir * 36; return NOINP; }
+    ai.dir = 1; ai.s = 40;
+  }
+  const look = 70 + Math.max(0, v.vx * fx + v.vy * fy) * 0.35;
+  const t = roadAt(R, ai.s + ai.dir * look), nx = -t[3] * ai.dir, ny = t[2] * ai.dir;
+  const tx = t[0] + nx * ai.lane, ty = t[1] + ny * ai.lane;
+  let diff = Math.atan2(ty - v.y, tx - v.x) - v.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  inp.steer = clamp(diff * 2.3, -1, 1);
+  const t2 = roadAt(R, ai.s + ai.dir * 160);
+  let curve = Math.acos(clamp(here[2] * t2[2] + here[3] * t2[3], -1, 1));
+  let target = Math.min(ai.cruise, 95 + 260 * (1 - Math.min(1, curve * 1.6)));
+  if (Math.abs(diff) > 0.6) target = Math.min(target, 90);
+  target = Math.min(target, aheadLimit(v, fx, fy));
+  for (const sv of SIRENS){ if (sv === v) continue; const dx = v.x - sv.x, dy = v.y - sv.y; if (dx * dx + dy * dy < 280 * 280 && dx * Math.cos(sv.a) + dy * Math.sin(sv.a) > 0) target = Math.min(target, 40); }
+  const sp = v.vx * fx + v.vy * fy;
+  if (target < 4){ inp.brk = true; inp.hold = true; }
+  else if (sp < target - 8) inp.thr = true;
+  else if (sp > target + 20){ inp.brk = true; inp.hold = true; }
+  if (ai.blockedByPlayer && sp < 25) ai.blockT += dt; else ai.blockT = 0;
+  if (ai.blockT > 1.2 && ai.honkT <= 0){ honk(v.x, v.y); ai.honkT = 2.5 + Math.random() * 2; }
+  if (sp < 5) ai.stuckT += dt; else ai.stuckT = 0;
+  return inp;
+}
+const _aiInputR = aiInput;
+aiInput = function(v, dt){ if (v.ai && v.ai.road && !v.stop) return aiRoadInput(v, dt); return _aiInputR(v, dt); };
+// ---------- łodzie na jeziorze ----------
+const _collideBoatR = collideBoat;
+collideBoat = function(v){
+  if (v.x < RB + RHW + 200) return _collideBoatR(v);
+  const t = VT[v.type], c = Math.cos(v.a), s = Math.sin(v.a);
+  let bad = false;
+  for (const off of t.offs){ const g = getGW(v.x + c * off, v.y + s * off); if (g !== G_WATER){ bad = true; break; } }
+  CR.imp = 0; CR.x = v.x; CR.y = v.y;
+  if (bad){
+    const imp = Math.hypot(v.vx, v.vy);
+    if (v.lpx !== undefined){ v.x = v.lpx; v.y = v.lpy; }
+    v.vx *= -0.25; v.vy *= -0.25; v.spin *= 0.5;
+    CR.imp = imp > 60 ? imp * 0.4 : 0;
+  } else { v.lpx = v.x; v.lpy = v.y; }
+  return CR;
+};
+const lakeSt = { t: 0 };
+function lakeBoatsUpdate(dt){
+  lakeSt.t -= dt;
+  if (lakeSt.t > 0) return;
+  lakeSt.t = 4;
+  const pp = playerPos();
+  if (Math.hypot(pp.x - LAKE.shoreX, pp.y - LAKE.c[1]) > 2600) return;
+  if (!onScreen(LAKE.shoreX + 100, LAKE.c[1], 250)) spawnDocked();
+  if (vehicles.filter(v => v.lakeai).length < 2){
+    const a = Math.random() * 6.28, x = LAKE.isl[0] + Math.cos(a) * 1300, y = LAKE.isl[1] + Math.sin(a) * 1000;
+    if (getGW(x, y) === G_WATER && !onScreen(x, y, 100)){ const v = makeVehicle(defaultCfg("boat", pick(["#ffffff", "#ff7043"])), x, y, a + Math.PI / 2); v.lake = true; v.lakeai = true; v.driver = "lakeai"; v.radio = -1; v.rider = pick(HELMS); }
+  }
+  for (let i = vehicles.length - 1; i >= 0; i--){ const v = vehicles[i]; if (v.lake && v !== player.veh && Math.hypot(v.x - pp.x, v.y - pp.y) > 3500 && !onScreen(v.x, v.y, 100)) vehicles.splice(i, 1); }
+}
+function spawnDocked(){
+  let n = vehicles.filter(v => v.lake && !v.driver && !v.lakeai).length;
+  for (const P of LAKE.piers.slice(0, 2)) for (const side of [-1, 1]) for (let k = 0; k < 3 && n < 5; k++){
+    const x = P.x0 + 260 + k * 110, y = P.y + side * 78;
+    if (vehicles.some(o => Math.abs(o.x - x) < 50 && Math.abs(o.y - y) < 40)) continue;
+    let ok = true; for (const dx of [-30, 0, 30]) for (const dy of [-14, 14]) if (getGW(x + dx, y + dy) !== G_WATER) ok = false;
+    if (!ok) continue;
+    const v = makeVehicle(defaultCfg(n % 2 ? "speedboat" : "boat", pick(["#ffffff", "#e53935", "#1e88e5", "#fdd835"])), x, y, 0); v.lake = true; v.radio = -1; n++;
+  }
+}
+function lakeAIInput(v, dt){
+  const inp = v.inp; inp.thr = inp.brk = inp.hb = inp.nitro = false; inp.hold = false;
+  const a = Math.atan2(v.y - LAKE.isl[1], v.x - LAKE.isl[0]) + 0.35;
+  const tx = LAKE.isl[0] + Math.cos(a) * 1300, ty = LAKE.isl[1] + Math.sin(a) * 1000;
+  let diff = Math.atan2(ty - v.y, tx - v.x) - v.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  inp.steer = clamp(diff * 2, -1, 1);
+  if (Math.hypot(v.vx, v.vy) < 120) inp.thr = true;
+  return inp;
+}
+// ---------- kolejka linowa ----------
+const CABLE = { a: MOUNT.cableBot, b: MOUNT.cableTop, ride: null };
+CABLE.len = Math.hypot(CABLE.b[0] - CABLE.a[0], CABLE.b[1] - CABLE.a[1]);
+CABLE.ang = Math.atan2(CABLE.b[1] - CABLE.a[1], CABLE.b[0] - CABLE.a[0]);
+function cablePos(u, side){
+  const nx = -Math.sin(CABLE.ang) * side * 14, ny = Math.cos(CABLE.ang) * side * 14;
+  return [CABLE.a[0] + (CABLE.b[0] - CABLE.a[0]) * u + nx, CABLE.a[1] + (CABLE.b[1] - CABLE.a[1]) * u + ny];
+}
+const cableAlt = u => 0.12 + Math.sin(u * Math.PI) * 0.25 + u * 0.55;
+function drawCable(inV){
+  const A = CABLE.a, B = CABLE.b, mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+  if (!inV(mx, my, CABLE.len / 2 + 200)) return;
+  const steps = 24;
+  for (const side of [-1, 1]){
+    ctx.strokeStyle = "rgba(30,30,35,.7)"; ctx.lineWidth = 1.4; ctx.beginPath();
+    for (let i = 0; i <= steps; i++){ const u = i / steps, p = cablePos(u, side), k = 1 + cableAlt(u), q = projK(p[0], p[1], k); if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }
+    ctx.stroke();
+  }
+  for (let i = 1; i < 6; i++){ const u = i / 6, p = cablePos(u, 0), q = projK(p[0], p[1], 1 + cableAlt(u)); ctx.strokeStyle = "#6d7378"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); ctx.fillStyle = "#4b5258"; ctx.fillRect(q[0] - 10, q[1] - 2, 20, 4); }
+  const n = 6;
+  for (let i = 0; i < n; i++){
+    let u = ((gameTime * 0.012 + i / n) % 1) * 2, side = 1;
+    if (u > 1){ u = 2 - u; side = -1; }
+    if (CABLE.ride && i === 0) continue;
+    drawGondola(u, side, false);
+  }
+  if (CABLE.ride) drawGondola(CABLE.ride.up ? CABLE.ride.t : 1 - CABLE.ride.t, 1, true);
+}
+function drawGondola(u, side, me){
+  const p = cablePos(u, side), k = 1 + cableAlt(u), q = projK(p[0], p[1], k);
+  ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.fillRect(p[0] - 8, p[1] - 6, 16, 12);
+  ctx.save(); ctx.translate(q[0], q[1]); ctx.scale(k, k);
+  ctx.fillStyle = me ? "#ffb300" : "#e53935"; rrect(ctx, -9, -7, 18, 14, 3); ctx.fill();
+  ctx.fillStyle = "rgba(180,220,255,.85)"; ctx.fillRect(-6, -4, 12, 8);
+  if (me){ ctx.fillStyle = SAVE.outfit.hair; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 6.3); ctx.fill(); }
+  ctx.restore();
+}
+function cableStep(dt){
+  const R = CABLE.ride;
+  if (!R) return;
+  R.t += dt / 22;
+  const u = R.up ? Math.min(1, R.t) : Math.max(0, 1 - R.t), p = cablePos(u, 1);
+  player.foot.x = p[0]; player.foot.y = p[1]; player.foot.moving = false;
+  if (R.t >= 1){
+    CABLE.ride = null;
+    const g = R.up ? MOUNT.cableTop : MOUNT.cableBot;
+    player.foot.x = g[0]; player.foot.y = g[1] + 70;
+    for (let i = 0; i < 20 && pointBlocked(player.foot.x, player.foot.y, 8); i++) player.foot.y += 10;
+    popup(R.up ? "🏔️ Szczyt Orli! Widok zapiera dech." : "🚡 Dojechałeś na dół.", "#9fe39f");
+    lastMode = "";
+  }
+}
+// ---------- wędkowanie ----------
+const FISH = [
+  ["Płotka", 0.1, 0.5, 6, 30], ["Okoń", 0.15, 0.9, 9, 22], ["Leszcz", 0.5, 3, 7, 16], ["Karp", 1, 9, 9, 12], ["Szczupak", 1, 12, 14, 8],
+  ["Sandacz", 1, 8, 16, 6], ["Węgorz", 0.5, 3, 24, 3], ["Sum", 5, 45, 12, 1.5], ["Stary but", 0.4, 0.8, 0, 2.5], ["Złota rybka", 0.05, 0.1, 400, 0.3]
+];
+if (!SAVE.fish || typeof SAVE.fish !== "object") SAVE.fish = {};
+const FSH = { on: false };
+function nearFishSpot(){ const f = player.foot; return LAKE.fish.some(p => Math.hypot(p[0] - f.x, p[1] - f.y) < 34); }
+function startFishing(){
+  const f = player.foot;
+  FSH.on = true; FSH.phase = "wait"; FSH.t = 2 + Math.random() * 6; FSH.x = f.x + 70; FSH.y = f.y + (Math.random() - 0.5) * 30; FSH.px = f.x; FSH.py = f.y;
+  popup("🎣 Zarzucasz wędkę… czekaj na branie i wtedy naciśnij przycisk!", "#9fd4ff");
+  if (actx) burst(0.06, 2000, 0.15);
+}
+function fishStep(dt){
+  if (!FSH.on) return;
+  const f = player.foot;
+  if (player.mode !== "foot" || Math.hypot(f.x - FSH.px, f.y - FSH.py) > 12){ FSH.on = false; popup("🎣 Zwijasz wędkę.", "#bbb"); return; }
+  FSH.t -= dt;
+  if (FSH.phase === "wait" && FSH.t <= 0){ FSH.phase = "bite"; FSH.t = 0.95; if (actx){ const t = actx.currentTime; tone(1200, t, 0.08, "square", 0.07); tone(900, t + 0.1, 0.08, "square", 0.07); } if (SET.vibrate && navigator.vibrate) navigator.vibrate(120); }
+  else if (FSH.phase === "bite" && FSH.t <= 0){ FSH.phase = "wait"; FSH.t = 2 + Math.random() * 6; popup("💨 Ryba zerwała się z haczyka!", "#ffb3b0"); }
+}
+function fishPull(){
+  if (FSH.phase !== "bite"){ popup("🎣 Za wcześnie! Spłoszyłeś rybę.", "#ffb3b0"); FSH.phase = "wait"; FSH.t = 2 + Math.random() * 5; return; }
+  const tot = FISH.reduce((s, x) => s + x[4], 0);
+  let r = Math.random() * tot, F = FISH[0];
+  for (const x of FISH){ r -= x[4]; if (r <= 0){ F = x; break; } }
+  const kg = +(F[1] + Math.pow(Math.random(), 2) * (F[2] - F[1])).toFixed(2), val = Math.round(F[3] * Math.max(1, kg));
+  const rec = SAVE.fish[F[0]] || { n: 0, best: 0 };
+  rec.n++; const best = kg > rec.best; if (best) rec.best = kg; SAVE.fish[F[0]] = rec; persist();
+  if (val > 0) addMoney(val, (F[0] === "Złota rybka" ? "✨ " : "🐟 ") + F[0].toUpperCase() + " " + kg + " kg");
+  else popup("👢 Stary but… przynajmniej nie mokry. No, mokry.", "#bbb");
+  if (best && rec.n > 1) popup("🏆 Rekord gatunku: " + F[0] + " " + kg + " kg!", "#ffd700");
+  if (F[0] === "Złota rybka") toast("✨ Złota rybka! Spełnia życzenie… $400 na koncie.", 3000);
+  FSH.phase = "wait"; FSH.t = 2 + Math.random() * 6;
+  if (actx){ const t = actx.currentTime; tone(600, t, 0.1, "sine", 0.07); tone(900, t + 0.1, 0.15, "sine", 0.07); }
+  for (let i = 0; i < 8; i++){ const a = Math.random() * 6.28; addPart(FSH.x, FSH.y, Math.cos(a) * 60, Math.sin(a) * 60, 0.5, 2, 5); }
+}
+// ---------- Szczyt Orli: punkt widokowy ----------
+const SUMMIT = { x: MOUNT.summit[0] + 40, y: MOUNT.summit[1] - 20 };
+LAND_SPOTS.push({ x: MOUNT.summit[0] - 400, y: MOUNT.summit[1] + 3300 }, { x: LAKE.shoreX - 900, y: LAKE.c[1] - 900 });
+function summitAction(){
+  if (!SAVE.mview){ SAVE.mview = 1; addMoney(400, "SZCZYT ORLI"); ROOF.viewT = 4; toast("🏔️ Zdobyłeś Szczyt Orli! Najwyższy punkt okolicy.", 3500); persist(); return; }
+  showDialog({ name: "Szczyt Orli", item: "🏔️" }, "Wiatr gwiżdże między skałami. Daleko w dole widać miasto, jezioro i wstążkę serpentyny. Obok stoi skrzynia ze spadochronami.", [
+    { t: "🪂 Skacz ze spadochronem!", pri: true, fn: () => { closeDialog(); startPara({ ht: 0.9 }); } },
+    { t: "📸 Panorama", fn: () => { camFlash = 0.8; addMoney(25, "PANORAMA GÓR"); closeDialog(); } },
+    { t: "👋 Zostań", fn: closeDialog }
+  ]);
+}
+// ---------- wyścig górski (czasówka) ----------
+const MTT = { start: roadAt(MOUNT.road, 1400), cps: [], run: null };
+for (let s = 2300; s < MOUNT.road.len - 150; s += 900) MTT.cps.push(s);
+MTT.cps.push(MOUNT.road.len - 120);
+MTT.par = Math.round((MOUNT.road.len - 1400) / 260);
+function mttStep(dt){
+  const R = MTT.run;
+  if (!R) return;
+  R.t += dt;
+  if (player.mode !== "car"){ MTT.run = null; popup("❌ Wyścig górski przerwany", "#ff4136"); return; }
+  const cpS = MTT.cps[R.i], p = roadAt(MOUNT.road, cpS), v = player.veh;
+  if (Math.hypot(p[0] - v.x, p[1] - v.y) < 110){
+    R.i++;
+    if (actx) tone(880 + R.i * 50, actx.currentTime, 0.1, "sine", 0.07);
+    if (R.i >= MTT.cps.length){
+      const rec = SAVE.records.mtt, t = R.t, prize = Math.round(t <= MTT.par ? 900 : 450);
+      addMoney(prize, "WYŚCIG GÓRSKI");
+      if (!rec || t < rec){ SAVE.records.mtt = t; persist(); popup("🏆 Rekord trasy: " + t.toFixed(1) + " s!", "#ffd700"); }
+      MTT.run = null;
+    }
+  }
+}
+// ---------- krasnale w krainach ----------
+const XGNOMES = [];
+(function(){
+  const S = MOUNT.summit;
+  const cand = [[S[0] + 150, S[1] + 120], [MOUNT.tarn[0] + 470, MOUNT.tarn[1]], [MOUNT.cableBot[0] + 140, MOUNT.cableBot[1] + 100], [WCX - 1800, MOUNT.yb - 1500], [WCX + 2400, MOUNT.yb - 3200],
+    [LAKE.isl[0] + 60, LAKE.isl[1] + 40], [LAKE.camp[0] + 220, LAKE.camp[1] + 60], [LAKE.shoreX + 790, LAKE.c[1] + 500], [LAKE.beach[3][0] - 40, LAKE.beach[3][1]], [LAKE.c[0] + LAKE.rx * 0.95, LAKE.c[1] + LAKE.ry * 0.5]];
+  for (const [x, y] of cand){
+    let px = x, py = y;
+    for (let k = 0; k < 40 && (pointBlocked(px, py, 8) || getGW(px, py) === G_WATER); k++){ px += 24; py += 12; }
+    XGNOMES.push({ x: px, y: py });
+  }
+})();
+if (!Array.isArray(SAVE.xg)) SAVE.xg = [];
+function xgStep(){
+  if (player.mode !== "foot" && player.mode !== "car") return;
+  const pp = playerPos();
+  XGNOMES.forEach((g, i) => {
+    if (SAVE.xg[i] || Math.abs(g.x - pp.x) > 30 || Math.abs(g.y - pp.y) > 30) return;
+    SAVE.xg[i] = 1; persist();
+    const n = SAVE.xg.filter(Boolean).length;
+    addMoney(200, "KRASNAL KRAINY");
+    popup("🗿 Krasnal z krainy " + n + "/" + XGNOMES.length + "!", "#ffd700");
+    if (n === XGNOMES.length){ addMoney(3000, "WSZYSTKIE KRASNALE KRAIN"); toast("🏆 Wszystkie krasnale gór i jeziora!", 3500); }
+  });
+}
+// ---------- krainy: nazwy ----------
+const regSt = { cur: null };
+function regionOf(x, y){
+  if (y < MOUNT.yb) return "🏔️ Góry · Szczyt Orli";
+  if (x > RB + RHW + 300 && Math.abs(x - LAKE.c[0]) < LAKE.rx + 1500) return "🌊 Wielkie Jezioro";
+  if (x < RA - RHW - 200) return "🌾 Zachodnie pola";
+  if (y > RB + RHW + 200) return "🌾 Południowe pola";
+  return null;
+}
+// ---------- przyciski akcji ----------
+function regionLabel(){
+  if (player.mode !== "foot" || onRoofNow()) return "";
+  if (CABLE.ride) return "🚡 JAZDA…";
+  if (FSH.on) return FSH.phase === "bite" ? "🎣 ZACIĄGNIJ!" : "🎣 CZEKAJ…";
+  const f = player.foot;
+  if (Math.hypot(CABLE.a[0] - f.x, CABLE.a[1] - f.y) < 90) return "🚡 W GÓRĘ $10";
+  if (Math.hypot(CABLE.b[0] - f.x, CABLE.b[1] - f.y) < 90) return "🚡 W DÓŁ";
+  if (Math.hypot(SUMMIT.x - f.x, SUMMIT.y - f.y) < 40) return SAVE.mview ? "🪂 SKOK" : "🏔️ SZCZYT";
+  if (nearFishSpot()) return "🎣 ŁÓW";
+  if (Math.hypot(LAKE.camp[0] - f.x, LAKE.camp[1] + 40 - f.y) < 50) return "🔥 ODPOCZNIJ";
+  return "";
+}
+function regionAction(){
+  if (player.mode !== "foot" || onRoofNow()) return false;
+  if (CABLE.ride) return true;
+  if (FSH.on){ fishPull(); return true; }
+  const f = player.foot;
+  if (Math.hypot(CABLE.a[0] - f.x, CABLE.a[1] - f.y) < 90){
+    if (SAVE.money < 10){ toast("Bilet kosztuje $10", 1500); return true; }
+    SAVE.money -= 10; saveDirty = true; CABLE.ride = { up: true, t: 0 }; popup("🚡 Wsiadasz do gondoli…", "#9fd4ff"); if (actx) tone(660, actx.currentTime, 0.2, "sine", 0.06); return true;
+  }
+  if (Math.hypot(CABLE.b[0] - f.x, CABLE.b[1] - f.y) < 90){ CABLE.ride = { up: false, t: 0 }; popup("🚡 Zjazd w dół…", "#9fd4ff"); return true; }
+  if (Math.hypot(SUMMIT.x - f.x, SUMMIT.y - f.y) < 40){ summitAction(); return true; }
+  if (nearFishSpot()){ startFishing(); return true; }
+  if (Math.hypot(LAKE.camp[0] - f.x, LAKE.camp[1] + 40 - f.y) < 50){
+    heal(100); const h = hourNow();
+    if ((h >= 20 || h < 5) && SET.daynight === "cycle"){ hourSkipTo(7); popup("⛺ Przespałeś noc pod namiotem. Dzień dobry!", "#ffd27a"); }
+    else popup("🔥 Odpoczynek przy ognisku – pełne zdrowie", "#ffd27a");
+    return true;
+  }
+  return false;
+}
+const _roofLabelR = roofLabel;
+roofLabel = function(){ return regionLabel() || _roofLabelR(); };
+const _actRegion = actionBtn;
+actionBtn = function(){
+  if (state === "play" && regionAction()){ lastMode = ""; return; }
+  // wysiadanie z łodzi na środku jeziora
+  if (state === "play" && player.mode === "car" && player.veh.lake){
+    const v = player.veh;
+    let ok = null;
+    for (let r = 20; r < 160 && !ok; r += 12) for (let k = 0; k < 12; k++){ const a = k / 12 * 6.28, x = v.x + Math.cos(a) * r, y = v.y + Math.sin(a) * r, g = getGW(x, y); if (g !== G_WATER && !pointBlocked(x, y, 7)){ ok = [x, y]; break; } }
+    if (!ok){ toast("Podpłyń do brzegu albo pomostu, żeby wysiąść", 1600); return; }
+    _actRegion();
+    if (player.mode === "foot"){ player.foot.x = ok[0]; player.foot.y = ok[1]; }
+    return;
+  }
+  _actRegion();
+};
+// start czasówki górskiej: zatrzymaj auto przy fladze
+function mttCheckStart(){
+  if (MTT.run || player.mode !== "car" || state !== "play") return;
+  const v = player.veh, p = MTT.start;
+  if (Math.hypot(p[0] - v.x, p[1] - v.y) < 60 && Math.hypot(v.vx, v.vy) < 30 && !(MTT.lockT > gameTime)){
+    MTT.lockT = gameTime + 8;
+    showDialog({ name: "Wyścig górski", item: "🏁" }, "Serpentyna na Szczyt Orli: " + MTT.cps.length + " punktów kontrolnych. Wzorzec: " + MTT.par + " s. Rekord: " + (SAVE.records.mtt ? SAVE.records.mtt.toFixed(1) + " s" : "brak") + ".", [
+      { t: "🏁 START!", pri: true, fn: () => { closeDialog(); MTT.run = { t: 0, i: 0 }; popup("🏁 Jazda! Na szczyt!", "#ffd27a"); } },
+      { t: "👋 Nie teraz", fn: closeDialog }]);
+  }
+}
+// ---------- rysowanie ----------
+function drawRegionsWorld(inV){
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  // plaża
+  if (WX.rain < 0.3){
+    const h = hourNow(), day = h > 9 && h < 19;
+    for (const [x, y, r] of LAKE.beach){
+      if (!inV(x, y, 40)) continue;
+      ctx.fillStyle = ["#e53935", "#1e88e5", "#fdd835", "#43a047"][(r * 4) | 0]; ctx.fillRect(x - 7, y - 13, 14, 26);
+      ctx.fillStyle = "rgba(255,255,255,.5)"; ctx.fillRect(x - 7, y - 13, 14, 3);
+      if (day && r < 0.75){ ctx.fillStyle = "#e0b48c"; ctx.beginPath(); ctx.ellipse(x, y + 2, 3.5, 9, 0, 0, 6.3); ctx.fill(); ctx.fillStyle = "#3b2a1a"; ctx.beginPath(); ctx.arc(x, y - 8, 3, 0, 6.3); ctx.fill(); }
+      if (r > 0.4){ ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.arc(x + 14, y + 6, 15, 0, 6.3); ctx.fill(); for (let k = 0; k < 8; k++){ ctx.fillStyle = k % 2 ? "#fff" : (r > 0.7 ? "#e53935" : "#1e88e5"); ctx.beginPath(); ctx.moveTo(x + 10, y); ctx.arc(x + 10, y, 15, k / 8 * 6.28, (k + 1) / 8 * 6.28); ctx.fill(); } }
+    }
+  }
+  // ognisko
+  const cf = [LAKE.camp[0], LAKE.camp[1] + 40];
+  if (inV(cf[0], cf[1], 60)){
+    ctx.fillStyle = "#5d4037"; for (let k = 0; k < 4; k++){ ctx.save(); ctx.translate(cf[0], cf[1]); ctx.rotate(k * 0.8); ctx.fillRect(-12, -2, 24, 4); ctx.restore(); }
+    ctx.fillStyle = "#9e9e9e"; for (let k = 0; k < 9; k++){ const a = k / 9 * 6.28; ctx.beginPath(); ctx.arc(cf[0] + Math.cos(a) * 15, cf[1] + Math.sin(a) * 15, 3.2, 0, 6.3); ctx.fill(); }
+    if (Math.random() < 0.5) addPart(cf[0] + (Math.random() - 0.5) * 10, cf[1] + (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 10, -20, 0.5, 4 + Math.random() * 4, 2);
+    for (let k = 0; k < 3; k++){ ctx.fillStyle = "#6d4c41"; ctx.fillRect(cf[0] - 60 + k * 50, cf[1] + 40, 26, 8); }
+  }
+  // wędka
+  if (FSH.on){
+    const f = player.foot, dip = FSH.phase === "bite" ? Math.sin(gameTime * 30) * 2 + 2 : Math.sin(gameTime * 3) * 0.6;
+    ctx.strokeStyle = "rgba(240,240,240,.7)"; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(f.x + 8, f.y); ctx.quadraticCurveTo((f.x + FSH.x) / 2, f.y - 20, FSH.x, FSH.y); ctx.stroke();
+    ctx.fillStyle = "#e53935"; ctx.beginPath(); ctx.arc(FSH.x, FSH.y + dip, 3, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255," + (FSH.phase === "bite" ? 0.8 : 0.3) + ")"; ctx.beginPath(); ctx.arc(FSH.x, FSH.y, 6 + (gameTime * 8 % 6), 0, 6.3); ctx.stroke();
+    if (FSH.phase === "bite"){ ctx.font = "16px system-ui"; ctx.fillText("❗", FSH.x, FSH.y - 18); }
+  }
+  // znaczniki: łowisko, szczyt, start wyścigu
+  ctx.font = "15px system-ui, sans-serif";
+  for (const p of LAKE.fish) if (inV(p[0], p[1], 30) && !FSH.on){ ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.beginPath(); ctx.arc(p[0], p[1] - 16, 11, 0, 6.3); ctx.fill(); ctx.fillText("🎣", p[0], p[1] - 15); }
+  if (inV(SUMMIT.x, SUMMIT.y, 60)){ ctx.strokeStyle = SAVE.mview ? "rgba(92,214,92,.8)" : "rgba(255,210,80,.9)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(SUMMIT.x, SUMMIT.y, 22 + Math.sin(gameTime * 3) * 2, 0, 6.3); ctx.stroke(); ctx.font = "18px system-ui"; ctx.fillText(SAVE.mview ? "🪂" : "🚩", SUMMIT.x, SUMMIT.y); }
+  const st = MTT.start;
+  if (inV(st[0], st[1], 60) && !MTT.run){ ctx.font = "18px system-ui"; ctx.fillText("🏁", st[0] - st[3] * 60, st[1] + st[2] * 60 - Math.abs(Math.sin(gameTime * 3)) * 4); }
+  if (MTT.run){ const p = roadAt(MOUNT.road, MTT.cps[MTT.run.i]); if (inV(p[0], p[1], 80)){ ctx.strokeStyle = "rgba(255,179,0,.9)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(p[0], p[1], 50 + Math.sin(gameTime * 6) * 4, 0, 6.3); ctx.stroke(); } }
+  // krasnale krain
+  XGNOMES.forEach((g, i) => {
+    if (SAVE.xg[i] || !inV(g.x, g.y, 30)) return;
+    ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.beginPath(); ctx.ellipse(g.x + 2, g.y + 5, 5, 2.5, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = "#d4a017"; ctx.beginPath(); ctx.ellipse(g.x, g.y + 1, 4, 4.5, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = "#ffd700"; ctx.beginPath(); ctx.moveTo(g.x - 3.5, g.y - 2); ctx.lineTo(g.x, g.y - 10); ctx.lineTo(g.x + 3.5, g.y - 2); ctx.fill();
+  });
+}
+function drawRegionsSky(inV){ drawCable(inV); }
+function drawRegionsHUD(){
+  if (state !== "play") return;
+  if (regSt.showT > 0 && regSt.cur){
+    ctx.globalAlpha = Math.min(1, regSt.showT, (3.5 - regSt.showT) * 3);
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.font = "900 22px system-ui, sans-serif";
+    ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillText(regSt.cur, W / 2 + 2, H * 0.36 + 2); ctx.fillStyle = "#fff"; ctx.fillText(regSt.cur, W / 2, H * 0.36);
+    ctx.globalAlpha = 1;
+  }
+  if (MTT.run){
+    const R = MTT.run, p = roadAt(MOUNT.road, MTT.cps[R.i]);
+    drawEdgeArrow(p[0], p[1], "#ffb300");
+    ctx.textAlign = "left"; ctx.font = "800 12px system-ui, sans-serif";
+    const t = "🏁 Wyścig górski · " + R.i + "/" + MTT.cps.length + " · " + R.t.toFixed(1) + " s (wzorzec " + MTT.par + " s)";
+    const tw = ctx.measureText(t).width; ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, 10, 186, tw + 18, 21, 8); ctx.fill(); ctx.fillStyle = "#ffd27a"; ctx.fillText(t, 19, 201);
+  }
+  ctx.textAlign = "center";
+}
+function regionsUpdate(dt){
+  roadTrafficUpdate(dt);
+  lakeBoatsUpdate(dt);
+  cableStep(dt);
+  fishStep(dt);
+  mttStep(dt);
+  mttCheckStart();
+  xgStep();
+  if (regSt.showT > 0) regSt.showT -= dt;
+  regSt.chk = (regSt.chk || 0) - dt;
+  if (regSt.chk <= 0){ regSt.chk = 1; const pp = playerPos(), r = regionOf(pp.x, pp.y); if (r !== regSt.cur){ regSt.cur = r; if (r) regSt.showT = 3.5; } }
+}
+// osiągnięcia krain
+ACH.push(
+  ["summit", "🏔️", "Zdobywca", "Wejdź na Szczyt Orli", 600, () => !!SAVE.mview],
+  ["mtt", "🏁", "Król serpentyny", "Ukończ wyścig górski", 700, () => !!SAVE.records.mtt],
+  ["fish1", "🎣", "Pierwsza ryba", "Złów rybę", 150, () => Object.keys(SAVE.fish).some(k => k !== "Stary but")],
+  ["fish20", "🐟", "Wędkarz", "Złów 20 ryb", 800, () => Object.values(SAVE.fish).reduce((s, x) => s + x.n, 0) >= 20],
+  ["sum", "🐋", "Pogromca sumów", "Złów suma", 1500, () => !!SAVE.fish["Sum"]],
+  ["goldfish", "✨", "Złota rybka", "Złów złotą rybkę", 2000, () => !!SAVE.fish["Złota rybka"]],
+  ["xgAll", "🗿", "Krasnale krain", "Znajdź wszystkie krasnale gór i jeziora", 2500, () => SAVE.xg.filter(Boolean).length >= XGNOMES.length]
+);
+
+spawnDocked();
+DOORS.push({ kind: "food", name: "Schronisko", x: MOUNT.hut.x + MOUNT.hut.w / 2, y: MOUNT.hut.y + MOUNT.hut.h + 16 });
 
 // START
 // =====================================================================
