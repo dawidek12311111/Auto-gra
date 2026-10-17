@@ -14016,6 +14016,7 @@ function openPhone(){
     { t: "🔧 Pomoc drogowa", fn: phoneTow },
     { t: "🚕 Taxi", fn: phoneTaxi },
     { t: "🍕 Zamów pizzę ($15)", fn: () => { if (PHONE.pizzaT > 0){ showDialog(PW, "Pizza już jedzie! Jeszcze chwilka.", [{ t: "🍕" }]); return; } if (SAVE.money < 15){ showDialog(PW, "„Za mało środków na koncie.” Pizzeria się rozłączyła.", [{ t: "😢" }]); return; } SAVE.money -= 15; saveDirty = true; PHONE.pizzaT = 25; showDialog(PW, "„Pizzeria Mamma Mia, dzień dobry! Margherita? Dowieziemy w 25 sekund, gdziekolwiek pan jest!”", [{ t: "🍕 Czekam" }]); } },
+    ...(typeof phoneExtras === "function" ? phoneExtras() : []),
     { t: "✖ Schowaj telefon", fn: closeDialog }
   ];
   const h = hourNow(), hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
@@ -14710,6 +14711,7 @@ friendDialog = function(p){
     ch.push({ t: "😘 Buziak", fn: () => { if ((COMP.kiss || 0) > gameTime){ showDialog(w, "Hihi, przed chwilą! 😊", [{ t: "💗", fn: () => friendDialog(p) }]); return; } COMP.kiss = gameTime + 120; heal(25); relAdd(f, 0, 0.5, true); emote(p, "😘", 3); for (let i = 0; i < 8; i++) addPart(p.x, p.y - 12, (Math.random() - 0.5) * 40, -40, 1, 4, 6); showDialog(w, "💋 (+25 zdrowia)", [{ t: "🥰", fn: () => friendDialog(p) }], relSub(f)); } });
     ch.push({ t: "💔 Rozstańmy się", fn: () => breakUp(p) });
   } else if (love >= 6) ch.push({ t: "💑 Będziesz ze mną?", fn: () => askOut(p) });
+  if (typeof friendExtras === "function") ch.push(...friendExtras(p, f));
   ch.push({ t: "👋 Na razie", fn: () => { closeDialog(); if (COMP.p !== p) endTalk(p); } });
   showDialog(w, hi, ch, relSub(f));
 };
@@ -14730,6 +14732,7 @@ callFriend = function(i){
     showDialog(w, isPartner(f) ? "Kochanie! Co porabiasz? 💗" : pick(["Halo? O, cześć! Co tam?", "No hej! Dawno nie gadaliśmy!"]), [
       { t: "🤝 Spotkajmy się – mam plan!", pri: true, fn: () => meetFriend(i, false) },
       ((f.love || 0) >= 4 || isPartner(f)) ? { t: "💌 Wieczorem randka?", fn: () => meetFriend(i, true) } : null,
+      ...(typeof callExtras === "function" ? callExtras(i) : []),
       { t: "📞 Inne sprawy…", fn: () => _callFriendS(i) },
       { t: "👋 Rozłącz", fn: () => phoneFriends(0) }].filter(Boolean), relSub(f));
     return;
@@ -14978,6 +14981,662 @@ talkTarget = function(){
   }
   return p;
 };
+
+// =====================================================================
+// LUDZIE 2: PROFILE I PLAN DNIA ZNAJOMYCH, WSPOMNIENIA, PRZYSŁUGI,
+// DOMÓWKI I ZAPROSZENIA, ROCZNICE, WSPÓLNE MIESZKANIE, ŚLUB, EKIPA,
+// SŁAWA ORAZ SYTUACJE ULICZNE Z OBCYMI
+// =====================================================================
+if (!SAVE.soc2 || typeof SAVE.soc2 !== "object") SAVE.soc2 = { favors: 0, parties: 0, invites: 0, kids: 0, tourists: 0, cars: 0, biwak: 0 };
+const dayIdx = () => Math.floor(START_HOUR / 24 + gameTime / (SET.dayLen * 60));
+const cycleOn = () => SET.daynight === "cycle";
+const fIdx = f => SAVE.friends.indexOf(f);
+function hrand(s){ let h = 2166136261; for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 0) % 10000) / 10000; }
+// ---------- profile ----------
+const FJOBS = [["sprzedawca w sklepie", "sprzedawczyni w sklepie", "shop"], ["barista", "baristka", "cafe"], ["kucharz", "kucharka", "food"], ["farmaceuta", "farmaceutka", "pharm"], ["doktor", "lekarka", "hosp"], ["bankowiec", "doradczyni w banku", "bank"], ["mechanik", "mechaniczka", "garage"], ["nauczyciel", "nauczycielka", "school"], ["kierowca autobusu", "kierowczyni autobusu", "bus"], ["student", "studentka", "school"]];
+const HOBBY = ["fotografia", "gry komputerowe", "bieganie", "wędkarstwo", "gotowanie", "taniec", "motoryzacja", "książki", "muzyka na żywo", "grzybobranie", "siłownia", "seriale"];
+const FAVS = [["park", "w parku"], ["cafe", "w kawiarni"], ["bar", "w barze"], ["molo", "na molo nad jeziorem"], ["rynek", "na rynku"]];
+function prof(f){
+  if (f.prof) return f.prof;
+  const r = k => hrand(f.name + f.col + k);
+  const j = FJOBS[(r("j") * FJOBS.length) | 0], fav = FAVS[(r("f") * FAVS.length) | 0];
+  const bx = 1 + ((r("x") * (NB - 2)) | 0), by = 1 + ((r("y") * (NB - 2)) | 0);
+  f.prof = { age: 19 + ((r("a") * 36) | 0), job: f.fem ? j[1] : j[0], jk: j[2], hobby: HOBBY[(r("h") * HOBBY.length) | 0], fav: fav[0], favTxt: fav[1], bx, by };
+  saveDirty = true;
+  return f.prof;
+}
+function placeOf(f, kind){
+  const P2 = prof(f), home = spotOf(P2.bx, P2.by);
+  const nearDoor = k => { let best = null, bd = 1e18; for (const d of DOORS) if (d.kind === k){ const dd = Math.hypot(d.x - home[0], d.y - home[1]); if (dd < bd){ bd = dd; best = d; } } return best ? [best.x, best.y + 10] : null; };
+  const po = ic => { const o = pois.find(q => q.icon === ic); return o ? [o.x, o.y + 40] : null; };
+  if (kind === "home") return home;
+  if (kind === "work"){
+    const k = P2.jk;
+    if (k === "garage") return garages[0] ? [garages[0].x + garages[0].w / 2, garages[0].y + garages[0].h + 20] : home;
+    if (k === "school") return po("🏫") || home;
+    if (k === "bus") return po("🚌") || home;
+    return nearDoor(k) || home;
+  }
+  const fv = P2.fav;
+  if (fv === "park"){ let b = null, bd = 1e18; for (const q of parks){ const d = Math.hypot(q[0] - home[0], q[1] - home[1]); if (d < bd){ bd = d; b = q; } } return b ? [b[0], b[1]] : home; }
+  if (fv === "cafe") return nearDoor("cafe") || home;
+  if (fv === "bar") return CLUB ? [CLUB.x - 40, CLUB.y + 10] : home;
+  if (fv === "molo") return [LAKE.fish[0][0] - 250, LAKE.fish[0][1]];
+  return po("🏛️") || home;
+}
+function whereNow(f){
+  const h = hourNow();
+  if (!cycleOn() || (h >= 8 && h < 16)) return ["work", "w pracy (" + prof(f).job + ")"];
+  if (h >= 16 && h < 23) return ["fav", prof(f).favTxt];
+  return ["home", "w domu"];
+}
+// ---------- wspomnienia ----------
+function memAdd(f, txt){ if (!f) return; f.mem = f.mem || []; f.mem.unshift(txt); if (f.mem.length > 6) f.mem.length = 6; saveDirty = true; }
+function profileText(f){
+  const P2 = prof(f), w = whereNow(f);
+  return "📇 " + f.name + ", " + P2.age + " lat\n💼 " + P2.job + "\n🎯 Hobby: " + P2.hobby + "\n📍 Najczęściej " + P2.favTxt + " · teraz pewnie " + w[1] + (f.mem && f.mem.length ? "\n💭 Wspólne chwile: " + f.mem.slice(0, 3).join(" · ") : "") + (f.worksAt ? "\n🤝 Pracuje w twojej firmie" : "");
+}
+// ---------- odwiedziny w pracy / ulubionym miejscu ----------
+const VISIT = { v: null };
+function visitFriend(i){
+  const f = SAVE.friends[i], w = whereNow(f), pl = placeOf(f, w[0]);
+  VISIT.v = { i, x: pl[0], y: pl[1], t: 300 };
+  NAV = { x: pl[0], y: pl[1], name: f.name + " (" + w[1] + ")" }; GPS.tgt = null;
+  closeDialog(); popup("🧭 Jedziesz do " + f.name + " – " + w[1], "#5bc0de");
+}
+function visitUpdate(dt){
+  const V = VISIT.v; if (!V) return;
+  V.t -= dt; if (V.t <= 0){ VISIT.v = null; return; }
+  const pp = playerPos();
+  if (Math.hypot(pp.x - V.x, pp.y - V.y) < 140){
+    VISIT.v = null;
+    const f = SAVE.friends[V.i]; if (!f) return;
+    let p = peds.find(q => q.friendIdx === V.i);
+    if (!p){ p = makePed(0, 0, 0); Object.assign(p, { x: V.x + 24, y: V.y + 14, name: f.name, fem: f.fem, col: f.col, hair: f.hair, trait: f.trait, friendIdx: V.i, state: "stand", home: [V.x + 24, V.y + 14], fixed: true }); pushCircle(p, 7); }
+    emote(p, "😮", 2); say(p, pick(["O! Co ty tu robisz? 😄", "Hej! Wpadłeś do mnie?", "Niespodzianka! Miło cię widzieć!"]), 3);
+    relAdd(f, 1, 0); memAdd(f, "odwiedziłeś mnie " + whereNow(f)[1]);
+    if (NAV && NAV.name && NAV.name.startsWith(f.name)) NAV = null;
+  }
+}
+// ---------- przysługi (znajomi dzwonią z prośbami) ----------
+const FAV = { t: 150 + Math.random() * 120 };
+function favorPos(minD, maxD){
+  const pp = playerPos();
+  for (let k = 0; k < 30; k++){ const a = Math.random() * 6.28, d = minD + Math.random() * (maxD - minD), x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d, sp = nearRoadSpot(x, y, 30); if (sp && !onScreen(sp[0], sp[1], 20)) return sp; }
+  return null;
+}
+function favorPed(f, i, x, y, icon){
+  let p = peds.find(q => q.friendIdx === i);
+  if (!p){ p = makePed(0, 0, 0); Object.assign(p, { name: f.name, fem: f.fem, col: f.col, hair: f.hair, trait: f.trait, friendIdx: i }); }
+  Object.assign(p, { x, y, state: "stand", home: [x, y], fixed: true, icon: icon === undefined ? "✋" : icon });
+  return p;
+}
+function favorUpdate(dt){
+  FAV.t -= dt;
+  if (FAV.t > 0) return;
+  FAV.t = 30;
+  if (state !== "play" || mission || race || MINI.g || PARTY.on || bus.on || taxi.on || work.on) return;
+  const cand = SAVE.friends.filter(f => (f.rep || 0) >= 3);
+  if (!cand.length) return;
+  FAV.t = 240 + Math.random() * 240;
+  const f = pick(cand), i = fIdx(f), w = { name: "📞 " + f.name + " dzwoni", item: f.fem ? "👩" : "👨" }, h = hourNow();
+  const types = ["ride", "ride", "move", "fix", "loan", "stalker"];
+  if (cycleOn() && (h >= 23 || h < 4)) types.push("party", "party");
+  if (SAVE.friends.length >= 3) types.push("feud");
+  const T = pick(types);
+  const decline = { t: "❌ Nie dam rady", fn: () => { relAdd(f, -1); closeDialog(); popup("😔 " + f.name + ": „No trudno…”", "#ff8a80"); } };
+  const ok = (txt, start) => showDialog(w, txt, [{ t: "✅ Jasne, już jadę!", pri: true, fn: () => { closeDialog(); start(); } }, decline], relSub(f));
+  if (T === "ride" || T === "party"){
+    const sp = T === "party" && CLUB ? [CLUB.x, CLUB.y + 40] : favorPos(450, 900);
+    if (!sp) return;
+    const far = pois.filter(o => { const d = Math.hypot(o.x - sp[0], o.y - sp[1]); return d > 1200 && d < 4000; }), o = far.length ? pick(far) : pick(pois);
+    const dest = nearRoadSpot(o.x, o.y, 30) || [o.x, o.y];
+    ok(T === "party" ? "Heeej… *hik* jestem na imprezie w Klubie 24 i nie mam jak wrócić. Odbierzesz mnie? Proszę!" : pick(["Słuchaj, spóźnię się do pracy! Podrzucisz mnie pod: " + o.name + "?", "Hej, masz chwilę? Potrzebuję podwózki pod: " + o.name + "."]), () => {
+      const p = favorPed(f, i, sp[0], sp[1], "✋");
+      startMission({ title: (T === "party" ? "Odbierz z imprezy: " : "Podwózka: ") + f.name, passenger: true, boardText: "Podjedź po " + f.name, reward: Math.round(40 + Math.hypot(dest[0] - sp[0], dest[1] - sp[1]) / 45), time: 200,
+        steps: [{ t: "goto", at: () => dest, car: true, text: "Zawieź " + f.name + ": " + o.name, drop: true }], gentle: T === "party",
+        outro: T === "party" ? "Jesteś kochany… *hik* Nigdy ci tego nie zapomnę!" : "Dzięki! Uratowałeś mi skórę!", who: who(p),
+        onDone: () => { relAdd(f, T === "party" ? 3 : 2.5); memAdd(f, T === "party" ? "odebrałeś mnie z imprezy w nocy" : "podwiozłeś mnie pod " + o.name); SAVE.soc2.favors++; },
+        onFail: () => relAdd(f, -1.5) }, null, p);
+    });
+  } else if (T === "move"){
+    const A = favorPos(500, 1000), B = favorPos(1500, 2600);
+    if (!A || !B) return;
+    ok("Przeprowadzam się i nie mam czym przewieźć rzeczy… Pomożesz? Wynająłem vana, stoi pod moim starym mieszkaniem.", () => {
+      const p = favorPed(f, i, A[0] + 40, A[1] + 30, "📦");
+      startMission({ title: "Przeprowadzka " + f.name, reward: 120, time: 300,
+        steps: [{ t: "getcar", at: () => A, cfg: { type: "van", col: "#eceff1" }, text: "Wsiądź do vana z rzeczami " + f.name }, { t: "goto", at: () => B, mcar: true, text: "Przewieź rzeczy na nowe mieszkanie", r: 95 }],
+        fragile: 60, fragFail: "Potłukłeś połowę rzeczy…", outro: "Wszystko całe! Stawiam pizzę jak tylko się rozpakuję!", who: who(p),
+        onDone: () => { relAdd(f, 3.5); memAdd(f, "pomogłeś mi w przeprowadzce"); SAVE.soc2.favors++; p.icon = null; }, onFail: () => { relAdd(f, -1.5); p.icon = null; } }, null, null);
+    });
+  } else if (T === "fix"){
+    const A = favorPos(500, 1100); if (!A) return;
+    ok("Auto mi stanęło na środku drogi i dymi! Znasz się na tym? Przyjedź, proszę!", () => {
+      const car = makeVehicle(defaultCfg(pick(["small", "sedan", "van"])), A[0], A[1], Math.random() * 6.28); car.hp = 22; car.hazard = true;
+      const p = favorPed(f, i, A[0] + 34, A[1] + 26, "🔧");
+      startMission({ title: "Awaria auta " + f.name, reward: 70, time: 180, steps: [{ t: "goto", at: () => [A[0], A[1]], text: "Dojedź do zepsutego auta " + f.name, r: 90 }],
+        outro: "Ty to masz złote ręce! Odpaliło od pierwszego kopa!", who: who(p),
+        onDone: () => { car.hp = 100; car.hazard = false; relAdd(f, 2.5); memAdd(f, "naprawiłeś mi auto na drodze"); SAVE.soc2.favors++; p.icon = null; }, onFail: () => { relAdd(f, -1); p.icon = null; } }, null, null);
+    });
+  } else if (T === "loan"){
+    const amt = 100 + Math.round(Math.random() * 4) * 50;
+    showDialog(w, "Głupio mi pytać… ale czy mógłbyś mi pożyczyć " + fmt(amt) + "? Oddam z nawiązką za kilka dni, słowo!", [
+      { t: "💵 Pożyczę (" + fmt(amt) + ")", pri: true, fn: () => { if (SAVE.money < amt){ showDialog(w, "(Nie masz tyle.)", [decline]); return; } SAVE.money -= amt; f.debt = { amt, t: 300 + Math.random() * 240 }; relAdd(f, 3); memAdd(f, "pożyczyłeś mi pieniądze, kiedy było mi ciężko"); SAVE.soc2.favors++; closeDialog(); popup("💛 " + f.name + ": „Dziękuję, nie zapomnę!”", "#ffd27a"); } },
+      decline], relSub(f));
+  } else if (T === "stalker"){
+    const A = favorPos(450, 900); if (!A) return;
+    ok("Słuchaj… jakiś typ chodzi za mną od pół godziny. Boję się. Możesz przyjechać? Stoję przy drodze.", () => {
+      const p = favorPed(f, i, A[0] + 30, A[1] + 20, "😨");
+      const th = makePed(0, 0, 0); Object.assign(th, { x: A[0] + 90, y: A[1] + 50, col: "#212121", hair: "#111", state: "stand", home: [A[0] + 90, A[1] + 50], fixed: true, name: "Typ w kapturze" });
+      startMission({ title: "Pomóż " + f.name, reward: 40, time: 150, steps: [{ t: "goto", at: () => [A[0], A[1]], text: "Jedź do " + f.name + " – ktoś ją/go nachodzi", r: 110 }],
+        outro: "Uciekł na twój widok! Dziękuję… czuję się przy tobie bezpiecznie.", who: who(p), moneyLabel: "PODZIĘKOWANIE",
+        onDone: () => { th.fixed = false; startFlee(th, playerPos().x, playerPos().y); th.fleeT = 6; say(th, pick(["Spadam!", "Dobra, dobra, już idę…"]), 2); relAdd(f, 3.5, f.love >= 2 ? 1 : 0); memAdd(f, "obroniłeś mnie przed natrętem"); SAVE.soc2.favors++; addRep(2); p.icon = null; },
+        onFail: () => { relAdd(f, -2); const k = peds.indexOf(th); if (k >= 0) peds.splice(k, 1); p.icon = null; } }, null, null);
+    });
+  } else if (T === "feud"){
+    const g = pick(SAVE.friends.filter(q => q !== f)); if (!g) return;
+    showDialog(w, "Pokłóciłem się z " + g.name + "! Mówi, że to ja zawaliłem, a to nieprawda! Powiedz szczerze – po czyjej jesteś stronie?", [
+      { t: "🤝 Po twojej, " + f.name, fn: () => { relAdd(f, 2); relAdd(g, -2); closeDialog(); setTimeout(() => toast("📱 SMS od " + g.name + ": „Słyszałem, że stanąłeś po stronie " + f.name + ". Super…”", 3200), 2000); } },
+      { t: "🙋 Po stronie " + g.name, fn: () => { relAdd(g, 2); relAdd(f, -2); closeDialog(); } },
+      { t: "🕊️ Pogódźcie się, oboje", fn: () => { const ok2 = Math.random() < 0.6; relAdd(f, ok2 ? 1 : -0.5); relAdd(g, ok2 ? 1 : -0.5); closeDialog(); popup(ok2 ? "🕊️ " + f.name + " i " + g.name + " się pogodzili!" : "😤 Nie chcą się pogodzić…", ok2 ? "#9fe39f" : "#ff8a80"); } }], relSub(f));
+  }
+}
+function debtUpdate(dt){
+  for (const f of SAVE.friends) if (f.debt){ f.debt.t -= dt; if (f.debt.t <= 0){ const n = Math.round(f.debt.amt * 1.2); f.debt = null; addMoney(n, "ZWROT OD " + f.name.toUpperCase()); toast("📱 SMS od " + f.name + ": „Oddaję z odsetkami. Jeszcze raz dzięki!” (+" + fmt(n) + ")", 3500); } }
+}
+// ---------- domówka ----------
+const PARTY = { on: false, guests: [], t: 0, neighbor: null, ev: false };
+function myHome(){ return HOMES.find(x => x.id === SAVE.home && SAVE.homes.includes(x.id)) || HOMES.find(x => SAVE.homes.includes(x.id)); }
+function startParty(){
+  const h = myHome();
+  if (!h){ showDialog(PW, "Nie masz mieszkania! Kup je (🏠 na mapie), a potem zaproś znajomych.", [{ t: "↩", fn: openPhone }]); return; }
+  const inv = SAVE.friends.filter(f => (f.rep || 0) >= 2).sort((a, b) => (b.rep || 0) - (a.rep || 0)).slice(0, 7);
+  if (inv.length < 2){ showDialog(PW, "Masz za mało bliskich znajomych na imprezę (potrzeba 2 z sympatią). Poznaj więcej ludzi!", [{ t: "↩", fn: openPhone }]); return; }
+  PARTY.on = true; PARTY.h = h; PARTY.x = h.door[0]; PARTY.y = h.door[1] + 40; PARTY.guests = []; PARTY.t = 0; PARTY.ev = false; PARTY.inv = inv;
+  NAV = { x: PARTY.x, y: PARTY.y, name: "Twoja domówka" }; GPS.tgt = null;
+  closeDialog(); toast("🎉 Wysłałeś zaproszenia: " + inv.map(f => f.name).join(", ") + ". Jedź do domu – goście zaraz będą!", 4000);
+}
+function partyUpdate(dt){
+  if (!PARTY.on) return;
+  const pp = playerPos(), d = Math.hypot(pp.x - PARTY.x, pp.y - PARTY.y);
+  PARTY.t += dt;
+  if (d < 500 && PARTY.guests.length < PARTY.inv.length && Math.random() < dt * 0.8){
+    const f = PARTY.inv[PARTY.guests.length], i = fIdx(f), k = PARTY.guests.length, a = k / PARTY.inv.length * 6.28;
+    let p = peds.find(q => q.friendIdx === i);
+    if (!p){ p = makePed(0, 0, 0); Object.assign(p, { name: f.name, fem: f.fem, col: f.col, hair: f.hair, trait: f.trait, friendIdx: i }); }
+    const gx = PARTY.x + Math.cos(a) * (60 + (k % 2) * 30), gy = PARTY.y + 30 + Math.sin(a) * 45;
+    Object.assign(p, { x: gx + 260, y: gy + 120, state: "return", tx: gx, ty: gy, home: [gx, gy], fixed: true, partyG: true });
+    PARTY.guests.push(p); popup("🎉 Przyszła/przyszedł: " + f.name, "#ffd27a");
+  }
+  if (d < 400){
+    if (Math.random() < dt * 3) addPart(PARTY.x + (Math.random() - 0.5) * 120, PARTY.y - 20, (Math.random() - 0.5) * 20, -30, 1.3, 4, 6);
+    if (Math.random() < dt * 0.5){ const g = pick(PARTY.guests); if (g && peds.includes(g)) { say(g, pick(["Hahaha, dobre!", "Puść coś głośniej!", "Kto chce pizzę?", "Najlepsza impreza w tym roku!", "Zatańczymy?", "Gdzie jest łazienka? 😅", "Zdrówko! 🥂"]), 2.5); emote(g, pick(["😄", "🥳", "💃", "🍻"]), 2); } }
+    if (!PARTY.ev && PARTY.guests.length >= 2 && PARTY.t > 70){ PARTY.ev = true; neighborEvent(); }
+  }
+  if (d > 700 && PARTY.t > 20) endParty(true);
+}
+function neighborEvent(){
+  const n = makePed(0, 0, 0); Object.assign(n, { x: PARTY.x - 120, y: PARTY.y + 80, col: "#5d4037", hair: "#e0e0e0", name: "Sąsiad Zbyszek", state: "stand", fixed: true, home: [PARTY.x - 120, PARTY.y + 80], icon: "😠" });
+  PARTY.neighbor = n; say(n, "Ludzie! Jest późno! Ciszej tam!", 3);
+  popup("😠 Sąsiad przyszedł z pretensjami – pogadaj z nim (💬)", "#ff8a80");
+}
+function neighborDialog(n){
+  showDialog({ name: "Sąsiad Zbyszek", item: "😠" }, "Panie! Ja tu jutro do pracy na szóstą! Co to za hałasy?!", [
+    { t: "🙏 Przepraszam, ściszymy", fn: () => { n.icon = null; n.fixed = false; startReturn(n); showDialog({ name: "Sąsiad Zbyszek", item: "😐" }, "No… dobrze. Tylko żeby to było ostatni raz.", [{ t: "👍" }]); } },
+    { t: "🍻 Wpadnij do nas!", fn: () => { n.icon = null; if (Math.random() < 0.6){ n.trait = "friendly"; addFriend(n, 4); PARTY.guests.push(n); n.home = [PARTY.x + 30, PARTY.y + 90]; n.state = "return"; n.tx = n.home[0]; n.ty = n.home[1]; showDialog({ name: "Sąsiad Zbyszek", item: "🍻" }, "Hm… no dobra, jedno piwko. Ale tylko jedno! …Gdzie są chipsy?", [{ t: "😄" }]); } else { n.fixed = false; startReturn(n); showDialog({ name: "Sąsiad Zbyszek", item: "😤" }, "Nie, dziękuję! Ciszej!", [{ t: "😬" }]); } } },
+    { t: "😎 Mamy prawo się bawić!", fn: () => { n.icon = null; n.fixed = false; startReturn(n); closeDialog(); if (Math.random() < 0.5){ crime(1, PARTY.x, PARTY.y); popup("🚔 Sąsiad zadzwonił na policję!", "#ff4136"); } else popup("😤 Sąsiad trzasnął drzwiami", "#ff8a80"); } }]);
+}
+function endParty(left){
+  if (!PARTY.on) return;
+  PARTY.on = false;
+  const n = PARTY.guests.length;
+  for (const g of PARTY.guests){ const f = friendOf(g); if (f){ relAdd(f, 2, 0, true); memAdd(f, "domówka u ciebie"); } g.partyG = false; g.fixed = false; g.icon = null; if (peds.includes(g)) startReturn(g); }
+  if (PARTY.neighbor && peds.includes(PARTY.neighbor)){ PARTY.neighbor.fixed = false; PARTY.neighbor.icon = null; }
+  if (n){ SAVE.soc2.parties++; addXP(60 + n * 20); heal(30); toast("🎉 Impreza skończona! " + n + " gości wyszło zadowolonych (przyjaźń +2 dla każdego).", 3500); }
+  if (NAV && NAV.name === "Twoja domówka") NAV = null;
+  PARTY.guests = []; persist();
+}
+function partyMenu(){
+  const ch = [
+    { t: "🎤 Karaoke", fn: () => { closeDialog(); startMini("karaoke"); } },
+    { t: "🎯 Rzutki", fn: () => { closeDialog(); startMini("darts"); } },
+    { t: "🍕 Pizza dla wszystkich ($60)", fn: () => { if (SAVE.money < 60) return showDialog({ name: "Domówka", item: "🎉" }, "Za mało kasy na pizzę…", [{ t: "😅", fn: partyMenu }]); SAVE.money -= 60; heal(30); for (const g of PARTY.guests){ const f = friendOf(g); if (f) relAdd(f, 1, 0, true); emote(g, "😋", 2); } popup("🍕 Pizza dla całej ekipy! (przyjaźń +1 dla każdego)", "#ffd27a"); closeDialog(); } },
+    { t: "🥂 Toast za przyjaźń", fn: () => { for (const g of PARTY.guests){ const f = friendOf(g); if (f) relAdd(f, 0.5, 0, true); emote(g, "🥂", 2); say(g, "Zdrówko!", 2); } closeDialog(); } },
+    { t: "🛑 Kończymy imprezę", fn: () => { closeDialog(); endParty(false); } }];
+  showDialog({ name: "🎉 Domówka", item: "🎉" }, "Muzyka gra, " + PARTY.guests.length + " gości bawi się w najlepsze. Co robimy?", ch);
+}
+// ---------- zaproszenia ----------
+if (!SAVE.inv) SAVE.inv = null;
+const INVT = { t: 220 + Math.random() * 200 };
+const INVTYPES = {
+  bday: { n: "🎂 Urodziny", place: f => placeOf(f, "fav"), h0: 18 },
+  grill: { n: "🍖 Grill w parku", place: f => { const p2 = placeOf(f, "home"); let b = null, bd = 1e18; for (const q of parks){ const d = Math.hypot(q[0] - p2[0], q[1] - p2[1]); if (d < bd){ bd = d; b = q; } } return b ? [b[0], b[1]] : p2; }, h0: 15 },
+  club: { n: "🪩 Impreza w Klubie 24", place: () => CLUB ? [CLUB.x, CLUB.y + 30] : null, h0: 21 },
+  wedding: { n: "💒 Wesele", place: () => [TOWN.church.x + TOWN.church.w / 2, TOWN.church.y + TOWN.church.h + 50], h0: 14 }
+};
+function inviteUpdate(dt){
+  INVT.t -= dt;
+  if (SAVE.inv){
+    const I = SAVE.inv; I.left -= dt;
+    if (I.left <= 0){ const f = SAVE.friends[I.fi]; SAVE.inv = null; if (f && !I.done){ relAdd(f, -1.5, 0, true); toast("📱 SMS od " + f.name + ": „Szkoda, że cię nie było… 😔”", 3000); } }
+    else if (!I.done){ const pp = playerPos(); if (Math.hypot(pp.x - I.x, pp.y - I.y) < 160) inviteArrive(); }
+  }
+  if (INVT.t > 0 || SAVE.inv || SAVE.wed) return;
+  INVT.t = 300 + Math.random() * 300;
+  const cand = SAVE.friends.filter(f => (f.rep || 0) >= 4);
+  if (!cand.length) return;
+  const f = pick(cand), keys = ["bday", "bday", "grill", "club"];
+  if ((f.rep || 0) >= 8 && !isPartner(f)) keys.push("wedding");
+  const k = pick(keys), T2 = INVTYPES[k], pl = T2.place(f); if (!pl) return;
+  SAVE.inv = { fi: fIdx(f), k, x: pl[0], y: pl[1], left: 420, done: false };
+  toast("💌 Zaproszenie od " + f.name + ": " + T2.n + (k === "wedding" ? " (bierze ślub!)" : "") + ". Szczegóły w telefonie 📱 → Zaproszenia", 4500);
+  if (actx){ const t = actx.currentTime; tone(1200, t, 0.08, "sine", 0.05); tone(1500, t + 0.1, 0.1, "sine", 0.05); }
+}
+function inviteArrive(){
+  const I = SAVE.inv, f = SAVE.friends[I.fi]; if (!f) return;
+  I.done = true;
+  const T2 = INVTYPES[I.k], i = I.fi;
+  const host = favorPed(f, i, I.x + 20, I.y + 10, null); host.fixed = true;
+  const guests = [host];
+  for (let k = 0; k < 5; k++){ const g = makePed(0, 0, 0), a = k / 5 * 6.28; Object.assign(g, { x: I.x + Math.cos(a) * 70, y: I.y + Math.sin(a) * 55, state: "stand", fixed: true, home: [I.x + Math.cos(a) * 70, I.y + Math.sin(a) * 55], invG: true }); guests.push(g); }
+  INVP.list = guests; INVP.t = 120; INVP.k = I.k;
+  if (NAV && NAV.name && NAV.name.indexOf(f.name) >= 0) NAV = null;
+  SAVE.soc2.invites++; relAdd(f, 3, 0); memAdd(f, (I.k === "wedding" ? "byłeś na moim weselu" : I.k === "bday" ? "przyszedłeś na moje urodziny" : I.k === "grill" ? "grill w parku" : "impreza w klubie"));
+  const w = who(host);
+  const ch = [
+    { t: "🎁 Daj prezent", pri: true, fn: () => giftMenu(host) },
+    { t: I.k === "wedding" ? "🥂 Toast za młodą parę" : "🎂 " + (I.k === "bday" ? "Sto lat!" : "Zdrówko!"), fn: () => { relAdd(f, 1); heal(20); for (const g of guests) emote(g, "🥳", 2); showDialog(w, "Sto lat, sto lat! 🎉 Wszyscy śpiewają!", [{ t: "🎉" }]); } },
+    { t: "💃 Tańczymy!", fn: () => { relAdd(f, 1); addXP(30); for (const g of guests) emote(g, "💃", 2); showDialog(w, "Parkiet płonie! Nawet ciocia Krysia tańczy! 💃", [{ t: "🕺" }]); } }
+  ];
+  if (I.k === "wedding") ch.push({ t: "💐 Łap bukiet!", fn: () => { const got = Math.random() < 0.35; if (got){ SAVE.bouquet = 1; persist(); } showDialog(w, got ? "ZŁAPAŁEŚ BUKIET! 💐 Podobno następny ślub będzie twój…" : "Bukiet poleciał do kuzynki. Następnym razem!", [{ t: got ? "😳" : "😅" }]); } });
+  ch.push({ t: "👋 Dzięki za zaproszenie", fn: closeDialog });
+  showDialog(w, I.k === "wedding" ? "Przyszedłeś! 😭 Dziękuję, że jesteś z nami w tym dniu!" : I.k === "bday" ? "Jesteś! 🎂 Wiedziałam/em, że przyjdziesz!" : pick(["Super, że wpadłeś! Częstuj się!", "Hejka! Bierz talerz, kiełbaski już gotowe!"]), ch, T2.n + " · " + relSub(f));
+}
+const INVP = { list: [], t: 0 };
+function invpUpdate(dt){
+  if (!INVP.list.length) return;
+  INVP.t -= dt;
+  const pp = playerPos(), c = INVP.list[0];
+  if (Math.random() < dt * 2 && c) addPart(c.x + (Math.random() - 0.5) * 100, c.y - 20, (Math.random() - 0.5) * 20, -30, 1.3, 4, 6);
+  if (INVP.t <= 0 || (c && Math.hypot(pp.x - c.x, pp.y - c.y) > 900)){
+    for (const g of INVP.list){ g.fixed = false; if (g.invG){ const k = peds.indexOf(g); if (k >= 0) peds.splice(k, 1); } else if (peds.includes(g)) startReturn(g); }
+    INVP.list = [];
+  }
+}
+// ---------- rocznice, wspólne mieszkanie, oświadczyny, ślub ----------
+const partnerF = () => SAVE.friends.find(isPartner);
+function annivUpdate(){
+  const p = SAVE.partner; if (!p || !cycleOn()) return;
+  if (p.day0 === undefined){ p.day0 = dayIdx(); saveDirty = true; return; }
+  const d = dayIdx(), age = d - p.day0;
+  if (age > 0 && age % 7 === 0 && p.annDay !== d){ p.annDay = d; p.annDone = false; toast("💗 Dziś rocznica! " + Math.round(age / 7) + " tydz. z " + p.name + ". Nie zapomnij! (prezent albo randka)", 4500); }
+  if (p.annDay !== undefined && p.annDay < d && !p.annDone && p.annMiss !== p.annDay){ p.annMiss = p.annDay; const f = partnerF(); if (f){ relAdd(f, 0, -3, true); toast("💔 SMS od " + p.name + ": „Zapomniałeś o naszej rocznicy…”", 4000); } }
+}
+function homeUpdate(dt){
+  const P2 = SAVE.partner; if (!P2 || !P2.live) return;
+  const h = HOMES.find(x => x.id === P2.live); if (!h || !h.door) return;
+  const pp = playerPos(), d = Math.hypot(pp.x - h.door[0], pp.y - h.door[1]);
+  if (d < 250 && player.mode === "foot"){
+    const f = partnerF(); if (!f) return;
+    const i = fIdx(f);
+    if (!peds.some(q => q.friendIdx === i)){ const p = favorPed(f, i, h.door[0] + 26, h.door[1] + 10, null); emote(p, "🥰", 2); say(p, pick(["Wróciłeś! 💗", "Hej kochanie!", "Tęskniłam/em!"]), 2.5); }
+    const hr = hourNow(), day = dayIdx();
+    if (cycleOn() && hr >= 6 && hr < 11 && P2.bfDay !== day && d < 90){ P2.bfDay = day; heal(100); buffCoffee(); popup("☕ " + P2.name + " zrobił(a) ci śniadanie! Pełne zdrowie i kawa", "#ffd27a"); saveDirty = true; }
+  }
+}
+function proposal(p){
+  const f = friendOf(p), w = who(p);
+  if (SAVE.money < 1500){ showDialog(w, "(Pierścionek zaręczynowy kosztuje $1500. Najpierw odłóż pieniądze.)", [{ t: "↩", fn: () => friendDialog(p) }]); return; }
+  SAVE.money -= 1500; cashSound();
+  if ((f.love || 0) >= 16 || SAVE.bouquet){
+    SAVE.partner.engaged = true; SAVE.bouquet = 0; persist(); relAdd(f, 2, 3, true); emote(p, "😭", 4);
+    for (let k = 0; k < 20; k++){ const a = Math.random() * 6.28; addPart(p.x, p.y - 10, Math.cos(a) * 70, Math.sin(a) * 70 - 30, 1.4, 4, 6); }
+    if (actx){ const t = actx.currentTime; [523, 659, 784, 1046, 1318].forEach((q, k) => tone(q, t + k * 0.14, 0.35, "sine", 0.06)); }
+    showDialog(w, "*klęka… nie, ty klękasz* …TAK!!! 💍 Oczywiście, że TAK! Kocham cię!", [{ t: "💍", fn: () => friendDialog(p) }], "Zaręczeni! Ustalcie datę ślubu.");
+  } else { SAVE.money += 1000; relAdd(f, 0, -1, true); showDialog(w, "Oj… to za szybko. Kocham cię, ale daj mi trochę czasu. (Pierścionek wrócił do sklepu, oddali $1000)", [{ t: "💔", fn: () => friendDialog(p) }]); }
+}
+function planWedding(p){
+  const f = friendOf(p);
+  const c = TOWN.church, x = c.x + c.w / 2, y = c.y + c.h + 50;
+  SAVE.wed = { x, y }; persist();
+  NAV = { x, y, name: "Twój ślub – kościół w Dębowie" }; GPS.tgt = null;
+  showDialog(who(p), "Bierzemy ślub w kościółku w Dębowie! Zaproszę wszystkich naszych znajomych. Do zobaczenia przed ołtarzem! 💒", [{ t: "💒 Jadę!", pri: true, fn: closeDialog }], "Jedź do kościoła w Dębowie");
+}
+function weddingUpdate(){
+  const Wd = SAVE.wed; if (!Wd || Wd.done) return;
+  const pp = playerPos();
+  if (Math.hypot(pp.x - Wd.x, pp.y - Wd.y) > 160) return;
+  const f = partnerF(); if (!f){ SAVE.wed = null; return; }
+  Wd.done = true;
+  const guests = SAVE.friends.filter(q => q !== f && (q.rep || 0) >= 3).slice(0, 10);
+  const list = [];
+  const pf = favorPed(f, fIdx(f), Wd.x + 22, Wd.y - 10, null); list.push(pf);
+  const pr = makePed(0, 0, 0); Object.assign(pr, { x: Wd.x, y: Wd.y - 40, col: "#111", hair: "#9e9e9e", name: "Ksiądz proboszcz", state: "stand", fixed: true, home: [Wd.x, Wd.y - 40], invG: true }); list.push(pr);
+  guests.forEach((g, k) => { const a = Math.PI * (0.15 + k / Math.max(1, guests.length - 1) * 0.7), gx = Wd.x + Math.cos(a) * 130, gy = Wd.y + Math.sin(a) * 90; const p = favorPed(g, fIdx(g), gx, gy, null); list.push(p); });
+  INVP.list = list; INVP.t = 150;
+  showDialog({ name: "Ksiądz proboszcz", item: "⛪" }, "Czy ty, bierzesz sobie " + f.name + " za " + (f.fem ? "żonę" : "męża") + " i ślubujesz miłość, wierność i uczciwość małżeńską…?", [{ t: "💍 TAK!", pri: true, fn: () => {
+    SAVE.partner.married = true; SAVE.wed = null; persist(); relAdd(f, 3, 4, true); memAdd(f, "nasz ślub w Dębowie");
+    const gift = 150 * (guests.length + 1); addMoney(gift, "PREZENTY ŚLUBNE");
+    for (const p of list){ emote(p, "🥳", 4); for (let k = 0; k < 4; k++){ const a = Math.random() * 6.28; addPart(p.x, p.y - 10, Math.cos(a) * 60, Math.sin(a) * 60 - 20, 1.5, 4, 6); } }
+    if (actx){ const t = actx.currentTime; [523, 659, 784, 1046, 784, 1046, 1318].forEach((q, k) => tone(q, t + k * 0.18, 0.4, "triangle", 0.07)); }
+    showDialog({ name: f.name, item: "💒" }, "Jesteśmy małżeństwem!!! 💍💗 Goście obsypują was ryżem, a orkiestra gra Sto lat!", [{ t: "💗" }], "Nowożeńcy · prezenty od gości: " + fmt(gift));
+  } }]);
+}
+// ---------- praca dla znajomych w twoich firmach ----------
+function friendJob(p){
+  const f = friendOf(p), w = who(p);
+  const owned = BIZ.filter(b => SAVE.biz[b.id] && (SAVE.biz[b.id].staff || []).length < STAFF_MAX);
+  if (!owned.length){ showDialog(w, "Chętnie bym u ciebie popracował/a, ale nie masz wolnych etatów!", [{ t: "↩", fn: () => friendDialog(p) }]); return; }
+  showDialog(w, "Praca u ciebie? Serio? Jasne, że tak! Gdzie?", owned.slice(0, 6).map(b => ({ t: b.icon + " " + b.name, fn: () => {
+    const s = SAVE.biz[b.id]; s.staff = s.staff || [];
+    const bonus = isPartner(f) ? 0.45 : 0.35;
+    s.staff.push({ name: f.name, role: isPartner(f) ? "wspólnik" : "zaufany pracownik", bonus, trait: f.trait }); f.worksAt = b.id; relAdd(f, 1); persist();
+    showDialog(w, "Od jutra jestem w: " + b.name + ". Dla ciebie dam z siebie wszystko! (+" + Math.round(bonus * 100) + "% dochodu)", [{ t: "🤝", fn: () => friendDialog(p) }]);
+  } })).concat([{ t: "↩ Wróć", fn: () => friendDialog(p) }]));
+}
+// ---------- ekipa ----------
+const CREW = { list: [], inCar: false, sayT: 10 };
+function startCrew(){
+  const cand = SAVE.friends.filter(f => (f.rep || 0) >= 5).sort((a, b) => (b.rep || 0) - (a.rep || 0)).slice(0, 3);
+  if (cand.length < 2){ showDialog(PW, "Do ekipy potrzebujesz co najmniej 2 dobrych znajomych (przyjaźń 5+).", [{ t: "↩", fn: openPhone }]); return; }
+  endCrew(true);
+  const pp = playerPos();
+  cand.forEach((f, k) => {
+    const i = fIdx(f); let p = peds.find(q => q.friendIdx === i);
+    if (!p){ p = makePed(0, 0, 0); Object.assign(p, { name: f.name, fem: f.fem, col: f.col, hair: f.hair, trait: f.trait, friendIdx: i }); }
+    Object.assign(p, { x: pp.x + 60 + k * 20, y: pp.y + 40, crew: true, fixed: true, state: "crew", crewK: k, icon: null });
+    CREW.list.push({ p, f });
+  });
+  closeDialog(); toast("👥 Ekipa w komplecie: " + cand.map(f => f.name).join(", ") + "! Wsiadają z tobą do auta.", 3500);
+}
+function endCrew(silent){
+  for (const c of CREW.list){ const p = c.p; p.crew = false; p.fixed = false; p.state = "walk"; if (peds.includes(p)) startReturn(p); }
+  if (!silent && CREW.list.length) popup("👋 Ekipa się rozchodzi. „Do następnego!”", "#ffd27a");
+  CREW.list = []; CREW.inCar = false;
+}
+function crewUpdate(dt){
+  if (!CREW.list.length) return;
+  if (player.mode === "car"){
+    if (!CREW.inCar && !VT[player.veh.type].bike){ const v = player.veh; if (CREW.list.some(c => Math.hypot(c.p.x - v.x, c.p.y - v.y) < 300)){ CREW.inCar = true; for (const c of CREW.list){ const k = peds.indexOf(c.p); if (k >= 0) peds.splice(k, 1); } popup("🚗 Ekipa ładuje się do auta!", "#9fd4ff"); } }
+    if (CREW.inCar){
+      CREW.sayT -= dt;
+      if (CREW.sayT <= 0){
+        CREW.sayT = 9 + Math.random() * 9;
+        const c = pick(CREW.list), sp = Math.hypot(player.veh.vx, player.veh.vy);
+        const line = race ? pick(["DAWAJ, DAWAJ!", "Wyprzedź go!", "Mamy to!!!", "Nitro, NITRO!"]) : police.stars > 0 ? pick(["Gliny! Gazu!", "Skręć w lewo, zgubimy ich!", "O nie, o nie, o nie…"]) : sp > 380 ? pick(["WOOOO!", "Szybciej!", "Ale jazdaaa!"]) : pick(["Puść coś do tańca!", "Gdzie jedziemy?", "Kto stawia kebaba?", "Pamiętacie ostatnią imprezę? 😂", "Jedźmy nad jezioro!", "Zróbmy ognisko na campingu!"]);
+        popup("💬 " + c.f.name + ": „" + line + "”", "#ffe7a8");
+      }
+    }
+  } else if (player.mode === "foot" && CREW.inCar){
+    CREW.inCar = false; const f = player.foot;
+    CREW.list.forEach((c, k) => { c.p.x = f.x + 24 + k * 16; c.p.y = f.y + 14 + (k % 2) * 14; c.p.state = "crew"; if (!peds.includes(c.p)) peds.push(c.p); });
+  }
+  for (const c of CREW.list) if (c.p.state !== "crew" && peds.includes(c.p) && !c.p.talkHold && c.p.state !== "dead") c.p.state = "crew";
+}
+// ---------- sława ----------
+const FAME = { t: 8, healT: 0 };
+function fameUpdate(dt){
+  FAME.t -= dt; FAME.healT -= dt;
+  if (player.mode === "foot" && player.foot.hp < 30 && FAME.healT <= 0){
+    const f = player.foot, q = peds.find(p => !p.kind && !p.cop && p.state === "walk" && Math.hypot(p.x - f.x, p.y - f.y) < 220);
+    if (q){ FAME.healT = 120; q.state = "helper"; q.fixed = true; say(q, pick(["Hej! Wszystko w porządku?!", "Pomocy! Ktoś jest ranny!", "Spokojnie, już idę!"]), 2.5); }
+  }
+  if (FAME.t > 0 || player.mode !== "foot") return;
+  FAME.t = 7 + Math.random() * 6;
+  const rep = SAVE.rep || 0, f = player.foot;
+  const q = peds.find(p => !p.kind && !p.cop && !p.sit && p.friendIdx === undefined && (p.state === "walk" || p.state === "town") && Math.hypot(p.x - f.x, p.y - f.y) < 160);
+  if (!q) return;
+  if (rep >= 25 && Math.random() < 0.45){
+    emote(q, "🤩", 2.5); say(q, pick(["To ty! Znam cię z miasta!", "O matko, to ten kierowca!", "Mogę autograf?!", "Widziałem cię na nagraniu z pościgu!", "Mój idol!"]), 2.6);
+    if (rep >= 40 && Math.random() < 0.35 && SIT.list.length < 3){ q.sit = "fan"; q.icon = "🤩"; q.fixed = true; q.state = "stand"; q.home = [q.x, q.y]; SIT.list.push(q); }
+  } else if (rep <= -10 && Math.random() < 0.5){ emote(q, "😠", 2); say(q, pick(["To ten wariat z wiadomości!", "Trzymaj się z daleka!", "Dzwonię na policję!"]), 2.5); startFlee(q, f.x, f.y); }
+  else if (SAVE.friends.length >= 2 && Math.random() < 0.15){ const fr = pick(SAVE.friends); q.like = (q.like || 0) + 2; say(q, "Hej! Ty jesteś znajomym " + fr.name + "? Słyszałem/am o tobie same dobre rzeczy!", 3); emote(q, "😊", 2); }
+}
+// ---------- sytuacje uliczne ----------
+const SIT = { t: 60 + Math.random() * 40, list: [] };
+const SITNAMES = { child: ["Kubuś", "Zosia", "Antoś", "Lenka", "Franek", "Hania"] };
+function sitSpawn(){
+  if (player.mode !== "foot" && !(player.mode === "car" && Math.hypot(player.veh.vx, player.veh.vy) < 60)) return;
+  if (mission || race || SIT.list.length >= 2) return;
+  const pp = playerPos();
+  let pos = null;
+  for (let k = 0; k < 20 && !pos; k++){ const a = Math.random() * 6.28, d = 160 + Math.random() * 220, x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d, g = getGW(x, y); if ((g === G_WALK || g === G_PAVE || g === G_GRASS) && !pointBlocked(x, y, 8)) pos = [x, y]; }
+  if (!pos) return;
+  const types = ["child", "tourist", "homeless", "scam", "seller"], T = pick(types);
+  const p = makePed(0, 0, 0);
+  Object.assign(p, { x: pos[0], y: pos[1], state: "stand", fixed: true, home: [pos[0], pos[1]], sit: T });
+  if (T === "child"){ Object.assign(p, { icon: "😢", name: pick(SITNAMES.child), col: pick(["#ff7043", "#42a5f5", "#ab47bc", "#66bb6a"]), kid: true }); say(p, "Mamo?! Gdzie jesteś?! 😭", 3); }
+  if (T === "tourist"){ Object.assign(p, { icon: "🗺️", name: pick(["Hans", "John", "Pierre", "Giulia", "Yuki", "Olga"]), col: "#ffd54f" }); say(p, "Excuse me… Przepraszam?", 3); }
+  if (T === "homeless"){ Object.assign(p, { icon: "🥺", name: "Pan Henryk", col: "#6d6d5d", hair: "#9e9e9e" }); }
+  if (T === "scam"){ Object.assign(p, { icon: "⌚", name: "Gość z walizką", col: "#212121" }); say(p, "Psst! Okazja!", 2.5); }
+  if (T === "seller"){
+    const types2 = ["small", "sedan", "pickup", "suv", "muscle", "sport"], tp = pick(types2), car = makeVehicle(defaultCfg(tp), pos[0] + 50, pos[1] + 8, 0);
+    car.sale = true; Object.assign(p, { icon: "🚗", name: "Pan Mirek", col: "#455a64", car, price: Math.round(VT[tp].price * (0.5 + Math.random() * 0.2) / 50) * 50 });
+    say(p, "Sprzedam auto! Igła!", 2.5);
+  }
+  SIT.list.push(p);
+  popup("❓ Ktoś w pobliżu potrzebuje rozmowy (" + p.icon + " – podejdź i 💬)", "#ffd27a");
+}
+function sitUpdate(dt){
+  SIT.t -= dt;
+  if (SIT.t <= 0){ SIT.t = 70 + Math.random() * 70; sitSpawn(); }
+  const pp = playerPos();
+  for (let k = SIT.list.length - 1; k >= 0; k--){
+    const p = SIT.list[k];
+    if (!peds.includes(p) || p.state === "dead" || Math.hypot(p.x - pp.x, p.y - pp.y) > 1700){ if (p.mom){ const j = peds.indexOf(p.mom); if (j >= 0) peds.splice(j, 1); } const j = peds.indexOf(p); if (j >= 0 && !p.follow2) peds.splice(j, 1); SIT.list.splice(k, 1); continue; }
+    if (p.sit === "child" && p.follow2 && p.mom && Math.hypot(p.x - p.mom.x, p.y - p.mom.y) < 60) reunite(p);
+    if (p.sit === "tourist" && p.follow2 && Math.hypot(pp.x - p.dest[0], pp.y - p.dest[1]) < 130) touristDone(p);
+  }
+}
+function sitDialog(p){
+  const w = { name: p.name, item: p.icon || "🙂" };
+  const done = (txt, icon) => { p.icon = null; p.fixed = false; p.sit = null; p.state = "walk"; showDialog(w, txt, [{ t: icon || "👍", fn: () => { closeDialog(); startReturn(p); } }]); };
+  if (p.sit === "child"){
+    if (p.follow2){ showDialog(w, "Idziemy do mamy, prawda? 🥺", [{ t: "👍 Tak, trzymaj się blisko" }]); return; }
+    showDialog(w, "Zgubiłem/am mamę… Była przy sklepie, a teraz jej nie ma… 😭", [
+      { t: "🤝 Pomogę ci ją znaleźć", pri: true, fn: () => {
+        p.follow2 = true; p.state = "sitf"; p.icon = "🧒";
+        let mp = null; for (let k = 0; k < 30 && !mp; k++){ const a = Math.random() * 6.28, d = 450 + Math.random() * 500, x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d, g = getGW(x, y); if ((g === G_WALK || g === G_PAVE || g === G_GRASS) && !pointBlocked(x, y, 8)) mp = [x, y]; }
+        mp = mp || [p.x + 500, p.y];
+        const m = makePed(0, 0, 0); Object.assign(m, { x: mp[0], y: mp[1], state: "stand", fixed: true, home: mp, icon: "😟", name: "Mama", col: p.col, fem: true }); p.mom = m;
+        NAV = { x: mp[0], y: mp[1], name: "Mama zgubionego dziecka" }; GPS.tgt = null;
+        showDialog(w, "Dziękuję… *łapie cię za rękę* Mama ma taką samą kurtkę jak ja!", [{ t: "🧭 Szukamy (znacznik na mapie)" }]);
+      } },
+      { t: "🚔 Zadzwonię po policję", fn: () => { addRep(1); done("Pan policjant zaraz przyjedzie? Dobrze… poczekam tu.", "📞"); } },
+      { t: "👋 Nie mam czasu", fn: () => { addRep(-1); closeDialog(); } }]);
+  } else if (p.sit === "tourist"){
+    if (p.follow2){ showDialog(w, "Thank you! Ja iść za tobą! 😄", [{ t: "👍" }]); return; }
+    const o = pick(pois.filter(q => { const d = Math.hypot(q.x - p.x, q.y - p.y); return d > 500 && d < 1600; })) || pick(pois);
+    showDialog(w, "Hello! Ja szukać… „" + o.name + "”? Mapa nie rozumieć! 🗺️😅", [
+      { t: "🤝 Zaprowadzę cię", pri: true, fn: () => { p.follow2 = true; p.state = "sitf"; p.dest = [o.x, o.y]; p.icon = "🧳"; NAV = { x: o.x, y: o.y, name: o.name + " (turysta)" }; GPS.tgt = null; showDialog(w, "Oh, wonderful! Ty bardzo miły!", [{ t: "🚶 Chodź za mną" }]); } },
+      { t: "👉 Pokażę kierunek", fn: () => { addRep(0.5); done("Ah, tam! Dziękuję, thank you! 😊"); } },
+      { t: "😈 Wyślę go w złą stronę", fn: () => { addRep(-2); done("Okej, dziękuję!… *idzie prosto w stronę rzeki*", "😈"); } }]);
+  } else if (p.sit === "homeless"){
+    showDialog(w, "Przepraszam… nie jadłem od wczoraj. Masz może coś do jedzenia? Nie chcę pieniędzy na wódkę, naprawdę.", [
+      { t: "🥪 Kupię ci kanapkę ($5)", pri: true, fn: () => { if (SAVE.money < 5) return; SAVE.money -= 5; addRep(2);
+        const all = []; GNOMES.forEach((g, i) => { if (!SAVE.gnomes[i] && !SAVE.reveal.includes("g" + i)) all.push(i); });
+        if (all.length && Math.random() < 0.6){ const i = all.sort((a, b) => Math.hypot(GNOMES[a].x - p.x, GNOMES[a].y - p.y) - Math.hypot(GNOMES[b].x - p.x, GNOMES[b].y - p.y))[0]; SAVE.reveal.push("g" + i); persist(); done("Dziękuję, dobry człowieku… W zamian zdradzę ci sekret: widziałem złotego krasnala niedaleko stąd. Zaznaczyłem ci na mapie 🗿", "🙏"); }
+        else done("Bóg zapłać… Dobrze, że są jeszcze tacy ludzie.", "🙏"); } },
+      { t: "💵 Daj $20", fn: () => { if (SAVE.money < 20) return; SAVE.money -= 20; addRep(3); done("$20?! Dziękuję! Kupię ciepłą zupę i może skarpety…", "🙏"); } },
+      { t: "👋 Przykro mi", fn: () => { closeDialog(); } }]);
+  } else if (p.sit === "scam"){
+    showDialog(w, "Psst… Złoty Rolex. Oryginał, słowo harcerza! Dla ciebie tylko $50. Normalnie kosztuje dwa tysiące!", [
+      { t: "💵 Biorę ($50)", fn: () => { if (SAVE.money < 50) return; SAVE.money -= 50; if (Math.random() < 0.45){ addMoney(180, "SPRZEDAŻ ZEGARKA W LOMBARDZIE"); done("…O dziwo, lombard dał za niego $180! Chyba prawdziwy?!", "⌚"); } else done("Po kilku krokach wskazówki odpadają. Plastik z bazaru… 😑", "🤦"); } },
+      { t: "🚔 Wołam policję!", fn: () => { addRep(2); p.icon = null; p.fixed = false; p.sit = null; startFlee(p, playerPos().x, playerPos().y); p.fleeT = 6; say(p, "Spokojnie, spokojnie, już mnie nie ma!", 2); closeDialog(); } },
+      { t: "👋 Nie, dzięki", fn: closeDialog }]);
+  } else if (p.sit === "seller"){
+    const car = p.car, nm = VT[car.type].name;
+    const offer = () => showDialog(w, nm + ", rocznik prawie nowy, pierwszy właściciel, garażowany! Cena: " + fmt(p.price) + ". Do negocjacji… trochę.", [
+      { t: "💵 Biorę za " + fmt(p.price), pri: true, fn: () => buySeller(p) },
+      { t: "🤝 Dam " + fmt(Math.round(p.price * 0.75 / 50) * 50), fn: () => { const r = Math.random(); const lowball = Math.round(p.price * 0.75 / 50) * 50;
+        if (r < 0.4){ p.price = lowball; showDialog(w, "Eee… No dobra, dobra! Ale tylko dla ciebie! " + fmt(p.price) + ".", [{ t: "💵 Biorę!", pri: true, fn: () => buySeller(p) }, { t: "👋 Jednak nie", fn: closeDialog }]); }
+        else if (r < 0.8 && !p.haggled){ p.haggled = true; p.price = Math.round(p.price * 0.9 / 50) * 50; showDialog(w, "Panie, za tyle to ja sam bym kupił! Ostateczna: " + fmt(p.price) + ".", [{ t: "💵 Biorę", pri: true, fn: () => buySeller(p) }, { t: "🤝 Jeszcze taniej?", fn: () => { p.icon = null; done("Nie ma rozmowy! Żegnam!", "😤"); } }, { t: "👋 Nie", fn: closeDialog }]); }
+        else { done("Pan sobie żartuje! Nie sprzedam! *obrażony odchodzi*", "😤"); } } },
+      { t: "🔍 Obejrzę auto", fn: () => { const ok2 = Math.random() < 0.75; showDialog(w, ok2 ? "Lakier ładny, opony dobre, silnik równo chodzi. Wygląda uczciwie." : "Hmm… pod dywanikiem rdza, a licznik chyba cofnięty. Pan Mirek nerwowo się uśmiecha.", [{ t: "↩", fn: offer }]); if (!ok2) p.price = Math.round(p.price * 0.85 / 50) * 50; } },
+      { t: "👋 Nie, dzięki", fn: closeDialog }], "Ceny w salonie: " + fmt(VT[car.type].price));
+    offer();
+  } else if (p.sit === "fan"){
+    showDialog(w, "O MATKO TO NAPRAWDĘ TY! Mogę zrobić sobie z tobą selfie?! 🤳", [
+      { t: "🤳 Jasne!", pri: true, fn: () => { camFlash = 0.8; addRep(1); buffCoffee(); done("AAAA dziękuję!!! Wrzucam na insta! Stawiam ci kawę! ☕", "🤩"); } },
+      { t: "✍️ Dam autograf", fn: () => { addRep(1); done("Oprawię to w ramkę! Dziękuję!!!", "🤩"); } },
+      { t: "😎 Nie teraz", fn: () => { addRep(-1); done("Ech… Okej. *smutno odchodzi*", "😢"); } }]);
+  }
+}
+function buySeller(p){
+  const car = p.car, w = { name: p.name, item: "🚗" };
+  if (SAVE.money < p.price){ showDialog(w, "Pan nie ma tyle! Nie ma pieniędzy – nie ma auta.", [{ t: "😅", fn: closeDialog }]); return; }
+  if (SAVE.col.length >= 8){ showDialog(w, "(Twój garaż jest pełny – 8 aut. Sprzedaj coś najpierw.)", [{ t: "↩", fn: closeDialog }]); return; }
+  SAVE.money -= p.price; car.cfg.cid = newCid(); SAVE.col.push(cloneCfg(car.cfg)); car.sale = false; SAVE.soc2.cars++; persist(); cashSound();
+  p.icon = null; p.fixed = false; p.sit = null; p.state = "walk";
+  showDialog(w, "Kluczyki są twoje! Szerokiej drogi! *liczy pieniądze*", [{ t: "🔑", fn: () => { closeDialog(); startReturn(p); } }], "Auto dodane do kolekcji");
+}
+function reunite(p){
+  const m = p.mom; p.follow2 = false; p.icon = "😊"; m.icon = "😭";
+  SAVE.soc2.kids++; addRep(4); addMoney(60, "PODZIĘKOWANIE OD MAMY");
+  if (NAV && NAV.name && NAV.name.startsWith("Mama")) NAV = null;
+  showDialog({ name: m.name, item: "😭" }, p.name.toUpperCase() + "!!! Boże, dziękuję! Szukałam go/jej wszędzie! Nie wiem, jak się odwdzięczyć… Proszę, weź to.", [{ t: "🤗", fn: () => { closeDialog(); for (const q of [p, m]){ q.fixed = false; q.icon = null; q.sit = null; q.state = "walk"; startReturn(q); } } }]);
+  emote(p, "😊", 3); emote(m, "🥹", 3);
+}
+function touristDone(p){
+  p.follow2 = false; SAVE.soc2.tourists++; addRep(1); const tip = 30 + Math.round(Math.random() * 50); addMoney(tip, "NAPIWEK OD TURYSTY");
+  if (NAV && NAV.name && NAV.name.indexOf("turysta") >= 0) NAV = null;
+  showDialog({ name: p.name, item: "🧳" }, "Wow! Tutaj! Thank you, dziękuję! Polska bardzo piękna! Ty najlepszy przewodnik! 😄", [{ t: "👋", fn: () => { closeDialog(); p.fixed = false; p.icon = null; p.sit = null; p.state = "walk"; startReturn(p); } }]);
+}
+// ---------- zachowanie pieszych: ekipa, pomocnicy, idący za tobą ----------
+const _pedExtraL = pedExtraUpdate;
+pedExtraUpdate = function(p, dt){
+  if ((p.crew && p.state === "crew") || (p.follow2 && p.state === "sitf")){
+    if (p.sayT > 0) p.sayT -= dt; if (p.emoT > 0) p.emoT -= dt;
+    if (player.mode === "foot"){
+      const f = player.foot, k = p.crew ? p.crewK : 0, a = (f.a || 0) + Math.PI + (k - 1) * 0.6, tx = f.x + Math.cos(a) * (32 + k * 6), ty = f.y + Math.sin(a) * (32 + k * 6), d = Math.hypot(tx - p.x, ty - p.y);
+      if (Math.hypot(f.x - p.x, f.y - p.y) > 600){ p.x = tx; p.y = ty; }
+      else if (d > 10){ const an = Math.atan2(ty - p.y, tx - p.x), sp = Math.min(175, d * 2.6); p.x += Math.cos(an) * sp * dt; p.y += Math.sin(an) * sp * dt; p.a = an; p.moving = true; pushCircle(p, 6); }
+      else { p.moving = false; p.a = Math.atan2(f.y - p.y, f.x - p.x); }
+      if (p.kid && Math.random() < dt * 0.05) say(p, pick(["Daleko jeszcze?", "Mamo…", "Ty jesteś dobry pan/pani"]), 2);
+    } else p.moving = false;
+    return true;
+  }
+  if (p.state === "helper"){
+    if (p.sayT > 0) p.sayT -= dt;
+    const f = player.foot;
+    if (player.mode !== "foot" || moveTo(p, f.x + 16, f.y + 8, 110, dt)){
+      if (player.mode === "foot"){ heal(25); popup("🩹 " + (p.name || "Przechodzień") + ": „Proszę, bandaż. Trzymaj się!” (+25 zdrowia)", "#9fe39f"); emote(p, "🙂", 2); }
+      p.state = "walk"; p.fixed = false; startReturn(p);
+    }
+    return true;
+  }
+  return _pedExtraL(p, dt);
+};
+const _talkPedL = talkPed;
+talkPed = function(p){
+  if (p.sit && p.friendIdx === undefined){ const pp = playerPos(); p.a = Math.atan2(pp.y - p.y, pp.x - p.x); return sitDialog(p); }
+  if (PARTY.neighbor === p && p.icon === "😠") return neighborDialog(p);
+  return _talkPedL(p);
+};
+const _talkTargetL = talkTarget;
+talkTarget = function(){
+  const p = _talkTargetL();
+  if (p && (p.crew || p.follow2) && player.mode === "foot"){ const f = player.foot; if (vehicles.some(v => !v.driver && !v.wreck && Math.hypot(v.x - f.x, v.y - f.y) < 75)) return null; }
+  return p;
+};
+// ---------- rozszerzenia menu ----------
+function friendExtras(p, f){
+  const out = [{ t: "📇 Profil i wspomnienia", fn: () => showDialog(who(p), profileText(f), [{ t: "↩", fn: () => friendDialog(p) }], relSub(f)) }];
+  if (f.mem && f.mem.length && (f.memT || 0) < gameTime) out.push({ t: "💭 Pamiętasz…?", fn: () => { f.memT = gameTime + 150; relAdd(f, 1, isPartner(f) ? 0.5 : 0); showDialog(who(p), "Pamiętasz, jak " + pick(f.mem) + "? " + pick(["Ale to było super!", "Do dziś się z tego śmieję!", "Takich chwil się nie zapomina. 💛"]), [{ t: "😊", fn: () => friendDialog(p) }], relSub(f)); } });
+  if (!f.worksAt && ((f.rep || 0) >= 8 || isPartner(f)) && Object.keys(SAVE.biz).length) out.push({ t: "💼 Pracuj w mojej firmie", fn: () => friendJob(p) });
+  if (isPartner(f)){
+    const P2 = SAVE.partner, h = myHome();
+    if (P2.annDay === dayIdx() && !P2.annDone) out.unshift({ t: "💗 Wszystkiego najlepszego z okazji rocznicy!", fn: () => { P2.annDone = true; relAdd(f, 1, 3); showDialog(who(p), "Pamiętałeś! 😍 Jesteś najlepszy. Kocham cię!", [{ t: "💗", fn: () => friendDialog(p) }], relSub(f)); } });
+    if (h && !P2.live) out.push({ t: "🏠 Zamieszkajmy razem", fn: () => { P2.live = h.id; persist(); relAdd(f, 1, 2); showDialog(who(p), "Naprawdę?! Wprowadzam się jutro… nie, dzisiaj! 🏠💗 Będę czekać w domu.", [{ t: "🏠", fn: () => friendDialog(p) }]); } });
+    if (!P2.engaged && !P2.married) out.push({ t: "💍 Oświadczyny ($1500)", fn: () => proposal(p) });
+    if (P2.engaged && !P2.married && !SAVE.wed) out.push({ t: "💒 Weźmy ślub!", fn: () => planWedding(p) });
+  }
+  if (p.crew) out.push({ t: "👋 Rozwiąż ekipę", fn: () => { closeDialog(); endCrew(false); } });
+  return out;
+}
+function callExtras(i){
+  const f = SAVE.friends[i];
+  return [{ t: "📍 Gdzie jesteś?", fn: () => { const w = whereNow(f); showDialog({ name: "📞 " + f.name, item: f.fem ? "👩" : "👨" }, "Jestem " + w[1] + ". " + pick(["Wpadnij, jeśli chcesz!", "Nudzę się trochę, przyjedź!", "Jakbyś był w okolicy – zapraszam!"]), [{ t: "🚗 Wpadnę do ciebie!", pri: true, fn: () => visitFriend(i) }, { t: "👋 Na razie", fn: () => phoneFriends(0) }], profileText(f).split("\n")[1]); } }];
+}
+function phoneExtras(){
+  const out = [];
+  if (SAVE.inv && !SAVE.inv.done){ const I = SAVE.inv, f = SAVE.friends[I.fi]; if (f) out.push({ t: "💌 Zaproszenie: " + INVTYPES[I.k].n + " (" + f.name + ")", pri: true, fn: () => { NAV = { x: I.x, y: I.y, name: INVTYPES[I.k].n + " – " + f.name }; GPS.tgt = null; closeDialog(); popup("🧭 Jedziesz na: " + INVTYPES[I.k].n, "#5bc0de"); } }); }
+  if (SAVE.wed && !SAVE.wed.done) out.push({ t: "💒 Twój ślub – Dębowo", pri: true, fn: () => { NAV = { x: SAVE.wed.x, y: SAVE.wed.y, name: "Twój ślub" }; GPS.tgt = null; closeDialog(); } });
+  out.push({ t: PARTY.on ? "🎉 Domówka trwa – zakończ" : "🎉 Zrób domówkę", fn: () => PARTY.on ? (closeDialog(), endParty(false)) : startParty() });
+  out.push({ t: CREW.list.length ? "👥 Rozwiąż ekipę" : "👥 Zbierz ekipę", fn: () => CREW.list.length ? (closeDialog(), endCrew(false)) : startCrew() });
+  return out;
+}
+// ---------- akcje w świecie ----------
+const _regionLabelL = regionLabel;
+regionLabel = function(){
+  if (player.mode === "foot" && !onRoofNow() && !MINI.g && CREW.list.length && Math.hypot(LAKE.camp[0] - player.foot.x, LAKE.camp[1] + 40 - player.foot.y) < 60) return "🔥 BIWAK Z EKIPĄ";
+  const r = _regionLabelL(); if (r) return r;
+  if (player.mode !== "foot" || onRoofNow()) return "";
+  const f = player.foot;
+  if (PARTY.on && Math.hypot(f.x - PARTY.x, f.y - PARTY.y) < 90) return "🎉 IMPREZA";
+  return "";
+};
+const _regionActionL = regionAction;
+regionAction = function(){
+  if (player.mode === "foot" && !onRoofNow() && !MINI.g){
+    const f = player.foot;
+    if (CREW.list.length && Math.hypot(LAKE.camp[0] - f.x, LAKE.camp[1] + 40 - f.y) < 60){
+      for (const c of CREW.list){ relAdd(c.f, 2, 0, true); memAdd(c.f, "biwak z ekipą nad jeziorem"); emote(c.p, "🔥", 3); }
+      heal(100); SAVE.soc2.biwak++; if (cycleOn()) hourSkipTo(7); persist();
+      showDialog({ name: "🔥 Biwak", item: "🔥" }, "Ognisko, kiełbaski, gitara i opowieści do świtu. " + CREW.list.map(c => c.f.name).join(", ") + " nie mogą przestać się śmiać. Najlepsza noc w roku!", [{ t: "🌅 Dzień dobry!" }], "Przyjaźń +2 dla całej ekipy · pełne zdrowie");
+      return true;
+    }
+  }
+  if (_regionActionL()) return true;
+  if (player.mode === "foot" && PARTY.on && Math.hypot(player.foot.x - PARTY.x, player.foot.y - PARTY.y) < 90){ partyMenu(); return true; }
+  return false;
+};
+// ---------- rysowanie ----------
+const _drawRegionsWorldL = drawRegionsWorld;
+drawRegionsWorld = function(inV){
+  _drawRegionsWorldL(inV);
+  if (PARTY.on && inV(PARTY.x, PARTY.y, 200)){
+    for (let k = 0; k < 14; k++){ const x = PARTY.x - 130 + k * 20, y = PARTY.y - 30 + Math.sin(k * 0.9) * 8; ctx.fillStyle = ["#ff5252", "#ffd740", "#69f0ae", "#40c4ff", "#e040fb"][k % 5]; ctx.globalAlpha = 0.6 + 0.4 * Math.sin(gameTime * 6 + k); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 6.3); ctx.fill(); }
+    ctx.globalAlpha = 1; ctx.textAlign = "center"; ctx.textBaseline = "middle"; marker(PARTY.x, PARTY.y, "🎉");
+  }
+  if (SAVE.inv && !SAVE.inv.done && inV(SAVE.inv.x, SAVE.inv.y, 40)) marker(SAVE.inv.x, SAVE.inv.y, "💌");
+  if (SAVE.wed && !SAVE.wed.done && inV(SAVE.wed.x, SAVE.wed.y, 40)) marker(SAVE.wed.x, SAVE.wed.y, "💒");
+  for (const c of CREW.list) if (peds.includes(c.p) && inV(c.p.x, c.p.y, 30)){ ctx.font = "11px system-ui"; ctx.fillText("👥", c.p.x + 9, c.p.y - 15); }
+  for (const v of vehicles) if (v.sale && !v.driver && inV(v.x, v.y, 40)){ ctx.font = "800 10px system-ui"; ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, v.x - 30, v.y - 34, 60, 14, 4); ctx.fill(); ctx.fillStyle = "#ffd27a"; ctx.fillText("NA SPRZEDAŻ", v.x, v.y - 27); }
+};
+const _drawRegionsHUDL = drawRegionsHUD;
+drawRegionsHUD = function(){
+  _drawRegionsHUDL();
+  if (state !== "play") return;
+  let t = null;
+  if (CREW.list.length) t = "👥 Ekipa: " + CREW.list.map(c => c.f.name).join(", ") + (CREW.inCar ? " · 🚗" : "");
+  else if (PARTY.on) t = "🎉 Domówka · goście: " + PARTY.guests.length + "/" + PARTY.inv.length;
+  else if (SAVE.inv && !SAVE.inv.done){ const f = SAVE.friends[SAVE.inv.fi]; if (f) t = "💌 " + INVTYPES[SAVE.inv.k].n + " u " + f.name + " · " + Math.ceil(SAVE.inv.left / 60) + " min"; }
+  if (t){ ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "800 12px system-ui, sans-serif"; const tw = ctx.measureText(t).width; ctx.fillStyle = "rgba(40,20,60,.6)"; rrect(ctx, 10, 258, tw + 18, 21, 8); ctx.fill(); ctx.fillStyle = "#e1c4ff"; ctx.fillText(t, 19, 273); ctx.textAlign = "center"; }
+};
+// ---------- aktualizacja ----------
+const _regionsUpdateL = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdateL(dt);
+  visitUpdate(dt); favorUpdate(dt); debtUpdate(dt); partyUpdate(dt); inviteUpdate(dt); invpUpdate(dt);
+  crewUpdate(dt); fameUpdate(dt); sitUpdate(dt); homeUpdate(dt); weddingUpdate();
+  LIFE2T.t -= dt; if (LIFE2T.t <= 0){ LIFE2T.t = 5; annivUpdate(); }
+};
+const LIFE2T = { t: 5 };
+const _finishActL = finishAct;
+finishAct = function(){ const f = COMP.f, k = COMP.act && COMP.act.k; _finishActL(); if (f && k) memAdd(f, { cafe: "piliśmy razem kawę", food: "byliśmy na obiedzie", cinema: "byliśmy razem w kinie", park: "spacerowaliśmy po parku", molo: "oglądaliśmy zachód słońca na molo", fest: "bawiliśmy się na festynie", bowl: "graliśmy w kręgle", summit: "weszliśmy na Szczyt Orli" }[k] || "spędziliśmy razem dzień"); };
+ACH.push(
+  ["favor10", "🤝", "Można na tobie polegać", "Zrób 10 przysług znajomym", 1200, () => SAVE.soc2.favors >= 10],
+  ["party1", "🎉", "Gospodarz imprezy", "Zrób domówkę", 600, () => SAVE.soc2.parties >= 1],
+  ["invite3", "💌", "Zawsze zaproszony", "Przyjdź na 3 imprezy znajomych", 700, () => SAVE.soc2.invites >= 3],
+  ["married", "💒", "Młoda para", "Weź ślub", 3000, () => !!(SAVE.partner && SAVE.partner.married)],
+  ["livein", "🏠", "Nasze gniazdko", "Zamieszkaj z partnerem", 800, () => !!(SAVE.partner && SAVE.partner.live)],
+  ["kid", "🧒", "Anioł stróż", "Odprowadź zgubione dziecko do mamy", 600, () => SAVE.soc2.kids >= 1],
+  ["guide", "🧳", "Przewodnik turystów", "Zaprowadź 3 turystów", 500, () => SAVE.soc2.tourists >= 3],
+  ["carhaggle", "🚗", "Okazja z ogłoszenia", "Kup auto od przechodnia", 500, () => SAVE.soc2.cars >= 1],
+  ["biwak", "🔥", "Noc przy ognisku", "Zrób biwak z ekipą", 700, () => SAVE.soc2.biwak >= 1],
+  ["famous", "🌟", "Celebryta", "Zdobądź 40 reputacji", 1500, () => (SAVE.rep || 0) >= 40]
+);
 
 // START
 // =====================================================================
