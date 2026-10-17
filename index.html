@@ -3943,22 +3943,7 @@ function drawHUD(h){
     const bx0 = 12, by0 = 86;
     ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, bx0, by0, bwid + 18, lines.length * 17 + 10, 8); ctx.fill();
     lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? "#ffb300" : (l.startsWith("⏱") && mission.time < 15 ? "#ff6b5e" : "#fff"); ctx.fillText(l, bx0 + 9, by0 + 19 + i * 17); });
-    if (mission.target){
-      const [tx, ty] = mission.target, sx2 = W / 2 + (tx - camX) * zoom, sy2 = H / 2 + (ty - camY) * zoom, mg = 40;
-      if (sx2 < mg || sx2 > W - mg || sy2 < mg || sy2 > H - mg){
-        const ang = Math.atan2(sy2 - H / 2, sx2 - W / 2), dx = Math.cos(ang), dy = Math.sin(ang);
-        const kx = Math.abs(dx) > 1e-4 ? (W / 2 - mg) / Math.abs(dx) : 1e9, ky = Math.abs(dy) > 1e-4 ? (H / 2 - mg) / Math.abs(dy) : 1e9;
-        const kk = Math.min(kx, ky), ax = W / 2 + dx * kk, ay = H / 2 + dy * kk;
-        ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang);
-        ctx.fillStyle = "#ffb300"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-8, -12); ctx.lineTo(-3, 0); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.restore();
-        const pp = playerPos(), dist = Math.round(Math.hypot(tx - pp.x, ty - pp.y) / 10);
-        ctx.font = "900 12px system-ui, sans-serif"; ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(dist + " m", ax - dx * 26 + 1, ay - dy * 26 + 5);
-        ctx.fillStyle = "#ffb300"; ctx.fillText(dist + " m", ax - dx * 26, ay - dy * 26 + 4);
-      }
-    }
+    if (mission.target) drawEdgeArrow(mission.target[0], mission.target[1], "#ffb300");
     ctx.textAlign = "center";
   }
   if (ev && ev.repair >= 0){
@@ -4016,6 +4001,7 @@ function drawHUD(h){
       ctx.fillStyle = "#2a6bff";
       for (const b of police.blocks) for (const v of b.cars){ const q = toR(v.x, v.y); ctx.fillRect(q[0] - 2, q[1] - 2, 4, 4); }
     }
+    gpsRadar(toR, mx, my, sz);
     if (NAV){
       const q = toR(clamp(NAV.x, pp.x - RAD * 0.94, pp.x + RAD * 0.94), clamp(NAV.y, pp.y - RAD * 0.94, pp.y + RAD * 0.94));
       ctx.fillStyle = "#5bc0de"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
@@ -4839,7 +4825,7 @@ function closeMap(){
   state = "play"; last = performance.now();
 }
 $("mapHit").addEventListener("pointerdown", e => { e.preventDefault(); openMap(); });
-$("mapWrap").addEventListener("pointerdown", e => { e.preventDefault(); closeMap(); });
+$("mapWrap").addEventListener("pointerdown", e => { e.preventDefault(); if (!mapTap(e.clientX, e.clientY)) closeMap(); });
 function drawMapView(){
   const cvm = $("mapView"), dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = innerWidth, h = innerHeight;
@@ -4881,6 +4867,7 @@ function drawMapView(){
     g.stroke();
   }
   if (mission && mission.target){ const q = toM(mission.target[0], mission.target[1]); g.fillStyle = "#ffb300"; g.beginPath(); g.arc(q[0], q[1], 6, 0, Math.PI * 2); g.fill(); }
+  gpsMapDraw(g, toM);
   g.fillStyle = "#5cd65c";
   for (const k of pickups){ const q = toM(k.x, k.y); g.fillRect(q[0] - 2, q[1] - 2, 4, 4); }
   const pp = playerPos(), q = toM(pp.x, pp.y), a = player.mode === "car" ? player.veh.a : player.foot.a;
@@ -4897,7 +4884,7 @@ function drawMapView(){
   const lsp = Math.min(20, (h - 60) / leg.length);
   g.font = "600 " + Math.min(12, lsp * 0.75).toFixed(0) + "px system-ui, sans-serif";
   if (w - size > 260) leg.forEach((t, i) => g.fillText(t, 16, 48 + i * lsp));
-  g.textAlign = "center"; g.fillText("dotknij, aby wrócić do gry", w / 2, h - 12);
+  g.textAlign = "center"; g.fillText("dotknij mapy: cel GPS 📍 · dotknij obok mapy: powrót do gry", w / 2, h - 12);
 }
 // =====================================================================
 // ŻYCIE W MIEŚCIE: ROZMOWY, POSTACIE ZE ZLECENIAMI, ZDARZENIA
@@ -5880,19 +5867,11 @@ function raceFinish(){
     [{ t: "👍 Super", pri: true }], prize ? "Nagroda: " + fmt(prize) : "Następnym razem!");
 }
 function drawEdgeArrow(tx, ty, col){
+  if (gpsArrowFor(tx, ty, col)) return;
   const sx2 = W / 2 + (tx - camX) * zoom, sy2 = H / 2 + (ty - camY) * zoom, mg = 40;
   if (sx2 >= mg && sx2 <= W - mg && sy2 >= mg && sy2 <= H - mg) return;
-  const ang = Math.atan2(sy2 - H / 2, sx2 - W / 2), dx = Math.cos(ang), dy = Math.sin(ang);
-  const kx = Math.abs(dx) > 1e-4 ? (W / 2 - mg) / Math.abs(dx) : 1e9, ky = Math.abs(dy) > 1e-4 ? (H / 2 - mg) / Math.abs(dy) : 1e9;
-  const kk = Math.min(kx, ky), ax = W / 2 + dx * kk, ay = H / 2 + dy * kk;
-  ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang);
-  ctx.fillStyle = col; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-8, -12); ctx.lineTo(-3, 0); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.restore();
-  const pp = playerPos(), dist = Math.round(Math.hypot(tx - pp.x, ty - pp.y) / 10);
-  ctx.font = "900 12px system-ui, sans-serif"; ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(dist + " m", ax - dx * 26 + 1, ay - dy * 26 + 5);
-  ctx.fillStyle = col; ctx.fillText(dist + " m", ax - dx * 26, ay - dy * 26 + 4);
+  const pp = playerPos();
+  carArrow(Math.atan2(ty - pp.y, tx - pp.x), col, fmtDist(Math.hypot(tx - pp.x, ty - pp.y) / 10));
 }
 function checkerDisc(x, y, r, a){
   ctx.save();
@@ -10068,6 +10047,7 @@ function pedMore(p){
     addFriend(p, Math.round(p.like));
     showDialog(who(p), pick(["Jasne! Zadzwoń, jak będziesz w okolicy. Pogadamy!", "Pewnie! Fajnie mieć znajomego z autem, haha!"]), [{ t: "💛", fn: () => endTalk(p) }]);
   } });
+  const jo = jobOfferChoice(p); if (jo) ch.push(jo);
   ch.push({ t: "↩ Wróć", fn: () => pedMenu(p, "No to o czym jeszcze pogadamy?") });
   showDialog(who(p), pick(["Mhm?", "Słucham.", "No?"]), ch, talkSub(p));
 }
@@ -12646,7 +12626,7 @@ function careerUpdate(dt){
       row('<b>' + owned.length + ' / ' + BIZ.length + ' firm</b> · łączny dochód ok. ' + fmt(total) + ' / min<br><small>Podjedź do znacznika 💼 na mapie, żeby kupić firmę, odebrać kasę albo ją rozbudować.</small>');
       for (const b of BIZ){
         const s = SAVE.biz[b.id];
-        row(b.icon + ' <b>' + esc(b.name) + '</b><br><small>' + (s ? "Twoja · poziom " + s.lvl + "/3 · w kasie " + fmt(s.cash) + (s.mgr ? " · menedżer" : "") + (s.guard ? " · ochrona" : "") + " · zarobione " + fmt(s.earned) : "Na sprzedaż: " + fmt(b.price) + " · dochód ok. " + fmt(b.rate) + "/min") + '<br>🎁 ' + esc(b.perk) + '</small>');
+        row(b.icon + ' <b>' + esc(b.name) + '</b><br><small>' + (s ? "Twoja · poziom " + s.lvl + "/3 · w kasie " + fmt(s.cash) + (s.mgr ? " · menedżer" : "") + (s.guard ? " · ochrona" : "") + (s.staff && s.staff.length ? " · 👥 " + s.staff.length : "") + " · zarobione " + fmt(s.earned) : "Na sprzedaż: " + fmt(b.price) + " · dochód ok. " + fmt(b.rate) + "/min") + '<br>🎁 ' + esc(b.perk) + '</small>');
       }
     }
   };
@@ -13686,6 +13666,430 @@ ACH.push(
   ["debowo", "⛪", "Turysta", "Odwiedź Dębowo", 150, () => !!SAVE.visDeb]
 );
 for (const a of ACH) if (a[0] === "xgAll"){ a[3] = "Znajdź wszystkie krasnale krain (" + XGNOMES.length + ")"; }
+
+// =====================================================================
+// GPS (TRASA PO DROGACH), STRZAŁKA PRZY AUCIE, TELEFON,
+// NOWE BIZNESY I PRACOWNICY Z ULICY
+// =====================================================================
+// ---------- strzałka przy aucie ----------
+const fmtDist = m => m >= 1000 ? (m / 1000).toFixed(1).replace(".", ",") + " km" : Math.round(m / 10) * 10 + " m";
+function carArrow(ang, col, label){
+  const pp = playerPos(), px = W / 2 + (pp.x - camX) * zoom, py = H / 2 + (pp.y - camY) * zoom, R = 66;
+  const ax = px + Math.cos(ang) * R, ay = py + Math.sin(ang) * R, pulse = 1 + Math.sin(gameTime * 5) * 0.06;
+  ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang); ctx.scale(pulse, pulse);
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.moveTo(21, 3); ctx.lineTo(-9, -12); ctx.lineTo(-3, 3); ctx.lineTo(-9, 18); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = col; ctx.strokeStyle = "#000"; ctx.lineWidth = 2.2;
+  ctx.beginPath(); ctx.moveTo(19, 0); ctx.lineTo(-11, -15); ctx.lineTo(-5, 0); ctx.lineTo(-11, 15); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,.45)"; ctx.beginPath(); ctx.moveTo(15, -1); ctx.lineTo(-8, -12); ctx.lineTo(-4, -1); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  if (label){
+    const lx = px + Math.cos(ang) * (R + 34), ly = py + Math.sin(ang) * (R + 30) + 4;
+    ctx.font = "900 12px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(0,0,0,.55)"; rrect(ctx, lx - tw / 2 - 6, ly - 13, tw + 12, 18, 7); ctx.fill();
+    ctx.fillStyle = col; ctx.fillText(label, lx, ly);
+  }
+}
+// ---------- GPS: wyszukiwanie trasy po kaflach dróg ----------
+const GPS = { pass: null, cost: null, pts: null, cum: null, idx: 0, tgt: null, recT: 0, chkT: 0, heap: [], hf: [] };
+function gpsPass(){
+  if (GPS.pass) return GPS.pass;
+  const N = MW * MW, a = new Uint8Array(N), c = new Uint8Array(N);
+  for (let ty = 0; ty < MW; ty++) for (let tx = 0; tx < MW; tx++){
+    const i = ty * MW + tx, g = ground[i];
+    if (g === G_ROAD || g === G_DIRT || g === G_LOT || g === G_PAVE){ a[i] = 1; continue; }
+    const x = (tx + 0.5) * T, y = (ty + 0.5) * T;
+    if (x > RA - RHW - 60 && x < RB + RHW + 60 && y > RA - RHW - 60 && y < RB + RHW + 60 && Math.abs(ringDist(x, y)) < RHW - 4) a[i] = 2;
+  }
+  for (let ty = 1; ty < MW - 1; ty++) for (let tx = 1; tx < MW - 1; tx++){
+    const i = ty * MW + tx;
+    if (!a[i]) continue;
+    const g = ground[i];
+    c[i] = (!a[i - 1] || !a[i + 1] || !a[i - MW] || !a[i + MW]) ? 3 : (g === G_LOT || g === G_PAVE) ? 2 : 1;
+  }
+  GPS.pass = a; GPS.cost = c;
+  return a;
+}
+function gpsNearest(x, y){
+  const a = gpsPass(), tx0 = Math.floor(x / T), ty0 = Math.floor(y / T);
+  for (let r = 0; r < 45; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++){
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    const tx = tx0 + dx, ty = ty0 + dy;
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MW) continue;
+    if (a[ty * MW + tx]) return ty * MW + tx;
+  }
+  return -1;
+}
+function hPush(i, f){ const H = GPS.heap, F = GPS.hf; H.push(i); F.push(f); let k = H.length - 1; while (k > 0){ const p = (k - 1) >> 1; if (F[p] <= F[k]) break; [H[p], H[k]] = [H[k], H[p]]; [F[p], F[k]] = [F[k], F[p]]; k = p; } }
+function hPop(){
+  const H = GPS.heap, F = GPS.hf, top = H[0], li = H.pop(), lf = F.pop();
+  if (H.length){ H[0] = li; F[0] = lf; let k = 0; for (;;){ const l = k * 2 + 1, r = l + 1; let m = k; if (l < H.length && F[l] < F[m]) m = l; if (r < H.length && F[r] < F[m]) m = r; if (m === k) break; [H[m], H[k]] = [H[k], H[m]]; [F[m], F[k]] = [F[k], F[m]]; k = m; } }
+  return top;
+}
+function gpsFind(x0, y0, x1, y1){
+  const a = gpsPass(), c = GPS.cost, N = MW * MW;
+  if (!GPS.g){ GPS.g = new Float32Array(N); GPS.came = new Int32Array(N); GPS.seen = new Uint32Array(N); GPS.done = new Uint32Array(N); GPS.st = 0; }
+  const s = gpsNearest(x0, y0), e = gpsNearest(x1, y1);
+  if (s < 0 || e < 0) return null;
+  const st = ++GPS.st, g = GPS.g, came = GPS.came, seen = GPS.seen, done = GPS.done, ex = e % MW, ey = (e / MW) | 0;
+  const hh = i => { const dx = Math.abs(i % MW - ex), dy = Math.abs(((i / MW) | 0) - ey); return dx + dy - 0.5858 * Math.min(dx, dy); };
+  GPS.heap.length = 0; GPS.hf.length = 0;
+  seen[s] = st; g[s] = 0; came[s] = -1; hPush(s, hh(s));
+  const D = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];
+  let it = 0, found = false;
+  while (GPS.heap.length && it++ < 700000){
+    const i = hPop();
+    if (done[i] === st) continue;
+    done[i] = st;
+    if (i === e){ found = true; break; }
+    const x = i % MW, y = (i / MW) | 0;
+    for (const [dx, dy, w] of D){
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= MW || ny >= MW) continue;
+      const j = ny * MW + nx;
+      if (!a[j] || done[j] === st) continue;
+      if (dx && dy && (!a[y * MW + nx] || !a[ny * MW + x])) continue;
+      const ng = g[i] + w * (c[j] || 1);
+      if (seen[j] !== st || ng < g[j]){ seen[j] = st; g[j] = ng; came[j] = i; hPush(j, ng + hh(j) * 1.05); }
+    }
+  }
+  if (!found) return null;
+  const tiles = [];
+  for (let i = e; i >= 0; i = came[i]){ tiles.push(i); if (i === s) break; }
+  tiles.reverse();
+  let pts = [[x0, y0]];
+  for (let k = 0; k < tiles.length; k += 2){ const i = tiles[k]; pts.push([(i % MW + 0.5) * T, (((i / MW) | 0) + 0.5) * T]); }
+  pts.push([x1, y1]);
+  pts = chaikin(pts, 2);
+  const cum = [0];
+  for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+  return { pts, cum };
+}
+function gpsTarget(){
+  if (NAV && !NAV.track) return [NAV.x, NAV.y];
+  if (mission && mission.target) return [mission.target[0], mission.target[1]];
+  return null;
+}
+function gpsRoute(t){
+  const pp = playerPos(), r = gpsFind(pp.x, pp.y, t[0], t[1]);
+  GPS.tgt = t; GPS.recT = 1.5;
+  if (!r){ GPS.pts = null; return; }
+  GPS.pts = r.pts; GPS.cum = r.cum; GPS.idx = 0;
+}
+function gpsUpdate(dt){
+  if (state !== "play") return;
+  GPS.recT -= dt; GPS.chkT -= dt;
+  const t = gpsTarget();
+  if (!t){ GPS.pts = null; GPS.tgt = null; return; }
+  if (!GPS.tgt || Math.hypot(t[0] - GPS.tgt[0], t[1] - GPS.tgt[1]) > 220){ if (GPS.recT <= 0 || !GPS.tgt || Math.hypot(t[0] - GPS.tgt[0], t[1] - GPS.tgt[1]) > 600) gpsRoute(t); return; }
+  if (!GPS.pts){ if (GPS.recT <= 0) gpsRoute(t); return; }
+  if (GPS.chkT > 0) return;
+  GPS.chkT = 0.25;
+  const pp = playerPos(), P = GPS.pts;
+  let best = GPS.idx, bd = 1e18;
+  for (let k = Math.max(0, GPS.idx - 8); k < Math.min(P.length, GPS.idx + 120); k++){ const d = (P[k][0] - pp.x) ** 2 + (P[k][1] - pp.y) ** 2; if (d < bd){ bd = d; best = k; } }
+  GPS.idx = best;
+  if (Math.sqrt(bd) > 190 && GPS.recT <= 0) gpsRoute(t);
+}
+function gpsArrowFor(tx, ty, col){
+  if (!GPS.pts || !GPS.tgt || Math.hypot(tx - GPS.tgt[0], ty - GPS.tgt[1]) > 240) return false;
+  const pp = playerPos(), P = GPS.pts, C = GPS.cum, rem = C[C.length - 1] - C[GPS.idx];
+  const sx2 = W / 2 + (tx - camX) * zoom, sy2 = H / 2 + (ty - camY) * zoom;
+  if (rem < 300 && sx2 > 40 && sx2 < W - 40 && sy2 > 40 && sy2 < H - 40) return true;
+  let k = GPS.idx;
+  while (k < P.length - 1 && C[k] - C[GPS.idx] < 230) k++;
+  carArrow(Math.atan2(P[k][1] - pp.y, P[k][0] - pp.x), col, fmtDist(rem / 10));
+  return true;
+}
+function drawGpsWorld(inV){
+  if (!GPS.pts) return;
+  const P = GPS.pts;
+  ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const pass of [0, 1]){
+    ctx.beginPath(); let pen = false;
+    for (let k = Math.max(0, GPS.idx - 1); k < P.length; k++){
+      if (!inV(P[k][0], P[k][1], 60)){ pen = false; continue; }
+      if (pen) ctx.lineTo(P[k][0], P[k][1]); else { ctx.moveTo(P[k][0], P[k][1]); pen = true; }
+    }
+    if (pass === 0){ ctx.strokeStyle = "rgba(40,150,255,.38)"; ctx.lineWidth = 16; ctx.setLineDash([]); }
+    else { ctx.strokeStyle = "rgba(230,245,255,.75)"; ctx.lineWidth = 3; ctx.setLineDash([14, 16]); ctx.lineDashOffset = -gameTime * 40; }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]); ctx.restore();
+  if (NAV && !NAV.track && inV(NAV.x, NAV.y, 60)){
+    const b = Math.abs(Math.sin(gameTime * 3)) * 6;
+    ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.beginPath(); ctx.ellipse(NAV.x, NAV.y + 3, 9, 4, 0, 0, 6.3); ctx.fill();
+    ctx.font = "26px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.fillText("📍", NAV.x, NAV.y - b);
+  }
+}
+function gpsRadar(toR, mx, my, sz){
+  if (!GPS.pts) return;
+  ctx.save(); ctx.beginPath(); ctx.rect(mx, my, sz, sz); ctx.clip();
+  ctx.strokeStyle = "#3aa0ff"; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.beginPath();
+  const P = GPS.pts;
+  for (let k = GPS.idx; k < P.length; k += 2){ const q = toR(P[k][0], P[k][1]); if (k === GPS.idx) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]); }
+  ctx.stroke(); ctx.restore();
+}
+function gpsMapDraw(g, toM){
+  if (GPS.pts){
+    g.strokeStyle = "#3aa0ff"; g.lineWidth = 3; g.lineJoin = "round"; g.beginPath();
+    const P = GPS.pts;
+    for (let k = GPS.idx; k < P.length; k += 3){ const q = toM(P[k][0], P[k][1]); if (k === GPS.idx) g.moveTo(q[0], q[1]); else g.lineTo(q[0], q[1]); }
+    g.stroke();
+  }
+  if (NAV && !NAV.track){ const q = toM(NAV.x, NAV.y); g.font = "20px system-ui"; g.textAlign = "center"; g.textBaseline = "alphabetic"; g.fillText("📍", q[0], q[1]); g.textBaseline = "middle"; }
+}
+function mapTap(cx, cy){
+  const w = innerWidth, h = innerHeight, size = Math.min(w, h) - 24, ox = (w - size) / 2, oy = (h - size) / 2;
+  if (cx < ox || cy < oy || cx > ox + size || cy > oy + size) return false;
+  const x = (cx - ox) / size * WORLD, y = (cy - oy) / size * WORLD;
+  if (NAV && !NAV.track && Math.hypot(NAV.x - x, NAV.y - y) < WORLD / size * 16){ NAV = null; GPS.pts = null; GPS.tgt = null; uiClick(); return true; }
+  const near = pois.map(o => [o, Math.hypot(o.x - x, o.y - y)]).sort((p, q) => p[1] - q[1])[0];
+  const snap = near && near[1] < WORLD / size * 12 ? near[0] : null;
+  NAV = { x: snap ? snap.x : x, y: snap ? snap.y : y, name: snap ? snap.name : "Cel na mapie" };
+  GPS.tgt = null; gpsUpdate(0.01); uiClick();
+  return true;
+}
+// ---------- telefon ----------
+const PHONE = { pizzaT: 0, page: 0 };
+if (!SAVE.phone) SAVE.phone = { loanT: 0 };
+const PW = { name: "📱 Telefon", item: "📱" };
+const QUICK = () => {
+  const out = [];
+  const h = HOMES.find(x => x.id === SAVE.home && SAVE.homes.includes(x.id)); if (h && h.door) out.push(["🏠 Dom", h.door[0], h.door[1]]);
+  if (garages[0]) out.push(["🔧 Garaż", garages[0].x + garages[0].w / 2, garages[0].y + garages[0].h + 30]);
+  out.push(["🏡 Dębowo", TOWN.c[0], TOWN.c[1] - 300], ["🌲 Leśniczówka", FOREST.door[0], FOREST.door[1] + 120], ["⛵ Przystań", LAKE.shoreX - 300, LAKE.c[1] + 200], ["🚡 Kolejka", MOUNT.cableBot[0], MOUNT.cableBot[1] + 60], ["🐄 Gospodarstwo", FARM.c[0], FARM.c[1]]);
+  for (const t of (typeof TOWNS2 !== "undefined" ? TOWNS2 : [])) out.push([t.icon + " " + t.name, t.c[0], t.c[1]]);
+  return out;
+};
+function openPhone(){
+  if (state !== "play") return;
+  uiClick();
+  const ch = [
+    { t: "👥 Znajomi (" + SAVE.friends.length + ")", fn: () => phoneFriends(0) },
+    { t: "💼 Moje firmy (" + Object.keys(SAVE.biz).length + ")", fn: phoneBiz },
+    { t: "🗺️ Nawigacja GPS", fn: phoneNav },
+    { t: "🔧 Pomoc drogowa", fn: phoneTow },
+    { t: "🚕 Taxi", fn: phoneTaxi },
+    { t: "🍕 Zamów pizzę ($15)", fn: () => { if (PHONE.pizzaT > 0){ showDialog(PW, "Pizza już jedzie! Jeszcze chwilka.", [{ t: "🍕" }]); return; } if (SAVE.money < 15){ showDialog(PW, "„Za mało środków na koncie.” Pizzeria się rozłączyła.", [{ t: "😢" }]); return; } SAVE.money -= 15; saveDirty = true; PHONE.pizzaT = 25; showDialog(PW, "„Pizzeria Mamma Mia, dzień dobry! Margherita? Dowieziemy w 25 sekund, gdziekolwiek pan jest!”", [{ t: "🍕 Czekam" }]); } },
+    { t: "✖ Schowaj telefon", fn: closeDialog }
+  ];
+  const h = hourNow(), hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+  showDialog(PW, "🕒 " + hh + ":" + String(mm).padStart(2, "0") + " · 🔋 " + (60 + ((gameTime / 7) | 0) % 40) + "% · 📶 " + (regSt.cur && /Puszcza|Góry/.test(regSt.cur) ? "▂▄_ _" : "▂▄▆█") + "\nDo kogo dzwonimy?", ch, "💵 " + fmt(SAVE.money) + " · 🏦 " + fmt(SAVE.bank || 0));
+}
+function ringTone(after){
+  if (actx){ const t = actx.currentTime; for (let i = 0; i < 2; i++){ tone(440, t + i * 0.5, 0.35, "sine", 0.05); tone(480, t + i * 0.5, 0.35, "sine", 0.04); } }
+  showDialog(PW, "📞 Łączenie… tuuu… tuuu…", [{ t: "…", fn: after }]);
+  setTimeout(() => { if (state === "talk" && $("dText").textContent.startsWith("📞 Łączenie")) after(); }, 1300);
+}
+function phoneFriends(page){
+  const F = SAVE.friends;
+  if (!F.length){ showDialog(PW, "Nie masz jeszcze żadnych numerów. Pogadaj z ludźmi na ulicy – jak cię polubią, wymienicie się numerami (💬 → Więcej → 🤝).", [{ t: "↩ Wróć", fn: openPhone }]); return; }
+  const per = 5, ch = F.slice(page * per, page * per + per).map((f, k) => ({ t: (f.fem ? "👩 " : "👨 ") + f.name + " " + "❤".repeat(Math.min(5, Math.ceil((f.rep || 1) / 2))), fn: () => ringTone(() => callFriend(page * per + k)) }));
+  if (F.length > (page + 1) * per) ch.push({ t: "➡ Dalej", fn: () => phoneFriends(page + 1) });
+  ch.push({ t: "↩ Wróć", fn: openPhone });
+  showDialog(PW, "👥 Kontakty", ch);
+}
+function callFriend(i){
+  const f = SAVE.friends[i]; if (!f) return openPhone();
+  const w = { name: "📞 " + f.name, item: f.fem ? "👩" : "👨" }, lvl = f.rep || 1;
+  if (Math.random() < (lvl >= 4 ? 0.08 : 0.25)){ showDialog(w, pick(["Abonent czasowo niedostępny…", f.name + " nie odbiera. Pewnie w pracy.", "Poczta głosowa: „Hej, tu " + f.name + ", nagraj się po sygnale!”"]), [{ t: "↩ Wróć", fn: () => phoneFriends(0) }]); return; }
+  const back = () => callFriend(i);
+  const ch = [
+    { t: "🗣️ Co słychać?", fn: () => { f.rep = lvl + 0.5; saveDirty = true; showDialog(w, pick(["Wszystko dobrze! A wiesz co? ", "Ech, robota… Ale słuchaj: ", "Super, że dzwonisz! Mam newsa: "]) + makeRumor(), [{ t: "👍", fn: back }]); } },
+    { t: "📍 Spotkajmy się!", fn: () => {
+      if (player.mode !== "foot"){ showDialog(w, "Jasne! Ale wysiądź z auta, to podejdę – jestem niedaleko.", [{ t: "👌", fn: closeDialog }]); return; }
+      if (peds.some(p => p.friendIdx === i)){ showDialog(w, "Przecież już idę do ciebie, haha!", [{ t: "😄", fn: closeDialog }]); return; }
+      const pp = playerPos(); let pos = null;
+      for (let k = 0; k < 24 && !pos; k++){ const a = Math.random() * 6.28, d = 140 + Math.random() * 80, x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d; if (!pointBlocked(x, y, 8) && getGW(x, y) !== G_WATER) pos = [x, y]; }
+      if (!pos){ showDialog(w, "Hmm, nie mogę cię znaleźć. Gdzie ty jesteś?!", [{ t: "🤷", fn: closeDialog }]); return; }
+      const p = makePed(0, 0, 0);
+      Object.assign(p, { x: pos[0], y: pos[1], name: f.name, fem: f.fem, col: f.col, hair: f.hair, trait: f.trait, friendIdx: i, state: "return", home: [pp.x + 20, pp.y], tx: pp.x + 20, ty: pp.y });
+      showDialog(w, "Już lecę! Daj mi minutkę.", [{ t: "👋", fn: closeDialog }]);
+    } }
+  ];
+  if (lvl >= 4) ch.push({ t: "💸 Pożycz stówkę", fn: () => {
+    if ((SAVE.phone.loanT || 0) > Date.now()){ showDialog(w, "Stary, dopiero co ci pożyczałem… Daj mi trochę czasu.", [{ t: "😅", fn: back }]); return; }
+    SAVE.phone.loanT = Date.now() + 10 * 60 * 1000; const n = 100 + Math.round(Math.random() * 200); addMoney(n, "POŻYCZKA OD " + f.name.toUpperCase()); persist();
+    showDialog(w, "Dobra, przelewam " + fmt(n) + ". Oddasz, jak będziesz mógł. Dla kumpla wszystko!", [{ t: "💛", fn: back }]);
+  } });
+  ch.push({ t: "👋 Rozłącz", fn: () => phoneFriends(0) });
+  showDialog(w, pick(["Halo? O, cześć! Co tam?", "No hej! Dawno nie gadaliśmy!", "Słucham? A, to ty! Mów!"]), ch, "💛 sympatia " + "❤".repeat(Math.min(5, Math.ceil(lvl / 2))));
+}
+function phoneBiz(){
+  const owned = BIZ.filter(b => SAVE.biz[b.id]);
+  if (!owned.length){ showDialog(PW, "Nie masz jeszcze żadnej firmy. Znaczniki 💼 na mapie to firmy na sprzedaż.", [{ t: "↩ Wróć", fn: openPhone }]); return; }
+  const ch = owned.slice(0, 8).map(b => ({ t: b.icon + " " + b.name, fn: () => ringTone(() => callManager(b)) }));
+  if (owned.length > 8) ch.splice(7, 0);
+  ch.push({ t: "↩ Wróć", fn: openPhone });
+  showDialog(PW, "💼 Do której firmy dzwonimy?", ch);
+}
+function callManager(b){
+  const s = SAVE.biz[b.id]; if (!s) return phoneBiz();
+  const boss = s.mgr ? "Menedżer" : "Kierownik zmiany", w = { name: "📞 " + boss + " · " + b.name, item: b.icon };
+  const staff = s.staff || [], robbed = bizState.rob && bizState.rob.b === b;
+  const ch = [];
+  if (robbed) ch.push({ t: "🚨 Wezwij ochronę!", pri: true, fn: () => { if (Math.random() < 0.55){ bizState.rob = null; addRep(1); showDialog(w, "Ochrona przyjechała w ostatniej chwili! Złodzieje uciekli z pustymi rękami.", [{ t: "😮‍💨", fn: closeDialog }]); } else showDialog(w, "Ochrona nie odbiera! Szefie, musi pan przyjechać sam!", [{ t: "🏃", fn: closeDialog }]); } });
+  if (!s.mgr && s.cash >= 1) ch.push({ t: "🏦 Przelej utarg (" + fmt(s.cash * 0.9) + ", prowizja 10%)", pri: !robbed, fn: () => { const n = Math.floor(s.cash * 0.9); s.cash = 0; addMoney(n, "PRZELEW: " + b.name.toUpperCase()); persist(); showDialog(w, "Przelew wysłany! Kasa pusta, zaczynamy od zera.", [{ t: "👍", fn: () => callManager(b) }]); } });
+  ch.push({ t: "📈 Jak idzie interes?", fn: () => showDialog(w, "Dochód: ok. " + fmt(bizRate(b)) + " / min. Zarobione łącznie: " + fmt(s.earned) + ".\nPoziom rozbudowy: " + s.lvl + "/3." + (staff.length ? "\nZałoga: " + staff.map(e => e.name + " (" + e.role + ")").join(", ") + "." : "\nBrakuje nam ludzi! Może zatrudni pan kogoś z ulicy?") + (s.guard ? "\nOchrona pilnuje lokalu." : ""), [{ t: "👍", fn: () => callManager(b) }]) });
+  if (staff.length) ch.push({ t: "👥 Pracownicy (" + staff.length + "/" + STAFF_MAX + ")", fn: () => staffMenu(b, () => callManager(b)) });
+  ch.push({ t: "👋 Rozłącz", fn: phoneBiz });
+  const hello = robbed ? "Szefie!!! Mamy napad! Co robić?!" : s.mgr ? pick(["Dzień dobry, szefie. Wszystko pod kontrolą.", "Szefie! Interes się kręci, zyski idą na lokatę."]) : pick(["Halo, szefie? W kasie jest " + fmt(s.cash) + ".", "Dzień dobry! Ruch dziś niezły, w kasie " + fmt(s.cash) + "."]);
+  showDialog(w, hello, ch, "Twoja firma · poziom " + s.lvl + "/3");
+}
+function phoneNav(){
+  const ch = QUICK().slice(0, 9).map(([n, x, y]) => ({ t: n, fn: () => { NAV = { x, y, name: n.slice(n.indexOf(" ") + 1) }; GPS.tgt = null; closeDialog(); popup("🧭 Nawigacja: " + NAV.name, "#5bc0de"); } }));
+  if (NAV && !NAV.track) ch.unshift({ t: "✖ Usuń cel (" + NAV.name + ")", fn: () => { NAV = null; GPS.pts = null; closeDialog(); } });
+  ch.push({ t: "↩ Wróć", fn: openPhone });
+  showDialog(PW, "🗺️ Dokąd jedziemy? Cel możesz też wskazać, dotykając dużej mapy.", ch);
+}
+function nearRoadSpot(x, y, minD){
+  const a = gpsPass();
+  for (let r = minD || 60; r < 520; r += 30) for (let k = 0; k < 16; k++){
+    const ang = k / 16 * 6.283, px = x + Math.cos(ang) * r, py = y + Math.sin(ang) * r, tx = Math.floor(px / T), ty = Math.floor(py / T);
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MW || a[ty * MW + tx] !== 1) continue;
+    if (pointBlocked(px, py, 26) || vehicles.some(v => Math.abs(v.x - px) < 60 && Math.abs(v.y - py) < 60)) continue;
+    return [px, py];
+  }
+  return null;
+}
+function phoneTow(){
+  const w = { name: "📞 Pomoc drogowa „Hak”", item: "🛻" };
+  if (player.mode === "car" && !VT[player.veh.type].boat){
+    const v = player.veh;
+    showDialog(w, "„Pomoc drogowa, słucham! Co się stało z autem?”\nStan auta: " + Math.round(v.hp) + "%", [
+      { t: "🔧 Naprawa na miejscu ($120)", pri: true, fn: () => { if (SAVE.money < 120){ showDialog(w, "„Bez pieniędzy nie przyjedziemy, przykro mi.”", [{ t: "😢" }]); return; } SAVE.money -= 120; v.hp = 100; v.dents.length = 0; v.flat = false; v.burning = false; v.fallen = false; persist(); showDialog(w, "Mechanik przyjechał w 2 minuty i postawił auto na nogi. Jak nowe!", [{ t: "🔧", fn: closeDialog }]); } },
+      { t: "↩ Wróć", fn: openPhone }]);
+    return;
+  }
+  const cars = SAVE.col || [];
+  const ch = cars.slice(-4).reverse().map(cfg => ({ t: "🚗 Podstaw: " + VT[cfg.type].name + " ($60)", fn: () => {
+    if (SAVE.money < 60){ showDialog(w, "„Za mało środków.”", [{ t: "😢" }]); return; }
+    const pp = playerPos(), sp = nearRoadSpot(pp.x, pp.y, 70);
+    if (!sp){ showDialog(w, "„Laweta tu nie dojedzie! Wyjdź bliżej jakiejś drogi.”", [{ t: "🤷", fn: closeDialog }]); return; }
+    SAVE.money -= 60; saveDirty = true;
+    const old = vehicles.find(v => v.cfg.cid && v.cfg.cid === cfg.cid && !v.driver && v !== player.veh);
+    if (old) vehicles.splice(vehicles.indexOf(old), 1);
+    makeVehicle(cloneCfg(cfg), sp[0], sp[1], Math.atan2(pp.y - sp[1], pp.x - sp[0]));
+    closeDialog(); popup("🛻 Laweta przywiozła auto – stoi przy drodze obok!", "#9fd4ff");
+  } }));
+  if (!ch.length) ch.push({ t: "🚗 Podstaw auto zastępcze ($60)", fn: () => { const pp = playerPos(), sp = nearRoadSpot(pp.x, pp.y, 70); if (!sp || SAVE.money < 60){ showDialog(w, sp ? "„Za mało środków.”" : "„Laweta tu nie dojedzie!”", [{ t: "🤷", fn: closeDialog }]); return; } SAVE.money -= 60; makeVehicle(defaultCfg("sedan"), sp[0], sp[1], 0); closeDialog(); popup("🛻 Auto zastępcze czeka przy drodze!", "#9fd4ff"); } });
+  ch.push({ t: "↩ Wróć", fn: openPhone });
+  showDialog(w, "„Pomoc drogowa, słucham! Podstawimy auto z twojego garażu tam, gdzie jesteś.”", ch);
+}
+function phoneTaxi(){
+  const w = { name: "📞 Taxi „Miasto”", item: "🚕" };
+  if (player.mode !== "foot"){ showDialog(w, "„Przecież ma pan auto! Taksówka jest dla pieszych.”", [{ t: "😅", fn: openPhone }]); return; }
+  const go = (x, y, name) => {
+    const pp = playerPos(), d = Math.hypot(x - pp.x, y - pp.y), cost = Math.round(15 + d / 60);
+    showDialog(w, "Kurs: " + name + " · ok. " + fmtDist(d / 10) + " · " + fmt(cost), [
+      { t: "🚕 Jedziemy!", pri: true, fn: () => {
+        if (SAVE.money < cost){ showDialog(w, "„Panie, za mało pieniędzy na taki kurs.”", [{ t: "😢" }]); return; }
+        const sp = nearRoadSpot(x, y, 40) || [x, y];
+        SAVE.money -= cost; saveDirty = true; player.foot.x = sp[0]; player.foot.y = sp[1] + 30;
+        for (let k = 0; k < 20 && pointBlocked(player.foot.x, player.foot.y, 8); k++) player.foot.y += 12;
+        camX = player.foot.x; camY = player.foot.y; camFlash = 0.4; lastMode = "";
+        if (NAV && Math.hypot(NAV.x - x, NAV.y - y) < 50) NAV = null;
+        closeDialog(); popup("🚕 Dojechałeś: " + name + ". Taksówkarz macha na pożegnanie.", "#ffd27a");
+      } },
+      { t: "↩ Wróć", fn: phoneTaxi }]);
+  };
+  const ch = [];
+  if (NAV && !NAV.track) ch.push({ t: "📍 Do celu GPS: " + NAV.name, pri: true, fn: () => go(NAV.x, NAV.y, NAV.name) });
+  for (const [n, x, y] of QUICK().slice(0, 7)) ch.push({ t: n, fn: () => go(x, y, n.slice(n.indexOf(" ") + 1)) });
+  ch.push({ t: "↩ Wróć", fn: openPhone });
+  showDialog(w, "„Taxi Miasto, dzień dobry! Dokąd jedziemy?”", ch);
+}
+(function phoneButton(){
+  const btn = document.createElement("button");
+  btn.className = "sbtn"; btn.id = "phoneBtn"; btn.textContent = "📱"; btn.setAttribute("aria-label", "Telefon");
+  $("top").insertBefore(btn, $("profBtn"));
+  btn.addEventListener("click", e => { e.preventDefault(); openPhone(); });
+})();
+// ---------- pracownicy ----------
+const STAFF_MAX = 3;
+const ROLE = { talkative: ["sprzedawca", 0.3], friendly: ["obsługa klienta", 0.25], shy: ["księgowy", 0.22], grumpy: ["magazynier", 0.15], rich: ["doradca", 0.35] };
+function staffBonus(s){ return (s && s.staff || []).reduce((t, e) => t + (e.bonus || 0.2), 0); }
+const _bizRateS = bizRate;
+bizRate = function(b){
+  let r = _bizRateS(b);
+  const s = SAVE.biz[b.id];
+  if (!s) return 0;
+  if (b.id === "cinema"){ const h = hourNow(); r *= (h >= 18 || h < 1) ? 2 : 0.8; }
+  if (b.id === "boatrent" || b.id === "beach" || b.id === "camp"){ const h = hourNow(); r *= (h >= 9 && h < 20) ? 1.5 : 0.4; }
+  return r * (1 + staffBonus(s));
+};
+function staffMenu(b, back){
+  const s = SAVE.biz[b.id], w = { name: "👥 Załoga · " + b.name, item: b.icon };
+  const ch = (s.staff || []).map((e, i) => ({ t: "❌ Zwolnij: " + e.name + " (" + e.role + ", +" + Math.round(e.bonus * 100) + "%)", fn: () => { s.staff.splice(i, 1); persist(); showDialog(w, e.name + " pakuje swoje rzeczy do kartonu. Smutny dzień.", [{ t: "😔", fn: back }]); } }));
+  ch.push({ t: "↩ Wróć", fn: back });
+  showDialog(w, "Każdy pracownik zwiększa dochód firmy. Ludzi do pracy znajdziesz na ulicy – zagadaj i zaproponuj robotę (💬 → Więcej…).", ch);
+}
+function jobOfferChoice(p){
+  if (p.cop || p.kind || p.thief || p.hiredBy) return null;
+  const owned = BIZ.filter(b => SAVE.biz[b.id] && (SAVE.biz[b.id].staff || []).length < STAFF_MAX);
+  if (!Object.keys(SAVE.biz).length) return null;
+  return { t: "💼 Szukasz pracy?", fn: () => {
+    const w = who(p);
+    if (!owned.length){ pedMore2(p, "Praca? A gdzie? Słyszałem, że u ciebie wszystkie etaty zajęte!"); return; }
+    if (p.jobNo){ pedMore2(p, "Już mówiłem – nie, dziękuję."); return; }
+    const like = p.like || 0, base = { friendly: 0.65, talkative: 0.7, shy: 0.5, grumpy: 0.25, rich: 0.08 }[p.trait] || 0.5;
+    if (Math.random() > base + like * 0.06){
+      p.jobNo = true; likeAdd(p, -0.3);
+      pedMore2(p, p.trait === "rich" ? "Ja? Pracować? U ciebie? Hahaha! Dobre." : p.trait === "grumpy" ? "Mam robotę. Nie lubię jej, ale mam." : pick(["Dzięki, ale mam już pracę.", "Nie teraz, mam studia.", "Hmm… nie, raczej nie."]));
+      return;
+    }
+    const r = ROLE[p.trait] || ROLE.friendly, bonus = +(r[1] * (0.85 + Math.random() * 0.3) + Math.min(0.1, like * 0.02)).toFixed(2);
+    const ch = owned.slice(0, 6).map(b => ({ t: b.icon + " " + b.name, fn: () => {
+      if (SAVE.money < 100){ pedMore2(p, "Chętnie, ale na start potrzebuję zaliczki – $100. Nie masz? Szkoda…"); return; }
+      SAVE.money -= 100; const s = SAVE.biz[b.id]; s.staff = s.staff || [];
+      s.staff.push({ name: pedName(p), role: r[0], bonus, trait: p.trait || "friendly" }); persist(); cashSound(); addXP(60);
+      p.hiredBy = b.id; emote(p, "🤩", 3);
+      showDialog(w, "Super! Od jutra pracuję jako " + r[0] + " w: " + b.name + ". Nie zawiodę cię, szefie! (+" + Math.round(bonus * 100) + "% dochodu firmy)", [{ t: "🤝", fn: () => endTalk(p) }], "Zaliczka $100 · pracownik zwiększa zyski");
+    } }));
+    ch.push({ t: "↩ Jednak nie", fn: () => pedMenu(p, "Szkoda… gdybyś się namyślił, wiesz gdzie mnie szukać.") });
+    showDialog(w, pick(["Praca? Serio? Szukam właśnie czegoś!", "O, a co to za robota?", "Hmm, a ile płacisz? Dobra, słucham."]) + " Mógłbym być " + r[0] + ".", ch, "Wybierz firmę · zaliczka $100");
+  } };
+}
+// ---------- nowe biznesy ----------
+(function(){
+  const add = (id, name, icon, price, rate, desc, perk, at) => { if (!at) return; const p = freeNear(at[0], at[1]); BIZ.push({ id, name, icon, price, rate, desc, perk, x: p[0], y: p[1] }); pois.push({ icon: "💼", name, x: p[0], y: p[1] }); };
+  const by = ic => { const o = pois.find(q => q.icon === ic); return o ? [o.x + 70, o.y + 60] : null; };
+  const door = k => { const d = DOORS.find(q => q.kind === k); return d ? [d.x + 50, d.y + 30] : null; };
+  add("pizza", "Pizzeria „Mamma Mia”", "🍕", 18000, 75, "Pizzeria z dowozem – telefon dzwoni cały wieczór.", "Darmowa pizza: +40 zdrowia (podejdź)", by("🍕"));
+  add("cafe", "Kawiarnia „Ziarenko”", "☕", 14000, 60, "Mała kawiarnia z najlepszym flat white w mieście.", "Darmowa kawa: buff szybkości (podejdź)", door("cafe"));
+  add("gym", "Siłownia „Żelazo”", "🏋️", 24000, 90, "Siłownia przy stadionie. Karnety schodzą jak ciepłe bułeczki.", "Trening: pełne zdrowie (podejdź)", by("🏟️"));
+  add("cinema", "Kino „Kosmos”", "🎬", 45000, 150, "Stare kino przy Rynku. Wieczorami pełna sala.", "Dochód ×2 wieczorem (18–1)", by("🏛️"));
+  add("carsale", "Komis „Auto-Mirek”", "🚘", 38000, 130, "Komis samochodowy. Mirek sprzeda wszystko, co ma koła.", "Prowizja $50–200 przy każdej wizycie", garages[0] ? [garages[0].x - 80, garages[0].y + garages[0].h / 2] : null);
+  add("boatrent", "Wypożyczalnia łodzi „Fala”", "⛵", 30000, 110, "Łódki i rowery wodne nad Wielkim Jeziorem.", "Dochód ×1,5 w dzień", [LAKE.shoreX - 160, LAKE.c[1] + 430]);
+  add("beach", "Bar plażowy „Tiki”", "🍹", 16000, 70, "Drinki z parasolką na plaży Wielkiego Jeziora.", "Darmowy drink: buff szybkości", [LAKE.beach[6][0] - 120, LAKE.beach[6][1]]);
+  add("camp", "Camping „Pod Sosnami”", "⛺", 20000, 80, "Pole namiotowe nad jeziorem. Latem komplet.", "Darmowy nocleg: pełne zdrowie", [LAKE.camp[0] + 160, LAKE.camp[1] + 140]);
+  add("hut", "Schronisko „Orle Gniazdo”", "🏔️", 32000, 115, "Schronisko pod Szczytem Orlim – herbata z prądem i widoki.", "Darmowy nocleg: pełne zdrowie", [MOUNT.hut.x + MOUNT.hut.w + 60, MOUNT.hut.y + MOUNT.hut.h + 40]);
+})();
+const _bizPerkS = bizPerk;
+bizPerk = function(b){
+  const ok = SAVE.biz[b.id] && (bizState.perkT[b.id] || 0) <= gameTime;
+  _bizPerkS(b);
+  if (!ok) return;
+  if (b.id === "pizza"){ heal(40); popup("🍕 Pizza od firmy – +40 zdrowia", "#ffd27a"); }
+  if (b.id === "cafe" || b.id === "beach"){ buffCoffee(); popup(b.id === "cafe" ? "☕ Kawa od firmy!" : "🍹 Drink z parasolką na koszt firmy!", "#ffd27a"); }
+  if (b.id === "gym" || b.id === "hut" || b.id === "camp"){ heal(100); popup(b.id === "gym" ? "🏋️ Trening – pełna forma!" : "🛏️ Nocleg na koszt firmy – pełne zdrowie", "#ffd27a"); }
+  if (b.id === "carsale"){ const n = 50 + Math.round(Math.random() * 150); addMoney(n, "PROWIZJA Z KOMISU"); }
+};
+// ---------- aktualizacja i osiągnięcia ----------
+const _regionsUpdateG = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdateG(dt);
+  gpsUpdate(dt);
+  if (PHONE.pizzaT > 0){ PHONE.pizzaT -= dt; if (PHONE.pizzaT <= 0){ heal(40); popup("🛵 „Pizza dla pana! Smacznego!” +40 zdrowia", "#ffd27a"); if (actx) tone(880, actx.currentTime, 0.15, "square", 0.04); } }
+};
+const _drawRegionsWorldG = drawRegionsWorld;
+drawRegionsWorld = function(inV){ drawGpsWorld(inV); _drawRegionsWorldG(inV); };
+ACH.push(
+  ["staff1", "🤝", "Pracodawca", "Zatrudnij pracownika z ulicy", 400, () => BIZ.some(b => SAVE.biz[b.id] && (SAVE.biz[b.id].staff || []).length)],
+  ["staff6", "🏭", "Pracodawca roku", "Miej 6 pracowników", 1500, () => BIZ.reduce((t, b) => t + (SAVE.biz[b.id] && SAVE.biz[b.id].staff ? SAVE.biz[b.id].staff.length : 0), 0) >= 6],
+  ["biz8", "🏙️", "Imperium", "Miej 8 firm", 6000, () => Object.keys(SAVE.biz).length >= 8]
+);
 
 // START
 // =====================================================================
