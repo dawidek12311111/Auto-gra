@@ -1417,18 +1417,30 @@ function gridTown(o){
   wfill(x0 - M, y0 - M, x1 + M, y1 + M, G_GRASS, c => c !== G_WATER && c !== G_ROAD && c !== G_DIRT && c !== G_DECK && c !== G_LOT && c !== G_PAVE && c !== G_SAND);
   const inside = (x, y) => x > x0 - 60 && x < x1 + 60 && y > y0 - 60 && y < y1 + 60;
   let ni = (o.seed || 0) % STREETN.length;
-  const st = (pts, main) => { const R = addRoad(pts, SHW, { name: STREETN[ni++ % STREETN.length], cruise: 130, noEdge: true, keep: true, lamp: !!main }); R.want = main ? 1 : 0.5; R.town = true; T2.streets.push(R); return R; };
+  const st = (pts, main) => { const R = addRoad(pts, SHW, { name: STREETN[ni++ % STREETN.length], cruise: 130, noEdge: true, keep: true, lamp: !!main }); R.want = 1; R.town = true; T2.streets.push(R); return R; };
   for (let i = 0; i <= nx; i++) st([[x0 + i * bw, y0 - 30], [x0 + i * bw, y1 + 30]], i === (nx >> 1));
   for (let j = 0; j <= ny; j++) st([[x0 - 30, y0 + j * bh], [x1 + 30, y0 + j * bh]], j === (ny >> 1));
   for (const R of T2.streets){
     bandAlong(R, SHW + WALK, G_WALK, inside);
     for (let s = 40; s < R.len; s += 120){ const p = roadAt(R, s); for (const sd of [-1, 1]) T2.wps.push([p[0] - p[3] * sd * (SHW + 12), p[1] + p[2] * sd * (SHW + 12)]); }
   }
+  T2.stree = []; T2.benches = []; T2.stalls = [];
+  const vx = [], hy = [];
+  for (let i = 0; i <= nx; i++) vx.push(x0 + i * bw);
+  for (let j = 0; j <= ny; j++) hy.push(y0 + j * bh);
+  for (const x of vx) for (let y = y0 + 70; y < y1 - 40; y += 150) for (const sd of [-1, 1]){ if (hy.some(q => Math.abs(q - y) < SHW + WALK + 40)) continue; T2.stree.push([x + sd * (SHW + WALK - 5), y]); }
+  for (const y of hy) for (let x = x0 + 70; x < x1 - 40; x += 150) for (const sd of [-1, 1]){ if (vx.some(q => Math.abs(q - x) < SHW + WALK + 40)) continue; T2.stree.push([x, y + sd * (SHW + WALK - 5)]); }
   for (const c of o.conn || []){ const R = addRoad(c, 40, { name: "Dojazd: " + o.name, cruise: 210, lamp: true }); R.want = 1; }
   curB = [];
   const roofs = TILE_ROOFS, walls = WALLS_HOUSE;
+  const bad = g => g === G_ROAD || g === G_WATER || g === G_PAVE || g === G_DIRT || g === G_LOT;
+  const freeB = (x, y, w, h) => {
+    for (const [px, py] of [[x + 6, y + 6], [x + w - 6, y + 6], [x + 6, y + h - 6], [x + w - 6, y + h - 6], [x + w / 2, y + h / 2]]) if (bad(getGW(px, py))) return false;
+    for (let i = NEWB0; i < buildings.length; i++){ const b = buildings[i]; if (x < b.x + b.w + 4 && x + w + 4 > b.x && y < b.y + b.h + 4 && y + h + 4 > b.y) return false; }
+    return true;
+  };
   const house = (x, y, w, h, flat) => {
-    if (!rectFree(x - 4, y - 4, w + 8, h + 8)) return null;
+    if (!freeB(x, y, w, h)) return null;
     return flat ? addB(x, y, w, h, { col: ROOFS[(wrnd() * ROOFS.length) | 0], wallCol: WALLS_OLD[(wrnd() * WALLS_OLD.length) | 0], ht: 0.2 + wrnd() * 0.12, det: true })
       : addB(x, y, w, h, { kind: "pitched", col: roofs[(wrnd() * roofs.length) | 0], wallCol: walls[(wrnd() * walls.length) | 0], ht: 0.1 + wrnd() * 0.07, det: false, chim: wrnd() < 0.5 });
   };
@@ -1441,7 +1453,17 @@ function gridTown(o){
       const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2;
       addRound(cx, cy, 22, 0.05, "#8d8d8d", "well");
       T2.square = [cx, cy];
+      for (const [ax, ay] of [[bx0 + 40, by0 + 20], [bx1 - 40, by0 + 20], [bx0 + 40, by1 - 20], [bx1 - 40, by1 - 20], [cx - 70, cy], [cx + 70, cy]]) T2.benches.push([ax, ay, Math.abs(ay - cy) < 5 ? 1 : 0]);
+      for (let k = 0; k < 4; k++) T2.stalls.push([bx0 + 50 + k * ((bx1 - bx0 - 100) / 3), cy + (k % 2 ? 60 : -60), rpick(["#c62828", "#2e7d32", "#f9a825", "#1565c0", "#6a1b9a", "#ef6c00"])]);
       for (let x = bx0 + 30; x < bx1; x += 90) for (let y = by0 + 30; y < by1; y += 90) T2.wps.push([x, y]);
+      continue;
+    }
+    if (o.pitch && o.pitch.some(q => q[0] === i && q[1] === j)){
+      wfill(bx0 - 6, by0 - 6, bx1 + 6, by1 + 6, G_GRASS);
+      const pw = Math.min(284, bx1 - bx0 - 10), ph = Math.min(172, by1 - by0 - 10);
+      decal("pitch", (bx0 + bx1) / 2 - pw / 2, (by0 + by1) / 2 - ph / 2, pw, ph);
+      T2.pitch = [(bx0 + bx1) / 2, (by0 + by1) / 2];
+      for (let x = bx0 + 20; x < bx1; x += 110) T2.wps.push([x, by0 + 8], [x, by1 - 8]);
       continue;
     }
     if (o.church && i === o.church[0] && j === o.church[1]){
@@ -1458,7 +1480,7 @@ function gridTown(o){
       const w = Math.min(bx1 - sx, (flat ? 110 : 92) + wrnd() * 30);
       if (w < 70) break;
       let b = null;
-      if (shopsLeft.length && (center || wrnd() < 0.25)){ const L = shopsLeft.shift(); b = rectFree(sx, by0, w, 90) ? addB(sx, by0, w, 90, { kind: "shop", awn: "t", awnCol: L[1], label: L[0], labelSize: 10, ht: 0.14, col: L[2] || "#8d6e63", det: false }) : null; if (!b) shopsLeft.unshift(L); }
+      if (shopsLeft.length && (center || wrnd() < 0.25)){ const L = shopsLeft.shift(); b = freeB(sx, by0, w, 90) ? addB(sx, by0, w, 90, { kind: "shop", awn: "t", awnCol: L[1], label: L[0], labelSize: 10, ht: 0.14, col: L[2] || "#8d6e63", det: false }) : null; if (!b) shopsLeft.unshift(L); }
       if (!b) house(sx, by0, w, flat ? 96 : 84, flat);
       sx += w + 12;
     }
@@ -1467,7 +1489,7 @@ function gridTown(o){
       const w = Math.min(bx1 - sx, (flat ? 110 : 92) + wrnd() * 30);
       if (w < 70) break;
       let b = null;
-      if (shopsLeft.length && center){ const L = shopsLeft.shift(); const hh = 90; b = rectFree(sx, by1 - hh, w, hh) ? addB(sx, by1 - hh, w, hh, { kind: "shop", awn: "b", awnCol: L[1], label: L[0], labelSize: 10, ht: 0.14, col: L[2] || "#8d6e63", det: false }) : null; if (!b) shopsLeft.unshift(L); }
+      if (shopsLeft.length && center){ const L = shopsLeft.shift(); const hh = 90; b = freeB(sx, by1 - hh, w, hh) ? addB(sx, by1 - hh, w, hh, { kind: "shop", awn: "b", awnCol: L[1], label: L[0], labelSize: 10, ht: 0.14, col: L[2] || "#8d6e63", det: false }) : null; if (!b) shopsLeft.unshift(L); }
       if (!b) house(sx, by1 - (flat ? 96 : 84), w, flat ? 96 : 84, flat);
       sx += w + 12;
     }
@@ -1489,21 +1511,22 @@ function gridTown(o){
 (function genTowns(){
   // Borowo: miasteczko w puszczy, przy drodze na zachód
   const hp = roadAt(WEST.road, roadNearestS(WEST.road, 9300, 17100).s);
-  gridTown({ name: "Borowo", icon: "🌲", x0: 8100, y0: hp[1] + 330, nx: 4, ny: 3, bw: 440, bh: 420, square: [1, 1], church: [2, 0], flats: true, seed: 0,
-    shops: [["SKLEP", "#2e9e4f"], ["PIEKARNIA", "#c62828", "#a1887f"], ["BAR", "#6d4c41", "#5d4037"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["KIOSK", "#d63b2f", "#eceff1"]],
-    conn: [[[8100 + 2 * 440, hp[1] + 60], [8100 + 2 * 440, hp[1] + 300]]] });
+  gridTown({ name: "Borowo", icon: "🌲", x0: 7300, y0: hp[1] + 330, nx: 6, ny: 4, bw: 440, bh: 420, square: [2, 1], church: [4, 0], pitch: [[0, 3]], flats: true, seed: 0,
+    shops: [["SKLEP", "#2e9e4f"], ["PIEKARNIA", "#c62828", "#a1887f"], ["BAR", "#6d4c41", "#5d4037"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["KIOSK", "#d63b2f", "#eceff1"], ["KAWIARNIA", "#8d6e63", "#6d4c41"], ["PIZZA", "#c62828", "#ffccbc"], ["BANK", "#1565c0", "#cfd8dc"], ["FRYZJER", "#8e24aa", "#e1bee7"], ["MIĘSNY", "#b71c1c", "#ffcdd2"], ["POCZTA", "#f9a825", "#78909c"], ["KEBAB", "#ef6c00", "#ffe0b2"]],
+    conn: [[[7300 + 3 * 440, hp[1] + 60], [7300 + 3 * 440, hp[1] + 300]], [[7300 + 440, hp[1] + 60], [7300 + 440, hp[1] + 300]]] });
   // Jeziorki: kurort nad Wielkim Jeziorem, na południe od drogi na jezioro
-  gridTown({ name: "Jeziorki", icon: "🏖️", x0: RB + RHW + 330, y0: WCY + 430, nx: 3, ny: 4, bw: 420, bh: 470, square: [1, 1], church: [0, 3], flats: true, seed: 5,
-    shops: [["KAWIARNIA", "#8d6e63", "#6d4c41"], ["LODY", "#ec407a", "#f8bbd0"], ["SKLEP", "#2e9e4f"], ["BAR", "#0277bd", "#4fc3f7"], ["APTEKA", "#2e9e4f", "#90a4ae"]],
+  gridTown({ name: "Jeziorki", icon: "🏖️", x0: RB + RHW + 330, y0: WCY + 430, nx: 3, ny: 7, bw: 420, bh: 450, square: [1, 2], church: [0, 5], pitch: [[2, 6]], flats: true, seed: 5,
+    shops: [["KAWIARNIA", "#8d6e63", "#6d4c41"], ["LODY", "#ec407a", "#f8bbd0"], ["SKLEP", "#2e9e4f"], ["BAR", "#0277bd", "#4fc3f7"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["PIZZA", "#c62828", "#ffccbc"], ["KEBAB", "#ef6c00", "#ffe0b2"], ["SURF SHOP", "#00acc1", "#b2ebf2"], ["PAMIĄTKI", "#6d4c41", "#ffe082"], ["BANK", "#1565c0", "#cfd8dc"], ["KIOSK", "#d63b2f", "#eceff1"], ["LODY", "#ab47bc", "#e1bee7"]],
     conn: [[[RB + RHW + 330 + 420, WCY + 60], [RB + RHW + 330 + 420, WCY + 400]]] });
   // Podgórze: wioska u stóp gór, przy serpentynie
-  gridTown({ name: "Podgórze", icon: "🏔️", x0: WCX - 2350, y0: MOUNT.yb - 2050, nx: 4, ny: 3, bw: 430, bh: 420, square: [2, 1], church: [0, 1], flats: false, seed: 9,
-    shops: [["SKLEP", "#2e9e4f"], ["BAR", "#6d4c41", "#5d4037"], ["KIOSK", "#d63b2f", "#eceff1"], ["PIEKARNIA", "#c62828", "#a1887f"]],
-    conn: [(() => { const y = MOUNT.yb - 2050 + 3 * 420, p = roadAt(MOUNT.road, roadNearestS(MOUNT.road, WCX, y).s); return [[WCX - 2350 + 4 * 430 + 30, y], [p[0] - 20, p[1]]]; })()] });
+  gridTown({ name: "Podgórze", icon: "🏔️", x0: WCX - 3660, y0: MOUNT.yb - 2470, nx: 7, ny: 4, bw: 430, bh: 420, square: [4, 1], church: [1, 1], pitch: [[6, 3]], flats: true, seed: 9,
+    shops: [["SKLEP", "#2e9e4f"], ["BAR", "#6d4c41", "#5d4037"], ["KIOSK", "#d63b2f", "#eceff1"], ["PIEKARNIA", "#c62828", "#a1887f"], ["OSCYPKI", "#795548", "#ffe0b2"], ["KAWIARNIA", "#8d6e63", "#6d4c41"], ["SPORT", "#1e88e5", "#bbdefb"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["PIZZA", "#c62828", "#ffccbc"], ["POCZTA", "#f9a825", "#78909c"]],
+    conn: [(() => { const y = MOUNT.yb - 2470 + 4 * 420, p = roadAt(MOUNT.road, roadNearestS(MOUNT.road, WCX, y).s); return [[WCX - 3660 + 7 * 430 + 30, y], [p[0] - 20, p[1]]]; })()] });
   cleanupTrees();
   const dead = new Set(); let j = 0;
   for (const t of trees){ const inT = TOWNS2.some(T2 => t.x > T2.x0 + 60 && t.x < T2.x1 - 60 && t.y > T2.y0 + 60 && t.y < T2.y1 - 60); if (inT && !t.garden) dead.add(t.x + "," + t.y); else trees[j++] = t; }
   trees.length = j;
+  for (const T2 of TOWNS2) for (const [x, y] of T2.stree){ if (getGW(x, y) !== G_WALK) continue; addTree(x, y, 8 + wrnd() * 4); trees[trees.length - 1].garden = 1; }
   let k = 0; for (const s of solids) if (!(s.t === "c" && dead.has(s.x + "," + s.y))) solids[k++] = s; solids.length = k;
 })();
 
@@ -13983,7 +14006,7 @@ const QUICK = () => {
   return out;
 };
 function openPhone(){
-  if (state !== "play") return;
+  if (state !== "play" && state !== "talk") return;
   uiClick();
   const ch = [
     { t: "👥 Znajomi (" + SAVE.friends.length + ")", fn: () => phoneFriends(0) },
@@ -14227,8 +14250,16 @@ function towns2Update(dt){
   const pp = playerPos(), hr = hourNow(), night = hr >= 22 || hr < 6;
   for (const T2 of TOWNS2){
     if (pp.x < T2.x0 - 700 || pp.x > T2.x1 + 700 || pp.y < T2.y0 - 700 || pp.y > T2.y1 + 700) continue;
-    const n = peds.filter(p => p.wps === T2.wps && p.state !== "dead").length, want = Math.round(([0, 10, 15, 22][SET.peds] || 0) * (night ? 0.3 : 1));
-    for (let k = 0; k < 3 && n + k < want; k++){
+    const n = peds.filter(p => p.wps === T2.wps && p.state !== "dead").length, want = Math.round(([0, 18, 28, 40][SET.peds] || 0) * (night ? 0.35 : 1));
+    if (!T2.sqwps && T2.square) T2.sqwps = T2.wps.filter(w => Math.hypot(w[0] - T2.square[0], w[1] - T2.square[1]) < 200);
+    const fest = hr >= 17 && hr < 22 && T2.sqwps && T2.sqwps.length;
+    if (fest){
+      const nf = peds.filter(p => p.wps === T2.sqwps && p.state !== "dead").length;
+      for (let k = nf; k < Math.min(nf + 3, 14); k++){ const w = pick(T2.sqwps); if (onScreen(w[0], w[1], 20)) continue; const p = makePed(0, 0, 0); Object.assign(p, { x: w[0], y: w[1], town: true, wps: T2.sqwps, townName: T2.name, state: "town", home: [w[0], w[1]], tx: w[0], ty: w[1], pauseT: 2 + Math.random() * 6 }); }
+      if (!T2.festSaid && Math.hypot(pp.x - T2.square[0], pp.y - T2.square[1]) < 700){ T2.festSaid = true; popup("🎉 Festyn na rynku w miejscowości " + T2.name + "! Muzyka, stragany, tłumy.", "#ffd27a"); }
+    } else T2.festSaid = false;
+    T2.fest = fest;
+    for (let k = 0; k < 4 && n + k < want; k++){
       for (let tr = 0; tr < 8; tr++){
         const w = pick(T2.wps);
         if (onScreen(w[0], w[1], 30) || pointBlocked(w[0], w[1], 6)) continue;
@@ -14263,6 +14294,37 @@ regionsUpdate = function(dt){
   if (regSt.cur){ for (const T2 of TOWNS2) if (regSt.cur === T2.icon + " " + T2.name && !SAVE.towns.includes(T2.name)){ SAVE.towns.push(T2.name); persist(); } }
 };
 ACH.push(["towns", "🗺️", "Obieżyświat", "Odwiedź Borowo, Jeziorki i Podgórze", 900, () => TOWNS2.every(T2 => SAVE.towns.includes(T2.name))]);
+
+// ---------- ławki, stragany, festyn ----------
+function drawBench(x, y, rot){
+  ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(Math.PI / 2);
+  ctx.fillStyle = "rgba(0,0,0,.22)"; ctx.fillRect(-15, -3, 32, 10);
+  ctx.fillStyle = "#6d4c41"; ctx.fillRect(-16, -5, 32, 4); ctx.fillRect(-16, 0, 32, 4);
+  ctx.fillStyle = "#37474f"; ctx.fillRect(-14, -6, 3, 11); ctx.fillRect(11, -6, 3, 11);
+  ctx.restore();
+}
+const _drawRegionsWorldT = drawRegionsWorld;
+drawRegionsWorld = function(inV){
+  _drawRegionsWorldT(inV);
+  for (const T2 of TOWNS2){
+    if (!inV(T2.c[0], T2.c[1], Math.max(T2.x1 - T2.x0, T2.y1 - T2.y0) / 2 + 100)) continue;
+    for (const b of T2.benches) if (inV(b[0], b[1], 30)) drawBench(b[0], b[1], b[2]);
+    for (const [x, y, c] of T2.stalls){
+      if (!inV(x, y, 60)) continue;
+      ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.fillRect(x - 32, y - 20, 70, 46);
+      for (let k = 0; k < 5; k++){ ctx.fillStyle = k % 2 ? "#fafafa" : c; ctx.fillRect(x - 36 + k * 14.4, y - 24, 14.4, 44); }
+    }
+    if (T2.fest && T2.square && inV(T2.square[0], T2.square[1], 200)){
+      const [x, y] = T2.square;
+      ctx.fillStyle = "#4e342e"; ctx.fillRect(x - 50, y - 140, 100, 36);
+      ctx.fillStyle = "#212121"; ctx.fillRect(x - 46, y - 136, 92, 28);
+      const h = 4 + Math.abs(Math.sin(gameTime * 8)) * 3; ctx.fillStyle = "#ffd54f"; for (let k = 0; k < 4; k++) ctx.fillRect(x - 36 + k * 22, y - 128 + (k % 2 ? h : 0), 10, 10);
+      ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 1.5;
+      for (let k = 0; k < 8; k++){ const a = k / 8 * 6.283 + gameTime * 0.4; ctx.fillStyle = ["#e53935", "#fdd835", "#43a047", "#1e88e5"][k % 4]; ctx.beginPath(); ctx.arc(x + Math.cos(a) * 120, y + Math.sin(a) * 90, 4, 0, 6.3); ctx.fill(); }
+      if (Math.random() < 0.15) addPart(x + (Math.random() - 0.5) * 80, y - 120, (Math.random() - 0.5) * 20, -30, 1.4, 4, 6);
+    }
+  }
+};
 
 // =====================================================================
 // MAPA Z PRZYBLIŻANIEM (SZCZYPANIE, PRZESUWANIE, PRZYCISKI) + KOLEJNE BIZNESY
