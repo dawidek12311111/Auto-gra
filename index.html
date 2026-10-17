@@ -1259,12 +1259,15 @@ function updateControlLabels(){
   const jk = mode === "car" ? jobKindOf(player.veh) : null;
   const tx = vt === "taxi" || vt === "bus" || !!jk || taxi.on || bus.on || work.on;
   const ic = invCount();
-  const wOn = SET.weapons && (mode === "car" || mode === "foot");
-  const key = mode + near + hasN + hasT + tx + taxi.on + bus.on + work.on + vt + jk + ic + wOn + curWeap;
+  const hasGun = WORDER.some(id => id !== "fist" && id !== "grenade" && owned(id));
+  const hasAny = WORDER.some(id => id !== "fist" && owned(id));
+  if (mode === "car" && (curWeap === "fist" || curWeap === "grenade") && hasGun) curWeap = WORDER.find(id => id !== "fist" && id !== "grenade" && owned(id));
+  const wOn = SET.weapons && (mode === "foot" || (mode === "car" && hasGun));
+  const key = mode + near + hasN + hasT + tx + taxi.on + bus.on + work.on + vt + jk + ic + wOn + curWeap + hasAny;
   if (key === lastMode) return;
   lastMode = key;
   $("fire").style.display = wOn ? "flex" : "none";
-  $("wpn").style.display = wOn ? "flex" : "none";
+  $("wpn").style.display = wOn && hasAny ? "flex" : "none";
   $("fire").textContent = WEAP[curWeap].icon;
   $("nitro").style.display = hasN ? "flex" : "none";
   $("talk").style.display = hasT ? "flex" : "none";
@@ -2294,7 +2297,7 @@ function pedVsVehicles(p, isPlayer){
         if (player.foot.hp <= 0){ player.foot.hp = 0; killPlayer("NIE ŻYJESZ"); }
       } else {
         killPed(p, v.vx * 0.7, v.vy * 0.7);
-        if (v === player.veh && player.mode === "car") crime(p.cop ? 2 : 1, p.x, p.y);
+        if (v === player.veh && player.mode === "car" && !p.thief) crime(p.cop ? 2 : 1, p.x, p.y);
       }
       v.vx *= 0.94; v.vy *= 0.94;
       return;
@@ -2334,7 +2337,7 @@ function actionBtn(){
     const f = player.foot;
     f.x = ex; f.y = ey; f.a = v.a; f.kvx = v.vx * 0.3; f.kvy = v.vy * 0.3;
     pushCircle(f, 7);
-    v.driver = null; player.mode = "foot";
+    v.driver = null; player.mode = "foot"; v.pUsed = true;
     player.veh = null;
   } else if (player.mode === "foot"){
     const v = nearestCar();
@@ -2492,7 +2495,7 @@ function update(dt){
     if (v.active) ACT.push(v);
   }
   hashBuild(VH, ACT);
-  hashBuild(PH, peds, p => p.state !== "dead");
+  hashBuild(PH, peds, p => p.state !== "dead" && p.state !== "inside");
   aliveUpdate(dt);
 
   if (player.mode === "car"){ player.veh.steerMul = SET.steerSens / 100; player.veh.pmul = buffs.coffee > 0 ? 1.08 : 1; }
@@ -2552,7 +2555,7 @@ function update(dt){
   workUpdate(dt);
   railUpdate(dt);
   if (state === "play"){ economy(dt); if (!race) checkGarage(); checkRaceFlags(); taxiUpdate(dt); missionUpdate(dt); raceUpdate(dt); eventsUpdate(dt); }
-  if (state === "play"){ policeUpdate(dt); updateBullets(dt); }
+  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); }
   managePickups(dt);
   updateFx(dt);
 }
@@ -3208,6 +3211,7 @@ function render(){
   drawBalloon();
   if (player.mode === "foot") drawPed(player.foot, true);
   drawBulletsWorld(inV);
+  drawLife2World(inV);
   ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of peds){
     if (p.state === "dead" || !inV(p.x, p.y, 30)) continue;
@@ -3265,6 +3269,7 @@ function render(){
   drawWeatherScreen(dark);
   drawHUD(h);
   drawPoliceHUD();
+  drawLife2HUD();
 }
 
 const lc = document.createElement("canvas"), lctx = lc.getContext("2d");
@@ -4982,8 +4987,8 @@ function talkTarget(){
   const pp = playerPos();
   let best = null, bd = car ? 62 : 36;
   for (const p of peds){
-    if (p.state === "dead" || p.state === "flee" || p.kind || p.lying) continue;
-    if (car && !p.npc && !p.evRole) continue;
+    if (p.state === "dead" || p.state === "flee" || p.state === "inside" || p.kind || p.lying) continue;
+    if (car && !p.npc && !p.evRole && p.state !== "rage" && p.state !== "hail") continue;
     const d = Math.hypot(p.x - pp.x, p.y - pp.y);
     if (d < bd){ bd = d; best = p; }
   }
@@ -6732,6 +6737,7 @@ function pedExtraUpdate(p, dt){
   if (p.sayT > 0) p.sayT -= dt;
   if (p.emoT > 0) p.emoT -= dt;
   if (p.cop && officerUpdate(p, dt)) return true;
+  if (life2Ped(p, dt)) return true;
   if (p.state === "sit"){
     p.moving = false; p.sitT -= dt;
     if (WX.rain > 0.3) p.sitT -= dt * 4;
@@ -6904,7 +6910,7 @@ function askDirections(p){
   } })).concat([{ t: "👋 Nieważne", fn: closeDialog }]));
 }
 function navUpdate(){
-  if (!NAV) return;
+  if (!NAV || NAV.track) return;
   const pp = playerPos();
   if (Math.hypot(NAV.x - pp.x, NAV.y - pp.y) < 60){ popup("📍 Jesteś na miejscu: " + NAV.name, "#5bc0de"); NAV = null; }
 }
@@ -7708,6 +7714,7 @@ function witnesses(x, y, r){
   if (r < 450) r = 450; let n = 0; for (const p of peds){ if (p.state === "dead" || p.kind || p.cop) continue; if (Math.abs(p.x - x) < r && Math.abs(p.y - y) < r) n++; } return n; }
 let crimeCd = 0;
 function crime(n, x, y){
+  if (player.mode !== "dead") addRep(-n);
   if (!SET.police || player.mode === "dead") return;
   if (copsNear(x, y, 650)) addStars(n);
   else if (n >= 2 || (witnesses(x, y, 300) > 0 && Math.random() < 0.8) || Math.random() < 0.3){
@@ -7776,7 +7783,7 @@ function los(ax, ay, bx, by){
 function copTargetPos(v){
   const t = v.cop.target;
   if (t === "player"){ const p = playerPos(); return p; }
-  if (t && (t.state !== "dead") && (vehicles.includes(t) || peds.includes(t)) && !t.wreck) return t;
+  if (t && (t.state !== "dead") && (vehicles.includes(t) || peds.includes(t)) && !t.wreck && !(t.cfg && t.driver !== "ai")) return t;
   return null;
 }
 function copInput(v, dt){
@@ -8099,9 +8106,12 @@ function punch(){
     p.hp = (p.hp || 60) - 25;
     if (p.cop){ crime(2, p.x, p.y); if (p.hp <= 0) killPed(p, dx / d * 120, dy / d * 120); }
     else {
-      if (p.hp <= 0) killPed(p, dx / d * 120, dy / d * 120);
+      const brawler = p.thief || p.state === "attackP" || p.state === "fight" || p.state === "rage";
+      if (p.hp <= 0 && brawler){ p.lying = true; p.state = "down"; p.downT = 8; p.fixed = true; p.partner = null; say(p, "Dobra... wystarczy...", 2); }
+      else if (p.hp <= 0) killPed(p, dx / d * 120, dy / d * 120);
+      else if (brawler){ emote(p, "😵", 1); if (p.state === "rage"){ p.state = "attackP"; p.fT = 0.6; p.atkT = 0; } }
       else { startFlee(p, f.x, f.y); p.fleeT = 3; say(p, pick(["Au! Za co?!", "Pomocy!", "Wariat!"]), 1.6); }
-      if (crimeCd <= 0){ crimeCd = 6; crime(1, p.x, p.y); }
+      if (crimeCd <= 0 && !(p.thief || p.state === "attackP" || p.state === "down")){ crimeCd = 6; crime(1, p.x, p.y); }
     }
     return;
   }
@@ -8346,6 +8356,1195 @@ function drawPoliceRoom(g, t){
   g.fillStyle = "#37474f"; for (let i = 0; i < 4; i++) g.fillRect(30 + i * 22, 200, 14, 60);
   g.fillStyle = "#ffd400"; g.font = "bold 14px system-ui"; g.textAlign = "center"; g.fillText("★ POLICJA ★", 200, 40);
 }
+
+// =====================================================================
+// ŻYWE MIASTO 2: SPRAWY LUDZI, PRZESTĘPSTWA, PATROLE, REAKCJE, ROZMOWY
+// =====================================================================
+const life2 = { errT: 3, exitT: 4, carT: 8, parkT: 12, hailT: 16, sceneT: 30, patrolT: 2, tickT: 0, compT: 10, recogT: 15, rageT: 0, suspectCd: 0, komT: 0 };
+let scene = null;
+const g2 = (p, m, f) => p.fem ? f : m;
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--){ const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function visPt(minD, maxD, margin){
+  const pp = playerPos();
+  for (let i = 0; i < 16; i++){
+    const bx = clamp(Math.floor((pp.x / T - OFF) / P) + ((Math.random() * 3) | 0) - 1, 0, NB - 1);
+    const by = clamp(Math.floor((pp.y / T - OFF) / P) + ((Math.random() * 3) | 0) - 1, 0, NB - 1);
+    if (zoneOf(bx, by) === "river") continue;
+    const pt = ringPoint(bx, by, Math.random() * 4 * RL), d = Math.hypot(pt[0] - pp.x, pt[1] - pp.y);
+    if (d < minD || d > maxD || !onScreen(pt[0], pt[1], margin === undefined ? 80 : margin)) continue;
+    return { x: pt[0], y: pt[1] };
+  }
+  return null;
+}
+const freeWalker = p => p.state === "walk" && !p.fixed && !p.kind && !p.cop && !p.dog && !p.thief && p.friendIdx === undefined && !p.npc && !p.evRole && !(p.bagT > 0);
+function sideOf(v, extra){
+  const c = Math.cos(v.a), s = Math.sin(v.a), off = VT[v.type].wid / 2 + (extra || 10);
+  let px = v.x - s * off, py = v.y + c * off;
+  if (pointBlocked(px, py, 6) || getGW(px, py) === G_ROAD){ const qx = v.x + s * off, qy = v.y - c * off; if (!pointBlocked(qx, qy, 6)){ px = qx; py = qy; } }
+  return [px, py];
+}
+const nearCar = (p, v) => Math.hypot(p.x - v.x, p.y - v.y) < VT[v.type].wid / 2 + 15;
+function parkedFree(v){
+  return !v.driver && !v.wreck && !v.hazard && !v.alarm && v !== player.veh && !v.cfg.cid && !v.cfg.job && !v.cfg.rented && !v.pUsed && !v.block &&
+    !isCop(v) && !(mission && mission.car === v) && !(typeof ev !== "undefined" && ev && ev.car === v) && !VT[v.type].boat && v.type !== "bus" && !v.taken &&
+    inCity(v.x, v.y) && Math.abs(v.vx) + Math.abs(v.vy) < 2;
+}
+const COPNAMES = ["st. post. Nowak", "sierż. Kowalski", "post. Wiśniewska", "asp. Zieliński", "post. Lewandowski", "sierż. Kamińska", "st. sierż. Wójcik", "post. Dąbrowski"];
+function copLook(p, name){ Object.assign(p, { cop: true, col: "#1e3a8a", hair: "#0d1b3a", hp: 90, armed: true, name: name || pick(COPNAMES), trait: "cop" }); p.fem = /ska$|ówna$/.test(p.name); return p; }
+
+// ---------- przechodzień: stany sterowane przez ten moduł ----------
+function life2Ped(p, dt){
+  if (p.bagT > 0) p.bagT -= dt;
+  switch (p.state){
+    case "errand": {
+      if (moveTo(p, p.door.x, p.door.y, p.spd * 1.1, dt)){ p.state = "inside"; p.inT = 5 + Math.random() * 14; p.carry = null; }
+      p.moving = true; return true;
+    }
+    case "inside": {
+      p.moving = false; p.inT -= dt;
+      if (p.inT <= 0){
+        p.state = "walk"; p.bag = DOOR_BAG[p.door.kind] || "🛍️"; p.bagT = 40;
+        if (p.retCar && vehicles.includes(p.retCar) && !p.retCar.driver && !p.retCar.wreck){ p.state = "tocar"; p.tcar = p.retCar; p.retCar = null; p.bag = p.door.kind ? p.bag : null; }
+        else { p.fixed = false; startReturn(p); }
+      }
+      return true;
+    }
+    case "tocar": {
+      const v = p.tcar;
+      if (!v || !vehicles.includes(v) || v.wreck || v.driver){ p.tcar = null; p.fixed = false; startReturn(p); return true; }
+      const sp = sideOf(v, 6);
+      p.moving = true;
+      if (moveTo(p, sp[0], sp[1], p.jack ? 70 : p.spd * 1.2, dt) || nearCar(p, v)){
+        if (p.jack){ if (!scene || scene.th !== p){ p.jack = false; p.fixed = false; v.taken = false; startReturn(p); return true; } p.state = "jacking"; p.jT = 3.6; v.alarm = 7; emote(p, "🔧", 3.6); return true; }
+        boardCar(p, v, "normal");
+      }
+      return true;
+    }
+    case "jacking": {
+      p.moving = false; p.jT -= dt;
+      const v = p.tcar;
+      if (!v || v.wreck || v.driver || !scene || scene.th !== p){ if (scene && scene.th === p) endScene(false); p.state = "walk"; p.fixed = false; p.jack = false; if (v) v.alarm = 0; startReturn(p); return true; }
+      p.a = Math.atan2(v.y - p.y, v.x - p.x);
+      if (p.jT <= 0) jackDrive(p, v);
+      return true;
+    }
+    case "hail": {
+      p.moving = false; p.hailT -= dt;
+      if (Math.random() < dt * 0.4) emote(p, "🙋", 1.5);
+      if (p.hailT <= 0){ p.icon = null; p.fixed = false; startReturn(p); return true; }
+      if (Math.random() < dt * 3) hailLook(p);
+      return true;
+    }
+    case "tohail": {
+      const v = p.tcar;
+      if (!v || !vehicles.includes(v) || v.wreck || v.driver !== "ai"){ p.fixed = false; startReturn(p); return true; }
+      const sp = sideOf(v, 6); p.moving = true;
+      if (moveTo(p, sp[0], sp[1], 70, dt) || nearCar(p, v)){
+        const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1);
+        if (actx) tone(220, actx.currentTime, 0.06, "square", 0.04 * att(v.x, v.y));
+        if (v.stop) v.stop.wait = 0.8;
+      }
+      return true;
+    }
+    case "sneak": {
+      const t = p.tgt;
+      if (!t || !peds.includes(t) || t.state === "dead" || !scene || scene.th !== p){ if (scene && scene.th === p) endScene(false); p.state = "walk"; p.fixed = false; startReturn(p); return true; }
+      p.moving = true;
+      if (moveTo(p, t.x, t.y, 105, dt) || Math.hypot(t.x - p.x, t.y - p.y) < 10) snatchGrab(p, t);
+      return true;
+    }
+    case "thief": case "suspect": {
+      p.moving = true; p.runT -= dt;
+      const pp = playerPos(), d = Math.hypot(pp.x - p.x, pp.y - p.y);
+      if (p.state === "suspect" && d > 150){
+        // podejrzany spaceruje, dopóki nie zobaczy gracza
+        p.x += p.fx * 38 * dt; p.y += p.fy * 38 * dt; p.a = Math.atan2(p.fy, p.fx);
+        if (pushCircle(p, 6) || Math.random() < dt * 0.15){ const a = Math.random() * Math.PI * 2; p.fx = Math.cos(a); p.fy = Math.sin(a); }
+        return true;
+      }
+      if (p.state === "suspect"){ p.state = "thief"; say(p, pick(["O kurde, glina!", "Spadam!", "Nie złapiesz mnie!"]), 2); p.runT = 0; }
+      if (p.runT <= 0){
+        p.runT = 1 + Math.random();
+        let ax = p.x - pp.x, ay = p.y - pp.y; const n = Math.hypot(ax, ay) || 1; ax /= n; ay /= n;
+        const r = (Math.random() - 0.5) * 1.4, c = Math.cos(r), s = Math.sin(r);
+        p.fx = ax * c - ay * s; p.fy = ax * s + ay * c;
+      }
+      const sp = 122 * (WX.rain > 0.3 ? 0.92 : 1);
+      p.x += p.fx * sp * dt; p.y += p.fy * sp * dt; p.a = Math.atan2(p.fy, p.fx);
+      if (pushCircle(p, 6)){ const s = Math.random() < 0.5 ? 1 : -1, t = p.fx; p.fx = -p.fy * s; p.fy = t * s; p.runT = 0.6; }
+      return true;
+    }
+    case "down": {
+      p.moving = false; p.downT -= dt;
+      if (p.downT <= 0){ p.lying = false; p.fixed = false; p.icon = null; p.state = "walk"; startFlee(p, playerPos().x, playerPos().y); p.fleeT = 3; }
+      return true;
+    }
+    case "cuffed": {
+      p.moving = false; p.cuffT -= dt;
+      if (p.cop2 && peds.includes(p.cop2)) p.a = Math.atan2(p.cop2.y - p.y, p.cop2.x - p.x);
+      if (p.cuffT <= 0 && !onScreen(p.x, p.y, 20)){ const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1); }
+      else if (p.cuffT < -12){ const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1); }
+      return true;
+    }
+    case "copgo": {
+      const t = p.tgt;
+      if (!t || !peds.includes(t) || t.state === "dead" || t.state === "cuffed"){ p.tgt = null; p.state = "walk"; p.fixed = false; startReturn(p); return true; }
+      p.moving = true;
+      const d = Math.hypot(t.x - p.x, t.y - p.y);
+      if (d > 14){ p.a = Math.atan2(t.y - p.y, t.x - p.x); const sp = 130; p.x += Math.cos(p.a) * sp * dt; p.y += Math.sin(p.a) * sp * dt; if (pushCircle(p, 6)) p.a += 0.7; }
+      else copArrest(p, t);
+      if (Math.random() < dt * 0.35 && !(p.sayT > 0)) say(p, pick(["Stój! Policja!", "Zatrzymaj się!", "Ręce na widoku!"]), 1.5);
+      return true;
+    }
+    case "follow": {
+      const L = p.lead;
+      if (!L || !peds.includes(L) || L.state === "dead" || L.state === "copchase" || L.state === "copgo"){ p.lead = null; p.state = "walk"; startReturn(p); return true; }
+      const tx = L.x - Math.cos(L.a) * 4 - Math.sin(L.a) * 13, ty = L.y - Math.sin(L.a) * 4 + Math.cos(L.a) * 13;
+      const d = Math.hypot(tx - p.x, ty - p.y);
+      if (d > 2){ moveTo(p, tx, ty, Math.min(140, d * 4), dt); p.moving = d > 4; } else { p.moving = L.moving; p.a = L.a; }
+      if (d > 200){ p.x = tx; p.y = ty; }
+      return true;
+    }
+    case "fight": {
+      const o = p.partner;
+      p.fixed = true;
+      if (!o || !peds.includes(o) || o.state !== "fight"){ p.state = "walk"; p.fixed = false; startReturn(p); return true; }
+      p.a = Math.atan2(o.y - p.y, o.x - p.x);
+      const d = Math.hypot(o.x - p.x, o.y - p.y);
+      if (d > 20){ p.x += Math.cos(p.a) * 40 * dt; p.y += Math.sin(p.a) * 40 * dt; p.moving = true; } else p.moving = Math.sin(gameTime * 9 + p.t) > 0.3;
+      p.fT -= dt;
+      if (p.fT <= 0){
+        p.fT = 0.6 + Math.random() * 0.9;
+        if (d < 24){
+          o.hp = (o.hp || 60) - (5 + Math.random() * 8);
+          thud(o.x, o.y); emote(o, pick(["💢", "😵", "🤕"]), 1);
+          o.x += Math.cos(p.a) * 4; o.y += Math.sin(p.a) * 4;
+          if (Math.random() < 0.45) say(p, pick(FIGHT_LINES), 1.4);
+          if (o.hp <= 0) fightKO(p, o);
+        }
+      }
+      return true;
+    }
+    case "attackP": {
+      const f = player.foot;
+      if (player.mode !== "foot" || Math.hypot(f.x - p.x, f.y - p.y) > 320 || (p.atkT -= dt) < -25){ p.state = "walk"; p.fixed = false; startReturn(p); return true; }
+      p.a = Math.atan2(f.y - p.y, f.x - p.x);
+      const d = Math.hypot(f.x - p.x, f.y - p.y);
+      if (d > 16){ p.x += Math.cos(p.a) * 105 * dt; p.y += Math.sin(p.a) * 105 * dt; p.moving = true; pushCircle(p, 6); }
+      else {
+        p.moving = false; p.fT -= dt;
+        if (p.fT <= 0){ p.fT = 0.9 + Math.random() * 0.5; player.foot.hp -= 7; thud(f.x, f.y); if (SET.shake) shake = Math.max(shake, 4); if (player.foot.hp <= 0){ player.foot.hp = 0; killPlayer("ZNOKAUTOWANY"); } }
+      }
+      if ((p.hp || 60) <= 0){ p.lying = true; p.state = "down"; p.downT = 8; say(p, "Dobra... wystarczy...", 2); }
+      return true;
+    }
+    case "rage": {
+      const v = p.rageCar;
+      p.rageT -= dt;
+      const pp = playerPos(), d = Math.hypot(pp.x - p.x, pp.y - p.y);
+      if (!v || !vehicles.includes(v) || v.wreck || v.driver !== "ai"){ p.state = "walk"; p.fixed = false; p.icon = null; startReturn(p); return true; }
+      if (p.rageT <= 0 || d > 420){ p.state = "rageback"; p.icon = null; return true; }
+      p.a = Math.atan2(pp.y - p.y, pp.x - p.x);
+      if (d > 40 && d < 260){ p.x += Math.cos(p.a) * 60 * dt; p.y += Math.sin(p.a) * 60 * dt; p.moving = true; pushCircle(p, 6); } else p.moving = false;
+      p.shT -= dt;
+      if (p.shT <= 0){ p.shT = 2 + Math.random(); say(p, pick(RAGE_LINES.concat(ARGUE)), 1.9); emote(p, "💢", 1.2); }
+      return true;
+    }
+    case "rageback": {
+      const v = p.rageCar;
+      if (!v || !vehicles.includes(v) || v.wreck || v.driver !== "ai"){ p.state = "walk"; p.fixed = false; startReturn(p); return true; }
+      const sp = sideOf(v, 6); p.moving = true;
+      if (moveTo(p, sp[0], sp[1], 70, dt) || nearCar(p, v)){ const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1); v.ai.hitT = 0.6; v.rage = false; life2.rageT = 25; }
+      return true;
+    }
+    case "gawk": {
+      const t = p.gawkAt;
+      if (!t || !scene || (scene.vic !== t)){ p.state = "walk"; p.fixed = false; startReturn(p); return true; }
+      const d = Math.hypot(t.x - p.x, t.y - p.y);
+      if (d > 26){ moveTo(p, t.x + p.gox, t.y + p.goy, 55, dt); p.moving = true; } else { p.moving = false; p.a = Math.atan2(t.y - p.y, t.x - p.x); }
+      return true;
+    }
+  }
+  return false;
+}
+const DOOR_BAG = { shop: "🛍️", kiosk: "📰", food: "🥡", cafe: "☕", pharm: "💊", bank: "💵", hosp: "🩹", guns: "📦" };
+const FIGHT_LINES = ["Masz za swoje!", "Co się gapisz?!", "Chodź tu!", "Ała!", "Zaraz cię...!", "To moje miejsce!", "Oddawaj!", "Ty cwaniaku!"];
+const RAGE_LINES = ["Patrz, co zrobiłeś!", "Moje auto!!", "Masz ubezpieczenie?!", "Wysiadaj, pogadamy!", "Prawo jazdy w chipsach?!", "Zapłacisz mi za to!", "Spisujemy się!"];
+function boardCar(p, v, pers){
+  const i = peds.indexOf(p); if (i >= 0) peds.splice(i, 1);
+  if (actx) tone(180, actx.currentTime, 0.05, "square", 0.05 * att(v.x, v.y));
+  v.taken = true; v.hazard = false; v.stop = null;
+  if (aiFromPos(v, pers || "normal")){ v.ai.hitT = 1.2 + Math.random(); if (v.radio === undefined) v.radio = -1; }
+}
+
+// ---------- 1. sprawy: sklepy, auta, parkowanie, taksówki ----------
+function errandsUpdate(dt){
+  const h = hourNow(), day = h > 7 && h < 21;
+  life2.errT -= dt;
+  if (life2.errT <= 0){
+    life2.errT = day ? 1.1 : 2.6;
+    const pp = playerPos();
+    for (const d of DOORS){
+      if (d.kind === "home" || d.kind === "rail" || d.kind === "police") continue;
+      if (Math.abs(d.x - pp.x) > 800 || Math.abs(d.y - pp.y) > 600 || Math.random() > 0.3) continue;
+      let best = null, bd = 150;
+      for (const p of peds){ if (!freeWalker(p)) continue; const dd = Math.hypot(p.x - d.x, p.y - d.y); if (dd < bd){ bd = dd; best = p; } }
+      if (best){ best.state = "errand"; best.door = d; best.fixed = true; }
+    }
+  }
+  // ktoś wychodzi z budynku
+  life2.exitT -= dt;
+  if (life2.exitT <= 0){
+    life2.exitT = day ? 3 : 6;
+    if (peds.length < 110){
+      const pp = playerPos();
+      const ds = DOORS.filter(d => d.kind !== "home" && d.kind !== "rail" && onScreen(d.x, d.y, 60) && Math.hypot(d.x - pp.x, d.y - pp.y) > 60);
+      if (ds.length){
+        const d = pick(ds), b = blockAt(d.x, d.y);
+        if (zoneOf(b[0], b[1]) !== "river"){
+          const p = makePed(b[0], b[1], ringS(b[0], b[1], d.x, d.y));
+          p.x = d.x; p.y = d.y; p.bag = DOOR_BAG[d.kind] || null; p.bagT = p.bag ? 40 : 0; decoratePedLite(p);
+          startReturn(p);
+        }
+      }
+    }
+  }
+}
+function decoratePedLite(p){ p.umbC = Math.random() < 0.6 ? pick(["#c0392b", "#2980b9", "#27ae60", "#1a1a1a", "#8e44ad"]) : null; }
+function carTakeUpdate(dt){
+  life2.carT -= dt;
+  if (life2.carT > 0) return;
+  life2.carT = 7 + Math.random() * 7;
+  if (peds.filter(p => p.state === "tocar").length >= 2) return;
+  const pp = playerPos();
+  const cars = shuffle(vehicles.filter(v => parkedFree(v) && onScreen(v.x, v.y, 180) && Math.hypot(v.x - pp.x, v.y - pp.y) > 140)).slice(0, 6);
+  for (const v of cars){
+    let best = null, bd = 280;
+    for (const p of peds){ if (!freeWalker(p)) continue; const d = Math.hypot(p.x - v.x, p.y - v.y); if (d < bd){ bd = d; best = p; } }
+    if (best){ best.state = "tocar"; best.tcar = v; best.fixed = true; v.taken = true; return; }
+  }
+}
+function findSpot(v){
+  const fx = Math.cos(v.a), fy = Math.sin(v.a), ha = Math.atan2(fy, fx);
+  const nx = -fy, ny = fx;
+  for (let al = 160; al <= 360; al += 40){
+    for (const off of [30, 26, 34]){
+      const x = v.x + fx * al + nx * off, y = v.y + fy * al + ny * off;
+      if (getGW(x, y) !== G_ROAD || pointBlocked(x, y, 12)) continue;
+      // przy krawężniku: dalej w bok nie ma już jezdni, a przed i za autem jest jezdnia
+      if (getGW(x + nx * 30, y + ny * 30) === G_ROAD) continue;
+      if (getGW(x + fx * 40, y + fy * 40) !== G_ROAD || getGW(x - fx * 40, y - fy * 40) !== G_ROAD) continue;
+      if (getGW(x + fx * 40 + nx * 30, y + fy * 40 + ny * 30) === G_ROAD || getGW(x - fx * 40 + nx * 30, y - fy * 40 + ny * 30) === G_ROAD) continue;
+      if (vehicles.some(o => o !== v && Math.abs(o.x - x) < 46 && Math.abs(o.y - y) < 46)) continue;
+      return { x, y, a: ha };
+    }
+  }
+  for (const sp of parkSpots){
+    const rx = sp[0] - v.x, ry = sp[1] - v.y;
+    if (Math.abs(rx) > 340 || Math.abs(ry) > 340) continue;
+    const al = rx * fx + ry * fy, lat = Math.abs(-rx * fy + ry * fx);
+    if (al < 120 || al > 320 || lat < 14 || lat > 64) continue;
+    const c = Math.cos(sp[2] - ha);
+    if (Math.abs(c) < 0.8) continue;
+    if (vehicles.some(o => Math.abs(o.x - sp[0]) < 44 && Math.abs(o.y - sp[1]) < 44)) continue;
+    return { x: sp[0], y: sp[1], a: c > 0 ? sp[2] : sp[2] + Math.PI };
+  }
+  return null;
+}
+function parkUpdate(dt){
+  life2.parkT -= dt;
+  if (life2.parkT > 0) return;
+  life2.parkT = 10 + Math.random() * 10;
+  if (vehicles.some(v => v.stop && v.stop.kind === "park")) return;
+  for (const v of shuffle(ACT.slice())){
+    if (v.driver !== "ai" || !v.ai || v.ai.ring || v.siren || v.inc || v.stop || v.rage || v.stolen || v.ai.pers !== "normal" || VT[v.type].bike || !onScreen(v.x, v.y, 160)) continue;
+    if (["bus", "garbage", "police", "swat", "ambulance", "firetruck"].includes(v.type)) continue;
+    const s = findSpot(v);
+    if (!s) continue;
+    const delivery = v.type === "van" || (v.type === "pickup" && Math.random() < 0.5);
+    v.stop = { kind: "park", x: s.x, y: s.y, a: s.a, t: 0, delivery };
+    v.hazard = delivery;
+    return;
+  }
+}
+function parkArrived(v, s){
+  v.driver = null; v.ai = null; v.stop = null; v.vx = v.vy = 0; v.taken = false;
+  const sp = sideOf(v, 8), b = blockAt(sp[0], sp[1]);
+  const p = makePed(b[0], b[1], ringS(b[0], b[1], sp[0], sp[1]));
+  p.x = sp[0]; p.y = sp[1]; p.a = v.a + Math.PI / 2;
+  if (s.delivery){ p.col = pick(["#d35400", "#f1c40f", "#7f8c8d", "#c0392b"]); p.carry = "📦"; }
+  let door = null, bd = s.delivery ? 360 : 280;
+  for (const d of DOORS){ if (d.kind === "home" || d.kind === "rail") continue; const dd = Math.hypot(d.x - p.x, d.y - p.y); if (dd < bd){ bd = dd; door = d; } }
+  if (door && (s.delivery || Math.random() < 0.6)){
+    p.state = "errand"; p.door = door; p.fixed = true;
+    if (s.delivery || Math.random() < 0.6){ p.retCar = v; v.taken = true; }
+    if (s.delivery) say(p, pick(["Dostawa!", "Paczka dla pana!", "Gdzie to podpisać?"]), 2);
+  } else startReturn(p);
+  if (actx) tone(200, actx.currentTime, 0.05, "square", 0.05 * att(v.x, v.y));
+}
+function hailUpdate(dt){
+  life2.hailT -= dt;
+  if (life2.hailT > 0) return;
+  life2.hailT = 14 + Math.random() * 12;
+  if (peds.some(p => p.state === "hail" || p.state === "tohail")) return;
+  const pp = playerPos();
+  const cand = peds.filter(p => freeWalker(p) && onScreen(p.x, p.y, 120) && Math.hypot(p.x - pp.x, p.y - pp.y) > 90);
+  if (!cand.length) return;
+  const p = pick(cand);
+  p.state = "hail"; p.hailT = 40; p.fixed = true; p.icon = "🙋";
+  say(p, pick(["Taxi!", "Taksówka!", "Haloo, taxi!"]), 2);
+}
+function hailLook(p){
+  for (const v of ACT){
+    if (v.type !== "taxi" || v.driver !== "ai" || !v.ai || v.ai.ring || v.stop || v.rage) continue;
+    const fx = Math.cos(v.a), fy = Math.sin(v.a), rx = p.x - v.x, ry = p.y - v.y;
+    const al = rx * fx + ry * fy, lat = -rx * fy + ry * fx;
+    if (al < 70 || al > 300 || Math.abs(lat) > 110) continue;
+    const sh = Math.sign(lat) * clamp(Math.abs(lat) - 30, 0, 16);
+    v.stop = { kind: "taxi", x: v.x + fx * al - fy * sh, y: v.y + fy * al + fx * sh, t: 0, ped: p };
+    v.hazard = true; p.icon = null;
+    return;
+  }
+}
+// zatrzymanie auta SI w punkcie (parkowanie, taxi)
+const _aiBase = aiInput;
+aiInput = function(v, dt){
+  if (v.stop) return stopInput(v, v.stop, dt);
+  const inp = _aiBase(v, dt);
+  if (v.ai && v.ai.blockedByPlayer && v.ai.blockT > 2.2 && !(v.sayT > 0) && Math.random() < dt * 0.8) sayCar(v, pick(["Ruszaj się!", "Zielone, halo!", "Śpisz?!", "No jedź!", "Parkujesz na środku?!", "Sobota, a ten stoi..."]));
+  return inp;
+};
+function stopInput(v, s, dt){
+  const inp = v.inp;
+  inp.thr = inp.brk = inp.hb = inp.nitro = false; inp.steer = 0; inp.hold = false;
+  s.t += dt;
+  const fx = Math.cos(v.a), fy = Math.sin(v.a), sp = v.vx * fx + v.vy * fy;
+  if (!s.stopped){
+    const dx = s.x - v.x, dy = s.y - v.y, d = Math.hypot(dx, dy), ahead = dx * fx + dy * fy;
+    if (s.t > 16){ v.stop = null; v.hazard = false; if (s.ped && peds.includes(s.ped)) s.ped.icon = "🙋"; aiFromPos(v, v.ai ? v.ai.pers : "normal"); return v.inp; }
+    let diff = Math.atan2(dy, dx) - v.a; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    if (ahead < 30 && s.a !== undefined){ let da = s.a - v.a; da = Math.atan2(Math.sin(da), Math.cos(da)); diff = da; }
+    inp.steer = clamp(diff * 2.4, -1, 1);
+    let tgt = clamp((ahead - 3) * 1.25, 18, 165);
+    tgt = Math.min(tgt, aheadLimit(v, fx, fy));
+    if (ahead < 12 || d < 12){ inp.brk = true; inp.hold = true; if (Math.abs(sp) < 12){ s.stopped = true; s.snap = 0; s.wait = s.kind === "taxi" ? 30 : 1; if (s.kind === "taxi" && s.ped && peds.includes(s.ped)){ s.ped.state = "tohail"; s.ped.tcar = v; } } }
+    else if (sp < tgt - 6) inp.thr = true;
+    else if (sp > tgt + 12){ inp.brk = true; inp.hold = true; }
+    return inp;
+  }
+  v.vx *= 0.5; v.vy *= 0.5;
+  if (s.a !== undefined && s.snap < 1){
+    s.snap = Math.min(1, s.snap + dt * 1.4);
+    const k = Math.min(1, dt * 4);
+    v.x += (s.x - v.x) * k; v.y += (s.y - v.y) * k;
+    let da = s.a - v.a; da = Math.atan2(Math.sin(da), Math.cos(da)); v.a += da * k;
+  }
+  inp.brk = true; inp.hold = true;
+  s.wait -= dt;
+  if (s.wait <= 0){
+    if (s.kind === "park") parkArrived(v, s);
+    else { v.stop = null; v.hazard = false; aiFromPos(v, "normal"); if (v.ai) v.ai.hitT = 0.5; }
+  }
+  return inp;
+}
+
+// ---------- 2. sceny: przestępstwa i prośby o pomoc ----------
+function sceneAnchor(){
+  if (!scene) return null;
+  const s = scene;
+  if (s.type === "snatch" || s.type === "suspect") return s.th;
+  if (s.type === "carjack") return s.phase === "drive" ? s.v : s.th;
+  if (s.type === "fight") return s.a;
+  return s.vic;
+}
+function scenesUpdate(dt){
+  if (scene){ sceneStep(scene, dt); return; }
+  life2.sceneT -= dt;
+  if (life2.sceneT > 0 || mission || race || rail.on || player.mode === "train" || player.mode === "dead") return;
+  life2.sceneT = 35 + Math.random() * 35;
+  const h = hourNow(), night = h >= 20 || h < 5;
+  const r = Math.random();
+  const ok = r < 0.28 ? startSnatch() : r < 0.5 ? startCarjack() : r < (night ? 0.8 : 0.66) ? startFight() : r < 0.86 ? startGroceries() : startFaint();
+  if (!ok) life2.sceneT = 6;
+}
+function endScene(success){
+  const s = scene;
+  if (!s) return;
+  scene = null;
+  life2.sceneT = 30 + Math.random() * 30;
+  for (const p of [s.vic, s.th, s.a, s.b, s.owner]) if (p && peds.includes(p) && p.state !== "cuffed" && p.state !== "down" && p.state !== "dead"){
+    p.fixed = false; p.icon = null;
+    if (p.state === "stand" || p.state === "fight" || p.state === "sneak") startReturn(p);
+  }
+  if (s.th && s.th.state === "thief" && peds.includes(s.th) && !onScreen(s.th.x, s.th.y, 0)){ const i = peds.indexOf(s.th); if (i >= 0) peds.splice(i, 1); }
+  if (s.vic){ s.vic.lying = false; }
+  for (const p of peds) if (p.state === "gawk"){ p.state = "walk"; p.fixed = false; startReturn(p); }
+}
+function startSnatch(){
+  const pp = playerPos();
+  const cand = peds.filter(p => freeWalker(p) && onScreen(p.x, p.y, 40) && Math.hypot(p.x - pp.x, p.y - pp.y) > 150 && Math.hypot(p.x - pp.x, p.y - pp.y) < 600);
+  if (!cand.length) return false;
+  const vic = pick(cand);
+  const th = makePed(0, 0, 0);
+  th.x = vic.x - Math.cos(vic.a) * 45; th.y = vic.y - Math.sin(vic.a) * 45;
+  if (pointBlocked(th.x, th.y, 6)){ th.x = vic.x + 40; th.y = vic.y; }
+  Object.assign(th, { col: "#26262b", hair: "#111", thief: true, state: "sneak", tgt: vic, fixed: true, hp: 50, name: pick(["Szczur", "Cwaniak", "Złodziejaszek"]) });
+  vic.fixed = true;
+  pedName(vic);
+  scene = { type: "snatch", vic, th, t: 70, phase: "sneak" };
+  return true;
+}
+function snatchGrab(th, vic){
+  th.state = "thief"; th.icon = "👜"; th.runT = 0; th.fx = Math.cos(th.a); th.fy = Math.sin(th.a);
+  vic.state = "stand"; vic.home = [vic.x, vic.y]; vic.moving = false;
+  say(vic, pick(["Moja torebka! Złodziej!!", "Ratunku! Okradli mnie!", "Łapać złodzieja!!"]), 3); emote(vic, "😱", 3);
+  crowdReact(vic.x, vic.y, "😮", 200, false);
+  scene.phase = "run";
+  popup("👜 Kradzież! Złap złodzieja!", "#ffb300");
+  copsReact(th);
+}
+function startCarjack(){
+  const pp = playerPos();
+  const cars = vehicles.filter(v => parkedFree(v) && onScreen(v.x, v.y, 60) && Math.hypot(v.x - pp.x, v.y - pp.y) > 170 && Math.hypot(v.x - pp.x, v.y - pp.y) < 620);
+  if (!cars.length) return false;
+  const v = pick(cars);
+  const sp = sideOf(v, 8);
+  const th = makePed(0, 0, 0);
+  th.x = sp[0] + Math.cos(v.a) * 90; th.y = sp[1] + Math.sin(v.a) * 90;
+  if (pointBlocked(th.x, th.y, 6)){ th.x = sp[0] - Math.cos(v.a) * 90; th.y = sp[1] - Math.sin(v.a) * 90; }
+  Object.assign(th, { col: "#2d2d2d", hair: "#1a1a1a", thief: true, jack: true, state: "tocar", tcar: v, fixed: true, hp: 50 });
+  v.taken = true;
+  scene = { type: "carjack", v, th, t: 90, phase: "approach", slowT: 0 };
+  return true;
+}
+function jackDrive(th, v){
+  const i = peds.indexOf(th); if (i >= 0) peds.splice(i, 1);
+  v.stolen = true; v.alarm = 0; v.hazard = false;
+  if (!aiFromPos(v, "pirate")){ endScene(false); return; }
+  v.ai.cruise = Math.min(VT[v.type].maxF * 0.85, 290); v.ai.rr = 0;
+  scene.phase = "drive"; scene.t = 70;
+  popup("🚨 Kradzież auta! Zatrzymaj złodzieja!", "#ffb300");
+  const sp = sideOf(v, 30), b = blockAt(sp[0], sp[1]);
+  const ow = makePed(b[0], b[1], ringS(b[0], b[1], sp[0], sp[1]));
+  ow.x = sp[0]; ow.y = sp[1]; ow.state = "stand"; ow.home = [ow.x, ow.y]; ow.fixed = true;
+  say(ow, pick(["Moje auto!! Złodziej!", "Stój! To mój samochód!", "Niech ktoś go zatrzyma!!"]), 3); emote(ow, "😱", 3);
+  scene.owner = ow;
+  if (SET.police){
+    let cop = null, bd = 900;
+    for (const c of ACT) if (isCop(c) && c.driver === "ai"){ const d = Math.hypot(c.x - v.x, c.y - v.y); if (d < bd){ bd = d; cop = c; } }
+    if (cop){ convertPatrol(cop, v); radio("Kradzież pojazdu, podejmujemy pościg!"); }
+  }
+}
+function startFight(){
+  const h = hourNow(), night = h >= 20 || h < 5, pp = playerPos();
+  let c = null;
+  if (night && CLUB && Math.hypot(CLUB.x - pp.x, CLUB.y - pp.y) < 800 && onScreen(CLUB.x, CLUB.y, 200)) c = { x: CLUB.x + (Math.random() - 0.5) * 120, y: CLUB.y + 30 };
+  if (!c) c = visPt(160, 600, 40);
+  if (!c || pointBlocked(c.x, c.y, 8)) return false;
+  const a = makePed(0, 0, 0), b = makePed(0, 0, 0);
+  a.x = c.x - 10; a.y = c.y; b.x = c.x + 10; b.y = c.y;
+  for (const p of [a, b]){ Object.assign(p, { state: "fight", fixed: true, hp: 60 + Math.random() * 30, fT: Math.random(), partner: p === a ? b : a, trait: "grumpy", fem: false }); p.name = pick(NAMES_M); }
+  say(a, pick(["Co powiedziałeś?!", "Powtórz to!", "Chcesz się bić?!"]), 2);
+  crowdReact(c.x, c.y, "😮", 220, false);
+  scene = { type: "fight", a, b, t: 45 };
+  popup("👊 Bójka na ulicy!", "#ffb300");
+  copsReact(a);
+  return true;
+}
+function fightKO(w, l){
+  l.state = "down"; l.lying = true; l.downT = 10; l.icon = null; l.partner = null;
+  say(w, pick(["I co, mądralo?!", "Następnym razem uważaj!", "Ha! Kto następny?!"]), 2.2);
+  w.state = "walk"; w.fixed = false; w.partner = null; startReturn(w);
+  crowdReact(l.x, l.y, "😬", 200, false);
+  endScene(false);
+}
+function startGroceries(){
+  const c = visPt(120, 500, 40);
+  if (!c) return false;
+  const p = makeStand(c.x, c.y, { icon: "😩", trait: "friendly" });
+  pedName(p);
+  say(p, pick(["O nie! Wszystko mi się rozsypało!", "Pękła reklamówka!", "Moje zakupy!!"]), 3);
+  const items = [];
+  const E = ["🍎", "🥖", "🥫", "🧃", "🍊", "🧀", "🥚"];
+  for (let i = 0; i < 5; i++){
+    for (let k = 0; k < 8; k++){
+      const a = Math.random() * Math.PI * 2, r = 22 + Math.random() * 40, x = c.x + Math.cos(a) * r, y = c.y + Math.sin(a) * r;
+      if (!pointBlocked(x, y, 4)){ items.push({ x, y, e: pick(E) }); break; }
+    }
+  }
+  scene = { type: "groceries", vic: p, items, t: 80, got: 0, lost: 0 };
+  popup("🛍️ Komuś rozsypały się zakupy – pomóż zebrać!", "#9fe39f");
+  return true;
+}
+function startFaint(){
+  const c = visPt(140, 520, 30);
+  if (!c) return false;
+  const p = makeStand(c.x, c.y, { icon: "🆘", lying: true });
+  pedName(p);
+  scene = { type: "faint", vic: p, t: 70, prog: 0 };
+  let n = 0;
+  for (const q of peds){
+    if (n >= 2 || !freeWalker(q) || Math.hypot(q.x - c.x, q.y - c.y) > 300) continue;
+    q.state = "gawk"; q.gawkAt = p; q.fixed = true; const a = Math.random() * Math.PI * 2; q.gox = Math.cos(a) * 20; q.goy = Math.sin(a) * 20; n++;
+    say(q, pick(["Halo! Słyszy mnie pan?", "Ktoś zasłabł!", "Wezwijcie pomoc!"]), 2.5);
+  }
+  popup("🆘 Ktoś zasłabł na chodniku! Podejdź i pomóż", "#ff8a80");
+  return true;
+}
+function startSuspect(){
+  const c = cityPoint(500, 900);
+  if (!c) return false;
+  const th = makePed(0, 0, 0);
+  const a = Math.random() * Math.PI * 2;
+  Object.assign(th, { x: c.x, y: c.y, col: "#4a2f27", hair: "#111", thief: true, state: "suspect", fixed: true, hp: 60, fx: Math.cos(a), fy: Math.sin(a), runT: 0, icon: "🎯" });
+  scene = { type: "suspect", th, t: 160 };
+  return true;
+}
+function copsReact(target){
+  if (!SET.police) return;
+  let best = null, bd = 520;
+  for (const p of peds) if (p.cop && !p.chase && (p.state === "walk" || p.state === "follow" || p.state === "stand") && !p.desk){ const d = Math.hypot(p.x - target.x, p.y - target.y); if (d < bd){ bd = d; best = p; } }
+  if (best){ best.state = "copgo"; best.tgt = target; best.fixed = true; say(best, "Stój! Policja!", 1.8); return true; }
+  return false;
+}
+function copArrest(cop, t){
+  t.state = "cuffed"; t.cuffT = 6; t.icon = null; t.cop2 = cop; t.lying = false; t.fixed = true;
+  emote(t, "😣", 3); say(cop, pick(["Masz prawo zachować milczenie.", "Koniec zabawy, kolego.", "Idziemy na komendę."]), 2.5);
+  cop.state = "stand"; cop.home = [cop.x, cop.y]; cop.tgt = null;
+  setTimeout(() => { if (peds.includes(cop) && cop.state === "stand"){ cop.fixed = false; cop.state = "walk"; startReturn(cop); } }, 7000);
+  if (scene && (scene.th === t || scene.a === t || scene.b === t)){
+    if (scene.type === "fight"){ const o = scene.a === t ? scene.b : scene.a; if (o && peds.includes(o)){ o.state = "walk"; o.fixed = false; startReturn(o); emote(o, "😒"); } }
+    popup("🚔 Policja " + (scene.type === "fight" ? "przerwała bójkę" : "złapała złodzieja"), "#9fd4ff");
+    if (scene.vic && peds.includes(scene.vic)) say(scene.vic, "Dziękuję, panie władzo!", 2.5);
+    endScene(false);
+  }
+}
+function sceneReward(money, label, rep){ addMoney(money, label); addRep(rep); SAVE.stats.good = (SAVE.stats.good || 0) + 1; saveDirty = true; crowdReact(playerPos().x, playerPos().y, "👏", 220, false); }
+function playerCatch(th, dist){
+  const pp = playerPos();
+  if (player.mode === "foot") return Math.hypot(pp.x - th.x, pp.y - th.y) < (dist || 16);
+  if (player.mode === "car"){
+    const v = player.veh, sp = Math.hypot(v.vx, v.vy);
+    return sp > 15 && sp < 80 && Math.hypot(v.x - th.x, v.y - th.y) < VT[v.type].len / 2 + 8;
+  }
+  return false;
+}
+function sceneStep(s, dt){
+  s.t -= dt;
+  const pp = playerPos();
+  if (s.t <= 0 || player.mode === "dead"){ if (s.type === "snatch" || s.type === "carjack" || s.type === "suspect") popup(s.type === "carjack" ? "🚗 Złodziej odjechał…" : "🏃 Uciekł…", "#aaa"); endScene(false); return; }
+  if (s.type === "snatch" || s.type === "suspect"){
+    const th = s.th;
+    if (!peds.includes(th)){ endScene(false); return; }
+    if (th.state === "dead"){
+      if (s.type === "snatch" && s.phase === "run"){ popup("👜 Torebka odzyskana… brutalnie", "#ffb300"); addMoney(30, "TOREBKA"); if (peds.includes(s.vic)) say(s.vic, "O Boże... ale dziękuję...", 2.5); }
+      endScene(false); return;
+    }
+    if (th.state === "cuffed" || th.state === "down") return;
+    if (s.type === "suspect"){ NAV = { x: th.x, y: th.y, name: "Podejrzany", track: true }; }
+    if ((th.state === "thief" || th.state === "suspect") && playerCatch(th)){
+      th.state = "down"; th.lying = true; th.downT = 3.5; th.icon = null; thud(th.x, th.y);
+      say(th, pick(["Dobra, dobra! Poddaję się!", "Ała! Masz, masz!", "Nie bij!"]), 2.2);
+      if (s.type === "snatch"){
+        sceneReward(60 + ((Math.random() * 60) | 0), "ODZYSKANA TOREBKA", 3);
+        if (peds.includes(s.vic)){ say(s.vic, pick(["Dziękuję! Jesteś bohaterem!", "Mój bohater! Dziękuję!", "Nie wiem, jak ci dziękować!"]), 3); emote(s.vic, "🥹", 3); addFriend(s.vic, 2); }
+      } else {
+        sceneReward(200, "PODEJRZANY ZATRZYMANY", 4); popup("🚔 Policja przejmuje podejrzanego. Dzięki!", "#9fd4ff"); NAV = null;
+        th.state = "cuffed"; th.cuffT = 4; th.lying = false;
+      }
+      endScene(true);
+      return;
+    }
+    if (th.state === "thief" && Math.hypot(th.x - pp.x, th.y - pp.y) > 1300 && !onScreen(th.x, th.y, 40)){ popup("🏃 Złodziej uciekł…", "#aaa"); const i = peds.indexOf(th); if (i >= 0) peds.splice(i, 1); NAV = null; endScene(false); }
+    return;
+  }
+  if (s.type === "carjack"){
+    const v = s.v;
+    if (!vehicles.includes(v) || v.wreck){ endScene(false); return; }
+    if (s.phase !== "drive"){
+      const th = s.th;
+      if (!peds.includes(th) || th.state === "dead" || th.state === "flee"){ v.alarm = 0; v.taken = false; endScene(false); return; }
+      if (player.mode === "foot" && Math.hypot(pp.x - th.x, pp.y - th.y) < 34){
+        th.state = "walk"; th.fixed = false; startFlee(th, pp.x, pp.y); th.fleeT = 4; say(th, pick(["Spadam!", "Ja tylko patrzyłem!", "Nic nie robiłem!"]), 2);
+        v.alarm = 0; v.taken = false; sceneReward(50, "SPŁOSZONY ZŁODZIEJ", 2); endScene(true);
+      }
+      return;
+    }
+    // ucieczka skradzionym autem
+    if (v.driver !== "ai"){ endScene(false); return; }
+    const sp = Math.hypot(v.vx, v.vy), pv = player.mode === "car" ? player.veh : null;
+    if (pv && Math.hypot(pv.x - v.x, pv.y - v.y) < 90 && sp < 25) s.slowT += dt; else s.slowT = Math.max(0, s.slowT - dt);
+    if (v.hp < 55 || s.slowT > 2){
+      v.driver = null; v.ai = null; v.stolen = false; v.hazard = true; v.vx *= 0.3; v.vy *= 0.3;
+      const sd = sideOf(v, 10), th = makePed(0, 0, 0);
+      Object.assign(th, { x: sd[0], y: sd[1], col: "#2d2d2d", hair: "#1a1a1a", thief: true });
+      startFlee(th, pp.x, pp.y); th.fleeT = 5; say(th, pick(["Weź sobie tego grata!", "Spadam stąd!"]), 2);
+      sceneReward(150, "ODZYSKANE AUTO", 4);
+      if (s.owner && peds.includes(s.owner)){ s.owner.state = "walk"; }
+      popup("🚗 Właściciel dziękuje za odzyskanie auta!", "#5cd65c");
+      setTimeout(() => { if (vehicles.includes(v)) v.hazard = false; }, 15000);
+      endScene(true);
+      return;
+    }
+    if (Math.hypot(v.x - pp.x, v.y - pp.y) > 1700 && !onScreen(v.x, v.y, 60)){ popup("🚗 Złodziej odjechał…", "#aaa"); v.stolen = false; endScene(false); }
+    return;
+  }
+  if (s.type === "fight"){
+    if (!peds.includes(s.a) || !peds.includes(s.b) || s.a.state !== "fight" || s.b.state !== "fight"){ endScene(false); return; }
+    if (Math.random() < dt * 0.3) crowdReact(s.a.x, s.a.y, pick(["😮", "😬", "🙈"]), 160, false);
+    return;
+  }
+  if (s.type === "groceries"){
+    const p = s.vic;
+    for (let i = s.items.length - 1; i >= 0; i--){
+      const it = s.items[i];
+      if (player.mode === "foot" && Math.hypot(pp.x - it.x, pp.y - it.y) < 14){ s.items.splice(i, 1); s.got++; if (actx) tone(880 + s.got * 110, actx.currentTime, 0.08, "sine", 0.06); }
+      else if (player.mode === "car" && Math.hypot(pp.x - it.x, pp.y - it.y) < 18){ s.items.splice(i, 1); s.lost++; addPart(it.x, it.y, 0, 0, 0.4, 3, 4); }
+    }
+    if (!s.items.length){
+      if (peds.includes(p)){
+        if (s.got >= 4){ say(p, pick(["Dziękuję! Kochany jesteś!", "Ależ miło! Dziękuję bardzo!"]), 3); emote(p, "🥰", 3); sceneReward(15 + s.got * 5, "POMOC", 2); addFriend(p, 2); }
+        else if (s.got){ say(p, "No... część się uratowała. Dzięki.", 2.5); sceneReward(s.got * 4, "POMOC", 1); }
+        else { say(p, "Rozjechałeś mi zakupy?!", 2.5); emote(p, "😠", 2); addRep(-1); }
+      }
+      endScene(true);
+    }
+    return;
+  }
+  if (s.type === "faint"){
+    const p = s.vic;
+    if (!peds.includes(p) || p.state === "dead"){ endScene(false); return; }
+    if (player.mode === "foot" && Math.hypot(pp.x - p.x, pp.y - p.y) < 28){
+      s.prog += dt;
+      if (s.prog >= 4){
+        p.lying = false; p.icon = null; p.state = "stand"; p.home = [p.x, p.y];
+        say(p, pick(["Co... co się stało? Dziękuję ci!", "Zakręciło mi się w głowie... Dzięki za pomoc!", "Uratowałeś mnie. Dziękuję!"]), 3); emote(p, "🥹", 3);
+        sceneReward(40 + ((Math.random() * 40) | 0), "PIERWSZA POMOC", 4); addFriend(p, 3); heal(5);
+        endScene(true);
+      }
+    } else s.prog = Math.max(0, s.prog - dt * 0.5);
+    if (s.t < 8 && !s.amb){ s.amb = true; popup("🚑 Ktoś wezwał karetkę…", "#aaa"); }
+  }
+}
+function drawLife2World(inV){
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  if (scene && scene.type === "groceries"){
+    ctx.font = "13px system-ui, sans-serif";
+    for (const it of scene.items) if (inV(it.x, it.y, 20)){ ctx.fillText(it.e, it.x, it.y + Math.sin(gameTime * 4 + it.x) * 1.2); }
+  }
+  if (scene && scene.type === "faint" && scene.prog > 0){
+    const p = scene.vic;
+    ctx.strokeStyle = "#5cd65c"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, scene.prog / 4)); ctx.stroke();
+  }
+  // torby i paczki
+  ctx.font = "9px system-ui, sans-serif";
+  for (const p of peds){
+    if (p.state === "dead" || p.state === "inside" || !inV(p.x, p.y, 20)) continue;
+    const it = p.carry || (p.bagT > 0 ? p.bag : null);
+    if (it) ctx.fillText(it, p.x + Math.cos(p.a + 1.3) * 8, p.y + Math.sin(p.a + 1.3) * 8);
+    if (p.cop && p.state !== "copchase"){ ctx.fillStyle = "#0d1b3a"; ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#ffd400"; ctx.fillRect(p.x - 1, p.y - 1, 2, 2); }
+  }
+  // dymki kierowców
+  ctx.font = "700 10px system-ui, sans-serif";
+  for (const v of vehicles){
+    if (!(v.sayT > 0) || !inV(v.x, v.y, 60)) continue;
+    const tw = ctx.measureText(v.say).width, y = v.y - 34;
+    ctx.globalAlpha = Math.min(1, v.sayT * 2);
+    ctx.fillStyle = "rgba(255,240,200,.95)"; rrect(ctx, v.x - tw / 2 - 6, y - 9, tw + 12, 18, 7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(v.x - 4, y + 8); ctx.lineTo(v.x + 4, y + 8); ctx.lineTo(v.x, y + 14); ctx.fill();
+    ctx.fillStyle = "#111"; ctx.fillText(v.say, v.x, y + 0.5);
+    ctx.globalAlpha = 1;
+  }
+  // alarm
+  for (const v of vehicles) if (v.alarm > 0 && inV(v.x, v.y, 40) && Math.sin(gameTime * 14) > 0){
+    ctx.fillStyle = "rgba(255,180,40,.35)"; ctx.beginPath(); ctx.arc(v.x, v.y, 30, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function drawLife2HUD(){
+  if (state !== "play" || !scene) return;
+  const a = sceneAnchor();
+  if (a && !onScreen(a.x, a.y, -20) && !mission && !race && !(NAV && !NAV.track)) drawEdgeArrow(a.x, a.y, "#ffb300");
+  let tip = null;
+  if (scene.type === "snatch" && scene.phase === "run") tip = player.mode === "car" ? "👜 Złodziej ucieka – zajedź mu drogę albo wysiądź i goń!" : "👜 Dogoń złodzieja (z 👜) i go złap!";
+  else if (scene.type === "carjack") tip = scene.phase === "drive" ? "🚨 Taranuj skradzione auto albo je zablokuj!" : "🚨 Ktoś włamuje się do auta – podbiegnij i go spłosz!";
+  else if (scene.type === "fight") tip = "👊 Bójka – podejdź i dotknij 💬, żeby zareagować";
+  else if (scene.type === "groceries") tip = "🛍️ Pozbieraj rozsypane zakupy (pieszo): " + scene.got + "/" + (scene.got + scene.items.length + scene.lost);
+  else if (scene.type === "faint") tip = "🆘 Stań przy poszkodowanym, żeby udzielić pomocy";
+  else if (scene.type === "suspect") tip = "🎯 Znajdź podejrzanego (zaznaczony na mapie) i go złap";
+  if (!tip) return;
+  ctx.font = "700 11px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  const tw = ctx.measureText(tip).width, y = 150;
+  ctx.fillStyle = "rgba(0,0,0,.62)"; rrect(ctx, 10, y - 14, tw + 18, 21, 8); ctx.fill();
+  ctx.fillStyle = "#ffd27a"; ctx.fillText(tip, 19, y);
+  ctx.textAlign = "center";
+}
+
+// ---------- 3. patrole piesze ----------
+function patrolUpdate(dt){
+  life2.patrolT -= dt;
+  if (life2.patrolT > 0) return;
+  life2.patrolT = 5;
+  if (!SET.police) return;
+  const pp = playerPos();
+  // dyżur przed Komendą
+  const kb = buildings.find(x => x.label === "KOMENDA POLICJI");
+  if (kb && Math.hypot(kb.x + kb.w / 2 - pp.x, kb.y + kb.h - pp.y) < 1100 && !peds.some(p => p.desk && p.state !== "dead")){
+    for (const s of [-1, 1]){ const p = copLook(makeStand(kb.x + kb.w / 2 + s * 40, kb.y + kb.h + 26, {})); p.desk = true; p.a = Math.PI / 2; }
+  }
+  const pats = peds.filter(p => p.cop && p.patrol && p.state !== "dead");
+  if (pats.length >= 4) return;
+  const c = cityPoint(450, 1000);
+  if (!c) return;
+  const b = blockAt(c.x, c.y);
+  if (zoneOf(b[0], b[1]) === "river") return;
+  const lead = copLook(makePed(b[0], b[1], ringS(b[0], b[1], c.x, c.y)));
+  lead.patrol = true; lead.spd = 30;
+  const fol = copLook(makePed(0, 0, 0));
+  Object.assign(fol, { x: lead.x + 12, y: lead.y, patrol: true, state: "follow", lead });
+}
+function copsSpot(dt){
+  if (!SET.police || police.stars <= 0) return;
+  const pp = playerPos();
+  for (const p of peds){
+    if (!p.cop || p.chase || p.state === "dead" || p.state === "cuffed") continue;
+    const d = Math.hypot(p.x - pp.x, p.y - pp.y);
+    if (d < 300 && los(p.x, p.y, pp.x, pp.y)){ p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; p.lead = null; say(p, pick(["Stój! Policja!", "To on! Stać!"]), 1.8); police.lostT = 0; }
+  }
+}
+
+// ---------- 4. reakcje na gracza ----------
+function sayCar(v, txt){ v.say = txt; v.sayT = 2.2; }
+const _onHitBase = onVehicleHit;
+onVehicleHit = function(v, imp, hx, hy, other){
+  _onHitBase(v, imp, hx, hy, other);
+  if (v.driver !== "ai" || !v.ai || other !== player.veh || player.mode !== "car" || imp < 70) return;
+  if (!(v.sayT > 0)) sayCar(v, pick(["Ej! Uważaj!", "Gdzie się pchasz?!", "Moje auto!!", "Ślepy jesteś?!", "No pięknie...", "Ubezpieczenie masz?!"]));
+  if (imp > 150 && !v.siren && !v.stolen && !v.rage && !v.inc && v.ai.pers !== "pirate" && !v.ai.ring && life2.rageT <= 0 && Math.random() < 0.6 && !isCop(v)) startRage(v, imp);
+};
+function startRage(v, imp){
+  v.rage = true; v.ai.hitT = 99;
+  const sp = sideOf(v, 10), b = blockAt(sp[0], sp[1]);
+  const p = makePed(b[0], b[1], ringS(b[0], b[1], sp[0], sp[1]));
+  Object.assign(p, { x: sp[0], y: sp[1], state: "rage", rageCar: v, rageT: 16, shT: 0.3, fixed: true, icon: "💢", trait: "grumpy", dmg: Math.round(30 + imp / 4) });
+  pedName(p);
+  life2.rageT = 6;
+}
+function rageDialog(p){
+  const v = p.rageCar;
+  showDialog(who(p), pick(["Ty...! Widzisz, co zrobiłeś z moim autem?!", "Gdzie miałeś oczy?! Cały zderzak do wymiany!", "No i co teraz, mistrzu kierownicy?!"]), [
+    { t: "🙏 Przepraszam, zapłacę za szkodę (" + fmt(p.dmg) + ")", pri: true, fn: () => {
+      if (SAVE.money < p.dmg){ showDialog(who(p), "Nawet kasy nie masz?! Ech... szkoda gadać.", [{ t: "😅" }]); p.rageT = 2; return; }
+      SAVE.money -= p.dmg; saveDirty = true; cashSound(); addRep(2);
+      showDialog(who(p), pick(["No... dobra. Przynajmniej jesteś uczciwy. Jeźdź ostrożniej!", "W porządku. Każdemu się zdarza. Trzymaj się!"]), [{ t: "🤝" }]);
+      p.icon = null; p.state = "rageback";
+    } },
+    { t: "🤝 Spiszmy oświadczenie, jak ludzie", fn: () => {
+      const ok = Math.random() < 0.6;
+      if (ok){ addRep(1); p.icon = null; p.state = "rageback"; showDialog(who(p), "No dobra... Niech będzie po ludzku. Ubezpieczalnia to załatwi.", [{ t: "📝" }]); }
+      else { p.rageT += 5; showDialog(who(p), "Oświadczenie?! Ja chcę gotówkę!", [{ t: "😬" }]); }
+    } },
+    { t: "😤 Sam jesteś winny!", fn: () => {
+      if (Math.random() < 0.5 && player.mode === "foot"){ player.foot.hp -= 10; thud(player.foot.x, player.foot.y); emote(p, "💢"); showDialog(who(p), "Ach tak?! To masz! *pac*", [{ t: "🤕" }]); p.rageT += 6; }
+      else if (SET.police && Math.random() < 0.5){ showDialog(who(p), "Dobra, to dzwonię na policję! Niech oni to rozstrzygną!", [{ t: "😬" }]); police.pending = Math.max(police.pending, 1); police.callT = 4; p.state = "rageback"; p.icon = null; }
+      else { showDialog(who(p), "Co?! Ja?! Ludzie, słyszeliście to?!", [{ t: "🙄" }]); p.rageT += 4; }
+      addRep(-1);
+    } },
+    { t: "🏃 Odjedź bez słowa", fn: () => { closeDialog(); say(p, "Wracaj tu!! Zapamiętam twoją gębę!", 2.5); addRep(-1); } }
+  ], "Wściekły kierowca");
+}
+function reactUpdate(dt){
+  life2.tickT -= dt;
+  if (life2.tickT > 0) return;
+  life2.tickT = 0.5;
+  for (const v of vehicles){ if (v.sayT > 0) v.sayT -= 0.5; if (v.alarm > 0){ v.alarm -= 0.5; v.hazard = v.alarm > 0; if (actx && att(v.x, v.y) > 0.05){ const t = actx.currentTime; tone(1250, t, 0.12, "square", 0.05 * att(v.x, v.y)); tone(950, t + 0.25, 0.12, "square", 0.05 * att(v.x, v.y)); } } }
+  if (life2.rageT > 0) life2.rageT -= 0.5;
+  if (life2.suspectCd > 0) life2.suspectCd -= 0.5;
+  copsSpot(0.5);
+  for (const p of peds) if (p.talkHold && p.state === "stand"){ p.talkHold = false; p.fixed = false; p.state = "walk"; startReturn(p); }
+  const pp = playerPos();
+  // komplementy auta
+  life2.compT -= 0.5;
+  if (player.mode === "car" && life2.compT <= 0){
+    const v = player.veh, sp = Math.hypot(v.vx, v.vy), c = v.cfg;
+    if (sp < 70){
+      const tuned = c.neon || c.spoiler || c.stripes !== "none" || c.finish !== "gloss" || c.rims !== "std" || c.eng >= 2;
+      const p = peds.find(q => freeWalker(q) && Math.hypot(q.x - v.x, q.y - v.y) < 75);
+      if (p){
+        let txt = null, e = "🤩";
+        if (isCop(v)){ txt = pick(["To... radiowóz?!", "Pan policjant? Jakoś nie wygląda...", "Ej, kto ci dał radiowóz?!"]); e = "😳"; }
+        else if (v.hp < 35){ txt = pick(["Ale rzęch!", "To jeszcze jeździ?!", "Złom na kołach, haha!"]); e = "😂"; }
+        else if (c.neon && darkness(hourNow()) > 0.4){ txt = pick(["Ale neon! Bajka!", "Świeci jak choinka, piękne!", "Ooo, ale świecidełko!"]); }
+        else if (tuned){ txt = pick(["Ale fura!", "Piękne auto!", "Zrobisz mi takie?", "Ile koni?!", "Mega bryka!", "Szacun za tuning!"]); }
+        else if (v.type === "limo" || v.type === "sport"){ txt = pick(["Ooo, bogacz!", "Ładne cacko!", "Podwieziesz?"]); }
+        if (txt){ say(p, txt, 2.2); emote(p, e, 2); life2.compT = 22 + Math.random() * 15; }
+      }
+    }
+  }
+  // rozpoznawalność
+  life2.recogT -= 0.5;
+  if (life2.recogT <= 0 && (player.mode === "foot" || player.mode === "car")){
+    const rep = SAVE.rep || 0, bad = police.stars > 0 || rep <= -10;
+    if (rep >= 15 || bad){
+      const p = peds.find(q => freeWalker(q) && Math.hypot(q.x - pp.x, q.y - pp.y) < (player.mode === "car" ? 80 : 55));
+      if (p){
+        life2.recogT = 16 + Math.random() * 10;
+        if (bad){ say(p, pick(["To ten bandyta!", "Uciekajmy!", "Dzwonię na policję!", "O nie, to on!"]), 2); emote(p, "😨"); if (Math.random() < 0.5) startFlee(p, pp.x, pp.y); }
+        else { say(p, pick(["Hej, to ty! Słyszałem o tobie same dobre rzeczy!", "Cześć, bohaterze!", "Dzięki za wszystko, co robisz dla miasta!", "O, to ten pomocny kierowca!"]), 2.4); emote(p, "😊"); }
+      }
+    }
+  }
+}
+
+// ---------- 5. policja: rozmowy ----------
+function copDialog(p){
+  const w = { name: p.name, role: "Policja", col: p.col, hair: p.hair, fem: p.fem };
+  p.a = Math.atan2(playerPos().y - p.y, playerPos().x - p.x);
+  if (police.stars >= 2){ p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; say(p, "Ty jesteś poszukiwany! Stój!", 2); police.lostT = 0; return; }
+  const greet = police.stars === 1 ? "Chwileczkę… Pan pasuje do rysopisu. Coś mi tu nie gra."
+    : pick(["Dzień dobry. Wszystko w porządku?", "Służba nie drużba. W czym mogę pomóc?", "Proszę uważać, dziś dużo się dzieje w mieście.", "Dzień dobry. Spokojnie dziś… na razie."]);
+  copMenu(p, w, greet);
+}
+function copMenu(p, w, text){
+  const ch = [];
+  if (police.stars === 1){
+    ch.push({ t: "🙏 To pomyłka, panie władzo!", pri: true, fn: () => {
+      if (Math.random() < 0.5 + clamp((SAVE.rep || 0) / 100, -0.2, 0.3)){ clearWanted(null); addRep(1); showDialog(w, "No dobrze. Tym razem skończy się na pouczeniu. Proszę uważać.", [{ t: "😇 Dziękuję" }]); }
+      else { showDialog(w, "Kłamstwo ma krótkie nogi! Stój!", [{ t: "😱" }]); addStars(1); p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; }
+    } });
+    ch.push({ t: "🏃 Uciekaj!", fn: () => { closeDialog(); addStars(1); p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; } });
+  }
+  ch.push({ t: "🗣️ Co się dzieje w mieście?", fn: () => copMenu(p, w, copNews()) });
+  if (police.stars === 0 && scene && ["snatch", "carjack", "fight"].includes(scene.type)){
+    ch.push({ t: "🚨 Zgłaszam przestępstwo!", fn: () => {
+      const t = scene.type === "carjack" ? null : sceneAnchor();
+      addRep(1);
+      if (t && peds.includes(t)){ p.state = "copgo"; p.tgt = t; p.fixed = true; p.desk = false; p.lead = null; showDialog(w, "Dziękujemy za czujność! Już tam idę.", [{ t: "👍" }]); }
+      else showDialog(w, "Przekażę przez radio. Patrol już jedzie!", [{ t: "👍" }]);
+    } });
+  }
+  if (police.stars === 0) ch.push({ t: "💼 Mogę jakoś pomóc?", fn: () => {
+    if (scene || mission || life2.suspectCd > 0){ copMenu(p, w, "Na razie dziękujemy. Proszę zajrzeć później."); return; }
+    if (!startSuspect()){ copMenu(p, w, "Na razie spokój. Ale dziękujemy!"); return; }
+    life2.suspectCd = 120;
+    showDialog(w, "Szukamy podejrzanego o kradzieże. Brązowa kurtka, ucieka na widok munduru. Zaznaczyłem na twojej mapie, gdzie go ostatnio widziano. Zatrzymasz go – nagroda $200.", [{ t: "🎯 Biorę to!", pri: true }]);
+  } });
+  ch.push({ t: "😜 Opowiedz dowcip o policjantach", fn: () => {
+    const r = Math.random();
+    if (r < 0.4){ addRep(1); emote(p, "😄"); copMenu(p, w, pick(["Hehe… dobra, ten był niezły. Ale nie powtarzaj go przy komendancie.", "Hahaha! Ten znam, ale i tak się uśmiałem."])); }
+    else if (r < 0.85){
+      showDialog(w, "Bardzo śmieszne. Dokumenty proszę… Mandat $30 za obrazę funkcjonariusza.", [
+        { t: "💸 Zapłać $30", fn: () => { const m = Math.min(30, SAVE.money); SAVE.money -= m; saveDirty = true; showDialog(w, "Dziękuję. I proszę popracować nad żartami.", [{ t: "😑" }]); } },
+        { t: "🙅 Nie zapłacę!", fn: () => { if (SET.police){ addStars(1); p.chase = true; p.state = "copchase"; p.fixed = false; p.desk = false; } closeDialog(); } }]);
+    } else copMenu(p, w, "Ja znam lepszy: ile policjantów trzeba do wymiany żarówki? Żadnego – sama się przyzna, że jest przepalona. Hehe.");
+  } });
+  ch.push({ t: "👋 Do widzenia", fn: closeDialog });
+  showDialog(w, text, ch, police.stars ? "★".repeat(police.stars) + " · uważaj, co mówisz" : "Patrol policji");
+}
+function copNews(){
+  const out = [];
+  if (scene){
+    const a = sceneAnchor();
+    if (a && scene.type !== "groceries"){
+      NAV = { x: a.x, y: a.y, name: "Zgłoszenie" };
+      out.push({ snatch: "Mamy zgłoszenie o kradzieży torebki niedaleko stąd. Zaznaczyłem ci miejsce.", carjack: "Ktoś włamuje się do aut w okolicy. Zaznaczyłem ci miejsce.", fight: "Zgłoszono bójkę. Zaznaczyłem ci, gdzie.", faint: "Ktoś zasłabł na chodniku – może pan pomoże? Zaznaczyłem miejsce.", suspect: "Wciąż szukamy podejrzanego. Masz go na mapie." }[scene.type]);
+    }
+  }
+  if (!out.length) out.push(pick([
+    "Nocą przy Klubie 24 często dochodzi do bójek. Uważaj tam.",
+    "Złodzieje aut lubią parkingi przy Markecie. Jak usłyszysz alarm – dzwoń do nas.",
+    "Na obwodnicy ludzie jeżdżą jak szaleni. My też tam bywamy, haha.",
+    "Jak ktoś ucieka przed nami, zwykle chowa się w bocznych uliczkach. Ale znajdujemy wszystkich… prawie.",
+    "Zgłoszenia od świadków są najważniejsze. Ludzie w tym mieście wszystko widzą.",
+    "Kolczatki to nasza ulubiona zabawka. Ale lepiej, żebyś jej nie poznał.",
+    "Słyszałem, że w garażach przemalowują auta w pięć minut. Ech, potem szukaj wiatru w polu.",
+    "Jak ktoś ma kłopoty z prawem, najlepiej niech sam przyjdzie na Komendę. Mandat wtedy mniejszy."
+  ]));
+  return out.join(" ");
+}
+
+// ---------- bójka: rozmowa ----------
+function fightDialog(p){
+  const s = scene;
+  showDialog(who(p), pick(["Nie wtrącaj się! To nasza sprawa!", "Co się gapisz?! Też chcesz?!", "On zaczął!"]), [
+    { t: "🕊️ Rozdziel ich", pri: true, fn: () => {
+      if (Math.random() < 0.6 + clamp((SAVE.rep || 0) / 100, 0, 0.25)){
+        for (const q of [s.a, s.b]) if (peds.includes(q)){ q.state = "walk"; q.fixed = false; q.partner = null; startReturn(q); q.dir = q === s.a ? 1 : -1; emote(q, "😤"); }
+        sceneReward(20, "ROZJEMCA", 3); endScene(true);
+        showDialog(who(p), "Dobra… dobra. Masz rację. Nie warto. Idę stąd.", [{ t: "🕊️" }]);
+      } else {
+        if (player.mode === "foot"){ player.foot.hp -= 12; thud(player.foot.x, player.foot.y); if (player.foot.hp <= 0){ player.foot.hp = 0; closeDialog(); killPlayer("ZNOKAUTOWANY"); return; } }
+        showDialog(who(p), "Mówiłem: nie wtrącaj się! *łup*", [{ t: "🤕" }]);
+      }
+    } },
+    { t: "📣 Wołaj policję!", fn: () => {
+      closeDialog();
+      if (!copsReact(s.a)){
+        const c = cityPoint(250, 600);
+        if (c && SET.police){ const cop = copLook(makePed(0, 0, 0)); cop.x = c.x; cop.y = c.y; cop.state = "copgo"; cop.tgt = s.a; cop.fixed = true; popup("📞 Policja w drodze!", "#9fd4ff"); }
+        else popup("📞 Nikt nie odbiera…", "#aaa");
+      }
+    } },
+    { t: "👊 Dołącz do bójki", fn: () => {
+      closeDialog(); addRep(-2); if (SET.police) crime(1, p.x, p.y);
+      const o = p.partner;
+      for (const q of [p, o]) if (q && peds.includes(q)){ q.state = "attackP"; q.fT = 0.5; q.atkT = 0; q.partner = null; }
+      endScene(false);
+    } },
+    { t: "🍿 Tylko patrzę", fn: closeDialog }
+  ], "Bójka");
+}
+
+// ---------- taxi z chodnika: gracz może podwieźć ----------
+function hailDialog(p){
+  pedName(p);
+  const far = pois.filter(o => { const d = Math.hypot(o.x - p.x, o.y - p.y); return d > 700 && d < 3000; });
+  const o = far.length ? pick(far) : pick(pois);
+  showDialog(who(p), "Pan jest taksówką? Nieważne! Zawiezie mnie pan pod: " + o.name + "? Zapłacę jak za taksówkę!", [
+    { t: "🚗 Wsiadaj!", pri: true, fn: () => {
+      closeDialog();
+      const d = Math.hypot(o.x - p.x, o.y - p.y);
+      p.icon = null;
+      startMission({ title: "Kurs z chodnika: " + o.name, passenger: true, reward: Math.round(50 + d / 20),
+        steps: [{ t: "goto", at: () => spotNearPoi(o), car: true, text: "Zawieź pasażera: " + o.name, drop: true }],
+        outro: pick(["Dzięki! Szybciej niż taksówka!", "Super! Należy się, plus napiwek.", "Dojechaliśmy! Ratujesz mi dzień."]), who: who(p) }, null, p);
+    } },
+    { t: "🙅 Nie jestem taksówką", fn: () => { closeDialog(); say(p, "No to po co się zatrzymujesz?!", 2); } }
+  ]);
+}
+
+// ---------- nocny wyścig ----------
+const _approachBase = approachDialog;
+approachDialog = function(p){
+  const h = hourNow();
+  if ((h >= 21 || h < 4) && raceFlags.length && Math.random() < 0.35){
+    pedName(p); p.talked = true;
+    const pp = playerPos();
+    let f = raceFlags[0], bd = 1e18;
+    for (const q of raceFlags){ const d = Math.hypot(q.x - pp.x, q.y - pp.y); if (d < bd){ bd = d; f = q; } }
+    showDialog(who(p), "Ej, ty! Wyglądasz na kogoś, kto lubi szybko jeździć. Chłopaki zbierają się dziś przy fladze 🏁. Pokażesz, co potrafisz?", [
+      { t: "🏁 Gdzie to?", pri: true, fn: () => { NAV = { x: f.x, y: f.y, name: "Nocny wyścig" }; showDialog(who(p), "Zaznaczyłem ci na mapie. Tylko nie mów nikomu… zwłaszcza policji. 😎", [{ t: "😎" }]); } },
+      { t: "🙅 Nie dziś", fn: closeDialog }]);
+    return;
+  }
+  _approachBase(p);
+};
+
+// ---------- 6. rozbudowane rozmowy z przechodniami ----------
+const PJOBS = [
+  ["kierowcą autobusu", "kierowczynią autobusu", "Linia 7, dzień w dzień. Znam każdą dziurę w tym mieście."],
+  ["pielęgniarzem w szpitalu", "pielęgniarką w szpitalu", "Ciężka praca, ale ktoś musi. Wczoraj miałem dwanaście godzin dyżuru."],
+  ["kucharzem w pizzerii", "kucharką w pizzerii", "Robię najlepszą margheritę w mieście. Serio, sprawdź!"],
+  ["programistą", "programistką", "Siedzę przy komputerze po dziesięć godzin. Dlatego wyszedłem się przewietrzyć."],
+  ["nauczycielem w szkole", "nauczycielką w szkole", "Dzieciaki dają w kość, ale lubię je. Większość."],
+  ["mechanikiem", "mechaniczką", "Jak ci coś stuka w silniku, przyjedź. Zrobię taniej."],
+  ["listonoszem", "listonoszką", "Znam wszystkie adresy w mieście. I wszystkie psy, niestety."],
+  ["fryzjerem", "fryzjerką", "Ludzie u mnie na fotelu opowiadają wszystko. Wiem o mieście więcej niż policja."],
+  ["strażakiem", "strażaczką", "Jak coś się pali, to my pierwsi. Ostatnio dużo aut płonie, nie wiesz czemu?"],
+  ["sprzedawcą w markecie", "sprzedawczynią w markecie", "Kasa numer trzy, zapraszam. Promocja na ogórki w czwartek."],
+  ["maszynistą na kolei", "maszynistką na kolei", "Linia M nad centrum ma najlepsze widoki. Polecam przejechać."],
+  ["artystą", "artystką", "Maluję murale. Ten przy dworcu jest mój! No dobra, w połowie."],
+  ["księgowym", "księgową", "Liczby, liczby, liczby. Wieczorem potrzebuję adrenaliny, dlatego lubię patrzeć na wyścigi."],
+  ["emerytem", "emerytką", "Czterdzieści lat w fabryce. Teraz karmię gołębie i patrzę, kto jak parkuje."],
+  ["studentem", "studentką", "Studiuję… coś. Głównie studiuję ceny kebabów."]
+];
+const PHOBBY = [
+  ["wędkowanie nad rzeką", "Rano nad rzeką jest cisza i spokój. No, chyba że przepłynie motorówka."],
+  ["bieganie po parku", "Robię pięć kilometrów dziennie. No, prawie codziennie. No, czasem."],
+  ["gotowanie", "Moje pierogi są legendarne. Babcia mówi, że lepsze niż jej!"],
+  ["gry komputerowe", "Gram w takie z widokiem z góry, wiesz, auta, miasto… Haha, jak tu."],
+  ["stare samochody", "Marzę o klasycznym muscle carze. Kiedyś go sobie kupię."],
+  ["koncerty w Klubie 24", "W weekend tam jestem do rana. Basy czuć w kościach!"],
+  ["fotografię", "Najlepsze zdjęcia robię o zachodzie słońca nad rzeką."],
+  ["szachy na Rynku", "Gram ze staruszkami na Rynku. Przegrywam, ale uczę się."],
+  ["oglądanie pociągów", "Wiem, wiem, dziwne. Ale ten wiadukt nad centrum… piękny!"],
+  ["taniec", "Salsa we wtorki, tango w czwartki. Umiesz tańczyć?"],
+  ["ogródek działkowy", "Pomidory mam w tym roku jak pięści!"],
+  ["jazdę na rowerze", "Szkoda, że tu tyle aut. Uważaj na rowerzystów!"]
+];
+const ZONEOP = {
+  downtown: ["Centrum żyje całą dobę. Głośno, ale przynajmniej się nie nudzisz.", "Tu wszystko jest drogie. Kawa za siedem dolców? Litości."],
+  oldtown: ["Starówka ma klimat. Te kamienice, ten Rynek… Tylko parkować nie ma gdzie.", "Mieszkam tu od urodzenia. Turystów coraz więcej."],
+  industrial: ["Przemysłówka nocą jest trochę straszna. Słyszałem, że tu się ścigają.", "Hałas, ciężarówki i kurz. Ale praca jest."],
+  residential: ["Spokojna okolica. Sąsiedzi mili, tylko ten pies spod piątki szczeka.", "Dobre miejsce do życia. Park blisko, sklep blisko.", "Osiedle jak osiedle. Byle parking był."]
+};
+function persona(p){
+  pedName(p);
+  if (p.pj === undefined){
+    p.pj = (Math.random() * PJOBS.length) | 0; p.ph = (Math.random() * PHOBBY.length) | 0;
+    p.age = p.trait === "rich" ? 45 + ((Math.random() * 30) | 0) : 18 + ((Math.random() * 55) | 0);
+    if (PJOBS[p.pj][0] === "emerytem") p.age = Math.max(p.age, 63);
+    if (PJOBS[p.pj][0] === "studentem") p.age = Math.min(p.age, 26);
+    p.like = p.like || 0; p.topics = {};
+  }
+  return p;
+}
+function moodOf(p){
+  let m = { friendly: 2, talkative: 2, shy: 1, rich: 1, grumpy: -1 }[p.trait] || 1;
+  m += (p.like || 0) * 0.6;
+  if (WX.rain > 0.4) m -= 1;
+  return m;
+}
+function talkSub(p){
+  const m = moodOf(p), face = m >= 3 ? "😄" : m >= 1.5 ? "🙂" : m >= 0 ? "😐" : "😠";
+  const hearts = clamp(Math.round(p.like || 0), 0, 5);
+  return "Nastrój " + face + " · sympatia " + ("♥".repeat(hearts) || "–") + (p.age ? " · " + p.age + (p.age % 10 >= 2 && p.age % 10 <= 4 && (p.age % 100 < 12 || p.age % 100 > 14) ? " lata" : " lat") : "");
+}
+function likeAdd(p, n){
+  p.like = (p.like || 0) + n;
+  if (p.like >= 5 && !p.gift){ p.gift = true; const r = Math.random(); if (r < 0.4){ invAdd("med"); popup("🎁 " + p.name + " daje ci apteczkę!", "#ffd27a"); } else addMoney(20 + Math.random() * 30, "PREZENT OD " + p.name.toUpperCase()); }
+}
+talkPed = function(p){
+  persona(p);
+  if (!p.trait) p.trait = pick(TRAITS);
+  const pp = playerPos();
+  p.a = Math.atan2(pp.y - p.y, pp.x - p.x);
+  if (p.friendIdx !== undefined) return friendDialog(p);
+  if (p.state === "walk"){ p.state = "stand"; p.home = [p.x, p.y]; p.fixed = true; p.talkHold = true; }
+  const first = !p.met;
+  p.met = true;
+  const hi = first ? pick(GREET[p.trait]) : (p.like >= 2 ? pick(["O, znowu ty! Miło cię widzieć!", "Hej! Jeszcze raz cześć!"]) : pick(["Znowu ty?", "No słucham.", "Tak?"]));
+  pedMenu(p, hi);
+};
+function pedMenu(p, text, said){
+  const t = p.topics, ch = [];
+  if (!t.who) ch.push({ t: "🙋 Kim jesteś?", fn: () => topicWho(p) });
+  if (!t.hobby) ch.push({ t: "🎯 Co lubisz robić?", fn: () => topicHobby(p) });
+  if (!t.city) ch.push({ t: "🏙️ Jak się tu mieszka?", fn: () => topicCity(p) });
+  ch.push({ t: "🗣️ Słyszałeś coś ciekawego?", fn: () => topicGossip(p) });
+  ch.push({ t: "💬 Więcej…", fn: () => pedMore(p) });
+  ch.push({ t: "👋 Na razie!", fn: () => endTalk(p) });
+  showDialog(who(p), text, ch, said ? "Ty: „" + said + "”" : talkSub(p));
+}
+function endTalk(p, flee){
+  closeDialog();
+  if (p.talkHold && peds.includes(p) && p.state === "stand"){ p.talkHold = false; p.fixed = false; p.state = "walk"; startReturn(p); }
+  if (flee){ const pp = playerPos(); startFlee(p, pp.x, pp.y); }
+  if ((p.like || 0) >= 2) emote(p, "👋", 1.5);
+}
+function topicWho(p){
+  p.topics.who = true;
+  const j = PJOBS[p.pj], shy = p.trait === "shy", rich = p.trait === "rich";
+  let txt = (shy ? "Eee… jestem " : "Jestem ") + p.name + ". " + (rich ? "Mam firmę. Kilka firm, właściwie." : "Z zawodu jestem " + g2(p, j[0], j[1]) + ". " + j[2]);
+  if (p.trait === "grumpy") txt = p.name + ". A co, z urzędu jesteś? Z zawodu jestem " + g2(p, j[0], j[1]) + ", jak już musisz wiedzieć.";
+  showDialog(who(p), txt, [
+    { t: "😮 Ciekawa praca!", fn: () => { likeAdd(p, 1); pedMenu(p, pick(["Naprawdę tak myślisz? Miło!", "No, nie narzekam. A ty czym się zajmujesz? Pewnie jeździsz, co?", "Dzięki! Mało kto pyta."])); } },
+    { t: "😴 Brzmi nudno", fn: () => { likeAdd(p, -1); pedMenu(p, pick(["No wiesz co…", "Każda praca jest ważna, mądralo.", "Hmpf. A ty pewnie astronauta?"])); } },
+    { t: "🚗 A ja jeżdżę po mieście", fn: () => { likeAdd(p, 0.5); pedMenu(p, SAVE.stats.wins ? "Czekaj… to ty wygrywasz te wyścigi?! Niesamowite!" : (SAVE.stats.fares ? "Taksówkarz? Przyda się, jak będę wracać z imprezy!" : "Fajnie! Tylko jeździj ostrożnie, dużo tu wariatów.")); } }
+  ], talkSub(p));
+}
+function topicHobby(p){
+  p.topics.hobby = true;
+  const h = PHOBBY[p.ph];
+  showDialog(who(p), (p.trait === "grumpy" ? "Nic nie lubię. No dobra… " : "Uwielbiam ") + h[0] + "! " + h[1], [
+    { t: "🤩 Ja też to lubię!", fn: () => { likeAdd(p, 2); if (Math.random() < 0.5) emote(p, "🤩"); pedMenu(p, pick(["Serio?! Musimy kiedyś razem!", "No proszę, bratnia dusza!", "Wiedziałem, że fajny z ciebie człowiek!"])); } },
+    { t: "🤔 Nigdy nie próbowałem", fn: () => { likeAdd(p, 0.5); pedMenu(p, "Musisz spróbować! Mówię ci, wciąga."); } },
+    { t: "🙄 Dziwne hobby", fn: () => { likeAdd(p, -1.5); pedMenu(p, pick(["Każdy ma jakieś dziwactwa. Ty pewnie zbierasz kapsle.", "Nie oceniaj, dobrze?"])); } }
+  ], talkSub(p));
+}
+function topicCity(p){
+  p.topics.city = true;
+  const b = blockAt(p.x, p.y), z = zoneOf(b[0], b[1]), ops = ZONEOP[z] || ZONEOP.residential;
+  const h = hourNow();
+  let extra = "";
+  if (WX.rain > 0.4) extra = " A ten deszcz? Trzeci dzień leje!";
+  else if (h >= 21 || h < 5) extra = " Nocą miasto jest piękne… i trochę niebezpieczne.";
+  if (police.stars > 0) extra += " Słyszałeś te syreny? Kogoś gonią!";
+  showDialog(who(p), pick(ops) + extra, [
+    { t: "👍 Zgadzam się", fn: () => { likeAdd(p, 0.5); pedMenu(p, "No właśnie! Fajnie, że ktoś rozumie."); } },
+    { t: "🧭 Co warto tu zobaczyć?", fn: () => { const o = pick(pois); NAV = { x: o.x, y: o.y, name: o.name }; pedMenu(p, "Koniecznie " + o.name + "! To jakieś " + dirText(p, o) + ". Zaznaczyłem ci na mapie."); } },
+    { t: "↩ Wróć", fn: () => pedMenu(p, "Coś jeszcze?") }
+  ], talkSub(p));
+}
+function topicGossip(p){
+  if (p.topics.gossip){ pedMenu(p, pick(["Więcej nic nie wiem, słowo!", "Już ci wszystko powiedziałem.", "Cisza w eterze."])); return; }
+  p.topics.gossip = true;
+  const m = moodOf(p);
+  if (m < 0.5 && Math.random() < 0.6){ pedMenu(p, pick(["A co mnie to obchodzi.", "Nie plotkuję z obcymi."])); return; }
+  let txt;
+  if (scene && scene.type !== "groceries" && Math.random() < 0.6){
+    const a = sceneAnchor();
+    txt = "Widziałem przed chwilą coś dziwnego… " + ({ snatch: "jakiś typ biegał z czyjąś torebką!", carjack: "ktoś majstrował przy cudzym aucie!", fight: "dwóch się tam leje!", faint: "komuś zrobiło się słabo na chodniku!", suspect: "podejrzany gość w brązowej kurtce się tu kręcił." }[scene.type] || "");
+    if (a) NAV = { x: a.x, y: a.y, name: "Plotka" };
+  } else txt = makeRumor();
+  likeAdd(p, 0.5);
+  pedMenu(p, txt);
+}
+function pedMore(p){
+  const t = p.topics, ch = [];
+  if (!t.comp) ch.push({ t: "💐 Powiedz komplement", fn: () => {
+    t.comp = true;
+    const ok = moodOf(p) >= 1 || Math.random() < 0.4;
+    likeAdd(p, ok ? 1.5 : -0.5); if (ok) emote(p, pick(["😊", "😳", "🥰"]));
+    pedMore2(p, ok ? pick(["Och… dziękuję! Miło to słyszeć.", "Hihi, ale z ciebie bajerant!", "Wow, dzięki! Poprawiłeś mi dzień."]) : pick(["Eee… dzięki? Dziwny jesteś.", "Nie podrywaj mnie na ulicy, proszę."]));
+  } });
+  if (!t.joke) ch.push({ t: "😂 Opowiedz żart", fn: () => {
+    t.joke = true;
+    const j = pick(PL.joke), eff = EFFECT[p.trait] ? EFFECT[p.trait].joke : "none";
+    const good = eff === "tip" || (moodOf(p) > 1.5 && Math.random() < 0.6);
+    likeAdd(p, good ? 1 : 0); if (good && Math.random() < 0.5) addMoney(5 + Math.random() * 15, "ZA HUMOR");
+    pedMore2(p, good ? pick(REACT.friendly.joke) : pick((REACT[p.trait] || REACT.friendly).joke), j);
+  } });
+  ch.push({ t: "😏 Zaczep", fn: () => {
+    addRep(-1); likeAdd(p, -2);
+    const eff = EFFECT[p.trait] ? EFFECT[p.trait].rude : "leave";
+    showDialog(who(p), pick((REACT[p.trait] || REACT.friendly).rude), [{ t: "😈", fn: () => endTalk(p, eff === "flee") }], "Ty: „" + pick(PL.rude) + "”");
+  } });
+  if (!t.coffee) ch.push({ t: "☕ Masz na kawę ($10)", fn: () => {
+    if (SAVE.money < 10){ pedMore2(p, "Haha, sam nie masz! Ale dzięki za chęci."); return; }
+    t.coffee = true; SAVE.money -= 10; saveDirty = true; cashSound(); addRep(1); likeAdd(p, 2); emote(p, "🥹");
+    if (p.trait === "rich") addMoney(40, "Z NAWIĄZKĄ");
+    pedMore2(p, p.trait === "rich" ? "Dla mnie? Ha! Ujmujące. Proszę, oddaję z nawiązką." : pick(["Naprawdę? Dziękuję! Dobry z ciebie człowiek.", "Ojej, dziękuję! Zapamiętam to."]));
+  } });
+  if (!mission && !race && player.mode === "foot") ch.push({ t: "🚗 Podwieźć cię gdzieś?", fn: () => {
+    if (moodOf(p) < 1 && Math.random() < 0.6){ pedMore2(p, pick(["Do obcego auta? Nie, dzięki.", "Mama mówiła, żeby nie wsiadać do obcych."])); return; }
+    const far = pois.filter(o => { const d = Math.hypot(o.x - p.x, o.y - p.y); return d > 600 && d < 2800; });
+    const o = far.length ? pick(far) : pick(pois);
+    p.talkHold = false; p.state = "stand"; p.icon = "✋";
+    showDialog(who(p), "W sumie… czemu nie! Podrzucisz mnie pod: " + o.name + "? Wsiądź do auta i podjedź po mnie.", [{ t: "👍 Już jadę", pri: true, fn: () => {
+      closeDialog();
+      startMission({ title: "Podwózka: " + o.name, passenger: true, reward: Math.round(30 + Math.hypot(o.x - p.x, o.y - p.y) / 25),
+        steps: [{ t: "goto", at: () => spotNearPoi(o), car: true, text: "Zawieź " + p.name + ": " + o.name, drop: true }],
+        outro: pick(["Dzięki! Fajnie się z tobą jechało.", "Super! Masz tu coś na paliwo.", "Ale jazda! Dzięki!"]), who: who(p) }, null, p);
+      likeAdd(p, 1);
+    } }]);
+  } });
+  ch.push(...smallInteractions(p).map(c => ({ t: c.t, fn: () => { likeAdd(p, 0.5); c.fn(); } })));
+  if ((p.like || 0) >= 3) ch.push({ t: "🤝 Wymienimy się numerami?", pri: true, fn: () => {
+    addFriend(p, Math.round(p.like));
+    showDialog(who(p), pick(["Jasne! Zadzwoń, jak będziesz w okolicy. Pogadamy!", "Pewnie! Fajnie mieć znajomego z autem, haha!"]), [{ t: "💛", fn: () => endTalk(p) }]);
+  } });
+  ch.push({ t: "↩ Wróć", fn: () => pedMenu(p, "No to o czym jeszcze pogadamy?") });
+  showDialog(who(p), pick(["Mhm?", "Słucham.", "No?"]), ch, talkSub(p));
+}
+function pedMore2(p, text, said){
+  showDialog(who(p), text, [{ t: "💬 Pogadajmy jeszcze", fn: () => pedMenu(p, "No to o czym?") }, { t: "👋 Na razie!", fn: () => endTalk(p) }], said ? "Ty: „" + said + "”" : talkSub(p));
+}
+
+// ---------- zarządzanie ----------
+function life2Update(dt){
+  errandsUpdate(dt);
+  carTakeUpdate(dt);
+  parkUpdate(dt);
+  hailUpdate(dt);
+  scenesUpdate(dt);
+  patrolUpdate(dt);
+  reactUpdate(dt);
+  if (NAV && NAV.track && !(scene && scene.type === "suspect")) NAV = null;
+}
+const _drawPedBase = drawPed;
+drawPed = function(p, isPlayer){ if (p.state === "inside") return; _drawPedBase(p, isPlayer); };
+const _tryTalkBase = tryTalk;
+tryTalk = function(){
+  const p = talkTarget();
+  if (!p) return;
+  if (p.cop && !p.chase && p.state !== "copchase") return copDialog(p);
+  if (p.state === "rage") return rageDialog(p);
+  if (p.state === "fight" && scene && scene.type === "fight") return fightDialog(p);
+  if (p.state === "hail") return hailDialog(p);
+  if (p.thief || p.state === "cuffed" || p.state === "gawk" || p.state === "jacking") { showDialog(who(p), pick(["Nie teraz!", "Spadaj!", "Zajęty jestem!"]), [{ t: "👋" }]); return; }
+  _tryTalkBase();
+};
 
 // START
 // =====================================================================
