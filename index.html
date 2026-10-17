@@ -922,6 +922,7 @@ const wsetG = (tx, ty, g) => { if (tx >= 0 && ty >= 0 && tx < MW && ty < MW) gro
 const getGT = (tx, ty) => (tx < 0 || ty < 0 || tx >= MW || ty >= MW) ? G_FIELD : ground[ty * MW + tx];
 // ---------- drogi (ścieżki) ----------
 const ROADS = [];
+const ROADVIS = new Uint8Array(MW * MW);
 function chaikin(pts, it){
   for (let k = 0; k < it; k++){
     const out = [pts[0]];
@@ -954,16 +955,16 @@ function addRoad(raw, hw, o){
     const [x, y] = pts[i], tx = Math.floor(x / T), ty = Math.floor(y / T);
     for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
       const cx = (tx + dx + 0.5) * T, cy = (ty + dy + 0.5) * T;
-      if (Math.hypot(cx - x, cy - y) <= hw + 6){ const g = getGT(tx + dx, ty + dy); if (g !== G_WATER && !(R.surf !== G_ROAD && g === G_ROAD)) wsetG(tx + dx, ty + dy, R.surf); }
+      if (Math.hypot(cx - x, cy - y) <= hw + 6){ const g = getGT(tx + dx, ty + dy); if (g !== G_WATER && !(R.surf !== G_ROAD && g === G_ROAD)){ const ii = (ty + dy) * MW + tx + dx; if (!o.keep && ii >= 0 && ii < MW * MW && !ROADVIS[ii] && g !== G_ROAD && g !== G_DIRT && g !== G_LOT && g !== G_PAVE && g !== G_WALK) ROADVIS[ii] = g + 1; wsetG(tx + dx, ty + dy, R.surf); } }
     }
   }
   // oznakowanie jako dekale (kawałkami, żeby działało przycinanie do widoku)
-  if (R.surf === G_ROAD){
+  if (R.surf === G_ROAD || R.surf === G_DIRT){
     for (let i = 0; i < pts.length - 1; i += 48){
       const seg = pts.slice(i, Math.min(pts.length, i + 50));
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       for (const p of seg){ x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
-      decal("road", x0 - hw, y0 - hw, x1 - x0 + hw * 2, y1 - y0 + hw * 2, { pts: seg, hw, lanes: R.lanes, noEdge: !!o.noEdge });
+      decal("road", x0 - hw, y0 - hw, x1 - x0 + hw * 2, y1 - y0 + hw * 2, { pts: seg, hw, lanes: R.lanes, noEdge: !!o.noEdge, surf: R.surf, keep: !!o.keep });
     }
   }
   if (R.lamp) for (let s = 200; s < R.len; s += 420){ const p = roadAt(R, s); lamps.push([p[0] - p[3] * (hw + 14), p[1] + p[2] * (hw + 14)]); }
@@ -1144,7 +1145,7 @@ function wfill(x0, y0, x1, y1, g, only){
   for (let ty = Math.max(0, Math.floor(y0 / T)); ty < Math.min(MW, Math.ceil(y1 / T)); ty++)
     for (let tx = Math.max(0, Math.floor(x0 / T)); tx < Math.min(MW, Math.ceil(x1 / T)); tx++){
       const c = ground[ty * MW + tx];
-      if (only ? only(c) : c !== G_WATER) ground[ty * MW + tx] = g;
+      if (only ? only(c) : c !== G_WATER){ ground[ty * MW + tx] = g; ROADVIS[ty * MW + tx] = 0; }
     }
 }
 const softG = c => c === G_FIELD || c === G_GRASS || c === G_FOREST;
@@ -1252,7 +1253,7 @@ const FARM = {};
   const [cx, cy] = TOWN.c;
   wfill(cx - 1650, cy - 1700, cx + 1650, cy + 1650, G_GRASS, softG);
   const inTown = (x, y) => Math.abs(x - cx) < 1650 && y > cy - 1650 && y < cy + 1650;
-  const st = (pts, hw, name, lamp) => { const R = addRoad(pts, hw, { name, lamp, cruise: 140, noEdge: true }); R.want = 1; R.town = true; return R; };
+  const st = (pts, hw, name, lamp) => { const R = addRoad(pts, hw, { name, lamp, cruise: 140, noEdge: true, keep: true }); R.want = 1; R.town = true; return R; };
   TOWN.main = st([[cx, RB + 6500 + 200], [cx, cy + 1550]], 44, "ul. Główna", true);
   TOWN.kosc = st([[cx - 1550, cy], [cx + 1560, cy]], 40, "ul. Kościelna", true);
   TOWN.szk = st([[cx - 1050, cy - 800], [cx + 1050, cy - 800]], 36, "ul. Szkolna", false);
@@ -1389,7 +1390,7 @@ const FARM = {};
   }
 })();
 // ---------- sprzątanie: drzewa na drogach, polach i w budynkach ----------
-(function cleanupTrees(){
+function cleanupTrees(){
   const NB2 = buildings.slice(NEWB0), dead = new Set();
   const bad = g => HARDG.has(g) || g === G_CROP || g === G_RAPE || g === G_PLOW;
   let j = 0;
@@ -1402,6 +1403,108 @@ const FARM = {};
   }
   trees.length = j;
   if (dead.size){ let k = 0; for (const o of solids) if (!(o.t === "c" && dead.has(o.x + "," + o.y))) solids[k++] = o; solids.length = k; }
+}
+cleanupTrees();
+
+// =====================================================================
+// MAŁE MIASTECZKA Z SIATKĄ PROSTYCH ULIC W NOWYCH KRAINACH
+// =====================================================================
+const TOWNS2 = [];
+const STREETN = ["ul. Lipowa", "ul. Słoneczna", "ul. Ogrodowa", "ul. Kwiatowa", "ul. Leśna", "ul. Krótka", "ul. Długa", "ul. Spacerowa", "ul. Klonowa", "ul. Brzozowa", "ul. Akacjowa", "ul. Wodna", "ul. Górska", "ul. Jasna", "ul. Cicha", "ul. Wiśniowa"];
+function gridTown(o){
+  const { x0, y0, nx, ny, bw, bh } = o, x1 = x0 + nx * bw, y1 = y0 + ny * bh, M = 230, SHW = 36, WALK = 24;
+  const T2 = { name: o.name, icon: o.icon, c: [(x0 + x1) / 2, (y0 + y1) / 2], x0: x0 - M, y0: y0 - M, x1: x1 + M, y1: y1 + M, wps: [], streets: [] };
+  wfill(x0 - M, y0 - M, x1 + M, y1 + M, G_GRASS, c => c !== G_WATER && c !== G_ROAD && c !== G_DIRT && c !== G_DECK && c !== G_LOT && c !== G_PAVE && c !== G_SAND);
+  const inside = (x, y) => x > x0 - 60 && x < x1 + 60 && y > y0 - 60 && y < y1 + 60;
+  let ni = (o.seed || 0) % STREETN.length;
+  const st = (pts, main) => { const R = addRoad(pts, SHW, { name: STREETN[ni++ % STREETN.length], cruise: 130, noEdge: true, keep: true, lamp: !!main }); R.want = main ? 1 : 0.5; R.town = true; T2.streets.push(R); return R; };
+  for (let i = 0; i <= nx; i++) st([[x0 + i * bw, y0 - 30], [x0 + i * bw, y1 + 30]], i === (nx >> 1));
+  for (let j = 0; j <= ny; j++) st([[x0 - 30, y0 + j * bh], [x1 + 30, y0 + j * bh]], j === (ny >> 1));
+  for (const R of T2.streets){
+    bandAlong(R, SHW + WALK, G_WALK, inside);
+    for (let s = 40; s < R.len; s += 120){ const p = roadAt(R, s); for (const sd of [-1, 1]) T2.wps.push([p[0] - p[3] * sd * (SHW + 12), p[1] + p[2] * sd * (SHW + 12)]); }
+  }
+  for (const c of o.conn || []){ const R = addRoad(c, 40, { name: "Dojazd: " + o.name, cruise: 210, lamp: true }); R.want = 1; }
+  curB = [];
+  const roofs = TILE_ROOFS, walls = WALLS_HOUSE;
+  const house = (x, y, w, h, flat) => {
+    if (!rectFree(x - 4, y - 4, w + 8, h + 8)) return null;
+    return flat ? addB(x, y, w, h, { col: ROOFS[(wrnd() * ROOFS.length) | 0], wallCol: WALLS_OLD[(wrnd() * WALLS_OLD.length) | 0], ht: 0.2 + wrnd() * 0.12, det: true })
+      : addB(x, y, w, h, { kind: "pitched", col: roofs[(wrnd() * roofs.length) | 0], wallCol: walls[(wrnd() * walls.length) | 0], ht: 0.1 + wrnd() * 0.07, det: false, chim: wrnd() < 0.5 });
+  };
+  const shopsLeft = (o.shops || []).slice();
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++){
+    const bx0 = x0 + i * bw + SHW + WALK + 6, by0 = y0 + j * bh + SHW + WALK + 6, bx1 = x0 + (i + 1) * bw - SHW - WALK - 6, by1 = y0 + (j + 1) * bh - SHW - WALK - 6;
+    const center = Math.abs(i - (nx - 1) / 2) < 1 && Math.abs(j - (ny - 1) / 2) < 1;
+    if (o.square && i === o.square[0] && j === o.square[1]){
+      wfill(bx0 - 6, by0 - 6, bx1 + 6, by1 + 6, G_PAVE);
+      const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2;
+      addRound(cx, cy, 22, 0.05, "#8d8d8d", "well");
+      T2.square = [cx, cy];
+      for (let x = bx0 + 30; x < bx1; x += 90) for (let y = by0 + 30; y < by1; y += 90) T2.wps.push([x, y]);
+      continue;
+    }
+    if (o.church && i === o.church[0] && j === o.church[1]){
+      const cw = 150, ch = Math.min(260, by1 - by0 - 40), cx = (bx0 + bx1) / 2;
+      addB(cx - cw / 2, by0 + 40, cw, ch, { kind: "pitched", col: "#8e3b28", wallCol: "#efe6d6", ht: 0.28, label: "KOŚCIÓŁ", labelSize: 9, det: false, ridge: "v" });
+      addRound(cx, by0 + 22, 34, 0.55, "#5d4037", "tower");
+      T2.church = [cx, by0 + 120];
+      continue;
+    }
+    // kamienice w centrum, domki dalej
+    const flat = center && o.flats;
+    let sx = bx0;
+    while (sx < bx1 - 70){
+      const w = Math.min(bx1 - sx, (flat ? 110 : 92) + wrnd() * 30);
+      if (w < 70) break;
+      let b = null;
+      if (shopsLeft.length && (center || wrnd() < 0.25)){ const L = shopsLeft.shift(); b = rectFree(sx, by0, w, 90) ? addB(sx, by0, w, 90, { kind: "shop", awn: "t", awnCol: L[1], label: L[0], labelSize: 10, ht: 0.14, col: L[2] || "#8d6e63", det: false }) : null; if (!b) shopsLeft.unshift(L); }
+      if (!b) house(sx, by0, w, flat ? 96 : 84, flat);
+      sx += w + 12;
+    }
+    sx = bx0;
+    while (sx < bx1 - 70){
+      const w = Math.min(bx1 - sx, (flat ? 110 : 92) + wrnd() * 30);
+      if (w < 70) break;
+      let b = null;
+      if (shopsLeft.length && center){ const L = shopsLeft.shift(); const hh = 90; b = rectFree(sx, by1 - hh, w, hh) ? addB(sx, by1 - hh, w, hh, { kind: "shop", awn: "b", awnCol: L[1], label: L[0], labelSize: 10, ht: 0.14, col: L[2] || "#8d6e63", det: false }) : null; if (!b) shopsLeft.unshift(L); }
+      if (!b) house(sx, by1 - (flat ? 96 : 84), w, flat ? 96 : 84, flat);
+      sx += w + 12;
+    }
+    const midY0 = by0 + (flat ? 96 : 84) + 14, midY1 = by1 - (flat ? 96 : 84) - 14;
+    if (midY1 - midY0 > 70){ house(bx0, midY0, 84, midY1 - midY0, false); house(bx1 - 84, midY0, 84, midY1 - midY0, false); }
+    const gx = (bx0 + bx1) / 2, gy = (by0 + by1) / 2;
+    if (!flat && !hardNear(gx, gy, 10)){ addTree(gx + (wrnd() - 0.5) * 30, gy + (wrnd() - 0.5) * 20, 14 + wrnd() * 8); trees[trees.length - 1].garden = 1; }
+  }
+  // parkujące auta
+  for (const R of T2.streets) for (let s = 90; s < R.len - 90; s += 260 + wrnd() * 200){
+    if (wrnd() < 0.5) continue;
+    const p = roadAt(R, s), sd = wrnd() < 0.5 ? -1 : 1;
+    addParkedCar(p[0] - p[3] * sd * (SHW - 12), p[1] + p[2] * sd * (SHW - 12), Math.atan2(p[3], p[2]) + (sd < 0 ? Math.PI : 0), null, null);
+  }
+  poi(o.icon, o.name, T2.c[0], T2.c[1]);
+  TOWNS2.push(T2);
+  return T2;
+}
+(function genTowns(){
+  // Borowo: miasteczko w puszczy, przy drodze na zachód
+  const hp = roadAt(WEST.road, roadNearestS(WEST.road, 9300, 17100).s);
+  gridTown({ name: "Borowo", icon: "🌲", x0: 8100, y0: hp[1] + 330, nx: 4, ny: 3, bw: 440, bh: 420, square: [1, 1], church: [2, 0], flats: true, seed: 0,
+    shops: [["SKLEP", "#2e9e4f"], ["PIEKARNIA", "#c62828", "#a1887f"], ["BAR", "#6d4c41", "#5d4037"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["KIOSK", "#d63b2f", "#eceff1"]],
+    conn: [[[8100 + 2 * 440, hp[1] + 60], [8100 + 2 * 440, hp[1] + 300]]] });
+  // Jeziorki: kurort nad Wielkim Jeziorem, na południe od drogi na jezioro
+  gridTown({ name: "Jeziorki", icon: "🏖️", x0: RB + RHW + 330, y0: WCY + 430, nx: 3, ny: 4, bw: 420, bh: 470, square: [1, 1], church: [0, 3], flats: true, seed: 5,
+    shops: [["KAWIARNIA", "#8d6e63", "#6d4c41"], ["LODY", "#ec407a", "#f8bbd0"], ["SKLEP", "#2e9e4f"], ["BAR", "#0277bd", "#4fc3f7"], ["APTEKA", "#2e9e4f", "#90a4ae"]],
+    conn: [[[RB + RHW + 330 + 420, WCY + 60], [RB + RHW + 330 + 420, WCY + 400]]] });
+  // Podgórze: wioska u stóp gór, przy serpentynie
+  gridTown({ name: "Podgórze", icon: "🏔️", x0: WCX - 2350, y0: MOUNT.yb - 2050, nx: 4, ny: 3, bw: 430, bh: 420, square: [2, 1], church: [0, 1], flats: false, seed: 9,
+    shops: [["SKLEP", "#2e9e4f"], ["BAR", "#6d4c41", "#5d4037"], ["KIOSK", "#d63b2f", "#eceff1"], ["PIEKARNIA", "#c62828", "#a1887f"]],
+    conn: [(() => { const y = MOUNT.yb - 2050 + 3 * 420, p = roadAt(MOUNT.road, roadNearestS(MOUNT.road, WCX, y).s); return [[WCX - 2350 + 4 * 430 + 30, y], [p[0] - 20, p[1]]]; })()] });
+  cleanupTrees();
+  const dead = new Set(); let j = 0;
+  for (const t of trees){ const inT = TOWNS2.some(T2 => t.x > T2.x0 + 60 && t.x < T2.x1 - 60 && t.y > T2.y0 + 60 && t.y < T2.y1 - 60); if (inT && !t.garden) dead.add(t.x + "," + t.y); else trees[j++] = t; }
+  trees.length = j;
+  let k = 0; for (const s of solids) if (!(s.t === "c" && dead.has(s.x + "," + s.y))) solids[k++] = s; solids.length = k;
 })();
 
 buildings.sort((a, b) => a.ht - b.ht);
@@ -3506,7 +3609,7 @@ function drawGroundStatic(x0, y0, x1, y1, inV, dyn, ctx = MAINCTX){
   ctx.fillRect(tx0 * T, ty0 * T, (tx1 - tx0 + 1) * T, (ty1 - ty0 + 1) * T);
   let hasWater = false;
   for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++){
-    const i = y * MW + x, g = ground[i];
+    const i = y * MW + x, rv = ROADVIS[i], g0 = ground[i], g = rv && (g0 === G_ROAD || g0 === G_DIRT) ? rv - 1 : g0;
     if (g === G_ROAD) continue;
     if (g === G_WATER) hasWater = true;
     ctx.fillStyle = GFX.painting ? pats().g[g] : (g === G_FIELD ? GCOL[8][(((x / 7) | 0) * 31 + ((y / 7) | 0) * 17) % 3] : GCOL[g][variant[i]]);
@@ -3533,6 +3636,7 @@ function drawGroundStatic(x0, y0, x1, y1, inV, dyn, ctx = MAINCTX){
     if (X > x1 || Y > y1 || X + Sz < x0 || Y + Sz < y0) continue;
     ctx.strokeRect(X, Y, Sz, Sz);
   }
+  for (const d of decals) if (d.type === "road" && inV(d.x + d.w / 2, d.y + d.h / 2, Math.max(d.w, d.h) / 2 + 10)) roadBody(d, ctx);
   for (const d of decals) if (inV(d.x + d.w / 2, d.y + d.h / 2, Math.max(d.w, d.h) / 2 + 10)) drawDecal(d, ctx);
   ctx.fillStyle = "rgba(230,230,220,.6)";
   for (const l of lotLines){
@@ -12656,6 +12760,14 @@ pats = function(){
   return P2;
 };
 // ---------- oznakowanie dróg w krainach ----------
+function roadBody(d, c){
+  const pts = d.pts, hw = d.hw;
+  if (d.keep || pts.length < 2) return;
+  const line = (P) => { c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.stroke(); };
+  c.lineJoin = "round";
+  if (pts.length > 3){ c.lineCap = "butt"; c.strokeStyle = "rgba(0,0,0,.14)"; c.lineWidth = hw * 2 + 9; line(pts.slice(2)); }
+  c.lineCap = "round"; c.strokeStyle = GFX.painting ? pats().g[d.surf] : (d.surf === G_DIRT ? "#7d6a52" : GCOL[0][0]); c.lineWidth = hw * 2; line(pts);
+}
 function drawRoadDecal(d, c){
   const pts = d.pts, hw = d.hw;
   if (pts.length < 2) return;
@@ -12668,6 +12780,7 @@ function drawRoadDecal(d, c){
     return out;
   };
   const line = (P) => { c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.stroke(); };
+  if (d.surf === G_DIRT){ c.strokeStyle = "rgba(60,42,25,.22)"; c.lineWidth = 4; c.lineCap = "round"; line(off(hw * 0.38)); line(off(-hw * 0.38)); return; }
   c.lineJoin = "round"; c.lineCap = "butt";
   c.strokeStyle = "rgba(240,240,230,.8)"; c.lineWidth = 3;
   if (!d.noEdge){ line(off(hw - 8)); line(off(-(hw - 8))); }
@@ -13126,16 +13239,17 @@ pats = function(){
 };
 SURF[G_FOREST] = [0.8, 0.84]; SURF[G_CROP] = [0.7, 0.74]; SURF[G_RAPE] = [0.7, 0.74]; SURF[G_PLOW] = [0.58, 0.68];
 // ---------- miękkie przejścia między naturalnymi nawierzchniami ----------
-const BLENDG = new Set([G_GRASS, G_FIELD, G_ROCK, G_SNOW, G_SAND, G_DIRT, G_FOREST]);
+const BLENDG = new Set([G_GRASS, G_FIELD, G_ROCK, G_SNOW, G_SAND, G_DIRT, G_FOREST, G_WATER]);
+const visG = i => { const r = ROADVIS[i], g = ground[i]; return r && (g === G_ROAD || g === G_DIRT) ? r - 1 : g; };
 function groundBlend(c, tx0, ty0, tx1, ty1){
   const P2 = pats();
   for (let y = Math.max(0, ty0 - 1); y <= ty1; y++) for (let x = Math.max(0, tx0 - 1); x <= tx1; x++){
-    const g = ground[y * MW + x];
+    const g = visG(y * MW + x);
     if (!BLENDG.has(g)) continue;
     for (let d = 0; d < 2; d++){
       const X = x + (d === 0 ? 1 : 0), Y = y + (d === 1 ? 1 : 0);
       if (X >= MW || Y >= MW) continue;
-      const n = ground[Y * MW + X];
+      const n = visG(Y * MW + X);
       if (n === g || !BLENDG.has(n)) continue;
       for (const [src, sg] of [[g, 1], [n, -1]]){
         c.fillStyle = P2.g[src]; c.beginPath();
@@ -13399,8 +13513,8 @@ pedExtraUpdate = function(p, dt){
       if (p.pauseT > 0){ p.pauseT -= dt; return false; }
       if (moveTo(p, p.tx, p.ty, p.spd, dt)){
         p.pauseT = Math.random() < 0.3 ? 1 + Math.random() * 4 : 0;
-        const opts = TOWN.wps.filter(w => { const d = Math.hypot(w[0] - p.x, w[1] - p.y); return d > 60 && d < 210; });
-        const w = opts.length ? pick(opts) : pick(TOWN.wps);
+        const opts = (p.wps || TOWN.wps).filter(w => { const d = Math.hypot(w[0] - p.x, w[1] - p.y); return d > 60 && d < 210; });
+        const w = opts.length ? pick(opts) : pick(p.wps || TOWN.wps);
         p.tx = w[0]; p.ty = w[1]; p.home = [w[0], w[1]];
         if (Math.random() < 0.06 && onScreen(p.x, p.y, 0)) say(p, pick(TOWNTALK), 2.6);
       }
@@ -14090,6 +14204,59 @@ ACH.push(
   ["staff6", "🏭", "Pracodawca roku", "Miej 6 pracowników", 1500, () => BIZ.reduce((t, b) => t + (SAVE.biz[b.id] && SAVE.biz[b.id].staff ? SAVE.biz[b.id].staff.length : 0), 0) >= 6],
   ["biz8", "🏙️", "Imperium", "Miej 8 firm", 6000, () => Object.keys(SAVE.biz).length >= 8]
 );
+
+// =====================================================================
+// MIASTECZKA: MIESZKAŃCY, NAZWY, KRASNALE
+// =====================================================================
+const T2ST = { t: 0 };
+const TOWNTALK2 = {
+  "Borowo": ["W tartaku znowu nadgodziny…", "Grzybów w tym roku zatrzęsienie!", "Leśniczy mówił, że łosia widział za szkołą", "Do miasta? Szosą pół godziny", "Kto by pomyślał, że w środku puszczy jest piekarnia z takim chlebem!"],
+  "Jeziorki": ["Woda dziś ciepła jak w wannie!", "Lody pistacjowe już się skończyły…", "Wypożyczysz rowerek wodny?", "Turyści z miasta znowu zajęli wszystkie leżaki", "Na molo wieczorem najlepsze zachody słońca"],
+  "Podgórze": ["Na szczyt kolejką czy na piechotę?", "W schronisku najlepsza szarlotka w okolicy", "Zimą to tu śniegu po pas", "Serpentyną jeżdżą jak wariaci…", "Owce sąsiada znowu na drodze"]
+};
+function towns2Update(dt){
+  T2ST.t -= dt;
+  if (T2ST.t > 0) return;
+  T2ST.t = 1.1;
+  const pp = playerPos(), hr = hourNow(), night = hr >= 22 || hr < 6;
+  for (const T2 of TOWNS2){
+    if (pp.x < T2.x0 - 700 || pp.x > T2.x1 + 700 || pp.y < T2.y0 - 700 || pp.y > T2.y1 + 700) continue;
+    const n = peds.filter(p => p.wps === T2.wps && p.state !== "dead").length, want = Math.round(([0, 10, 15, 22][SET.peds] || 0) * (night ? 0.3 : 1));
+    for (let k = 0; k < 3 && n + k < want; k++){
+      for (let tr = 0; tr < 8; tr++){
+        const w = pick(T2.wps);
+        if (onScreen(w[0], w[1], 30) || pointBlocked(w[0], w[1], 6)) continue;
+        const p = makePed(0, 0, 0);
+        Object.assign(p, { x: w[0], y: w[1], town: true, wps: T2.wps, townName: T2.name, state: "town", home: [w[0], w[1]], tx: w[0], ty: w[1], pauseT: Math.random() * 2 });
+        if (Math.random() < 0.3){ p.hair = pick(["#e0e0e0", "#bdbdbd", "#f5f5f5"]); p.spd = 20 + Math.random() * 8; }
+        break;
+      }
+    }
+    if (Math.random() < 0.25){ const q = peds.find(p => p.wps === T2.wps && p.state === "town" && onScreen(p.x, p.y, 0) && !(p.sayT > 0)); if (q) say(q, pick(TOWNTALK2[T2.name] || TOWNTALK), 2.6); }
+  }
+}
+const _regionOfT = regionOf;
+regionOf = function(x, y){
+  for (const T2 of TOWNS2) if (x > T2.x0 - 150 && x < T2.x1 + 150 && y > T2.y0 - 150 && y < T2.y1 + 150) return T2.icon + " " + T2.name;
+  return _regionOfT(x, y);
+};
+(function(){
+  for (const T2 of TOWNS2){
+    const p0 = T2.church ? [T2.church[0] + 100, T2.church[1] + 40] : [T2.x1 - 280, T2.y1 - 280];
+    let px = p0[0], py = p0[1];
+    for (let k = 0; k < 40 && (pointBlocked(px, py, 8) || getGW(px, py) === G_WATER); k++){ px += 24; py += 12; }
+    XGNOMES.push({ x: px, y: py });
+  }
+})();
+for (const a of ACH) if (a[0] === "xgAll") a[3] = "Znajdź wszystkie krasnale krain (" + XGNOMES.length + ")";
+if (!Array.isArray(SAVE.towns)) SAVE.towns = [];
+const _regionsUpdateT = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdateT(dt);
+  towns2Update(dt);
+  if (regSt.cur){ for (const T2 of TOWNS2) if (regSt.cur === T2.icon + " " + T2.name && !SAVE.towns.includes(T2.name)){ SAVE.towns.push(T2.name); persist(); } }
+};
+ACH.push(["towns", "🗺️", "Obieżyświat", "Odwiedź Borowo, Jeziorki i Podgórze", 900, () => TOWNS2.every(T2 => SAVE.towns.includes(T2.name))]);
 
 // START
 // =====================================================================
