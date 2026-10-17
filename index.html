@@ -319,6 +319,7 @@ const SDEF = [
   { k: "peds", label: "Piesi", type: "seg", opts: [[0,"Brak"],[1,"Mało"],[2,"Średnio"],[3,"Dużo"]], def: 2 },
   { k: "police", label: "Policja i pościgi", type: "toggle", def: true },
   { k: "weapons", label: "Broń i strzelanie", type: "toggle", def: true },
+  { k: "roofFall", label: "Upadek z dachu", type: "seg", opts: [["hurt","Rani"],["deadly","Śmiertelny z wysokich"],["off","Barierki"]], def: "hurt" },
   { k: "damage", label: "Zniszczenia", type: "seg", opts: [["off","Wyłączone"],["normal","Normalne"],["hard","Mocne"]], def: "normal" },
   { k: "cash", label: "Gotówka do zbierania na mapie", type: "toggle", def: true },
   { k: "units", label: "Jednostki prędkości", type: "seg", opts: [["kmh","km/h"],["mph","mph"]], def: "kmh" },
@@ -1266,7 +1267,7 @@ function updateControlLabels(){
   const hasAny = WORDER.some(id => id !== "fist" && owned(id));
   if (mode === "car" && (curWeap === "fist" || curWeap === "grenade") && hasGun) curWeap = WORDER.find(id => id !== "fist" && id !== "grenade" && owned(id));
   const wOn = SET.weapons && (mode === "foot" || (mode === "car" && hasGun));
-  const key = mode + near + hasN + hasT + tx + taxi.on + bus.on + work.on + vt + jk + ic + wOn + curWeap + hasAny;
+  const key = mode + near + hasN + hasT + tx + taxi.on + bus.on + work.on + vt + jk + ic + wOn + curWeap + hasAny + roofLabel();
   if (key === lastMode) return;
   lastMode = key;
   $("fire").style.display = wOn ? "flex" : "none";
@@ -1288,6 +1289,7 @@ function updateControlLabels(){
   if (mode === "foot"){
     $("gas").textContent = "IDŹ"; $("brake").textContent = "COFNIJ"; $("hb").style.display = "none";
     $("act").textContent = "WSIĄDŹ"; $("act").classList.toggle("dim", !near);
+    const rl = roofLabel(); if (rl){ $("act").textContent = rl; $("act").classList.remove("dim"); } else if (onRoofNow()){ $("act").textContent = "DACH"; $("act").classList.add("dim"); }
   } else {
     $("gas").textContent = "GAZ"; $("brake").textContent = "HAMULEC"; $("hb").style.display = "";
     $("act").textContent = "WYSIĄDŹ"; $("act").classList.remove("dim");
@@ -1911,7 +1913,7 @@ function onVehicleHit(v, imp, hx, hy, other){
   if (isP && imp > 130) loseDrift();
   if (SET.damage !== "off" && !v.wreck && imp > 90){
     const f = SET.damage === "hard" ? 1.8 : 1;
-    v.hp -= (imp - 90) / 6.5 * f / VT[v.type].mass / (1 + 0.4 * v.cfg.armor) * (v.driver === "race" ? 0.35 : 1) * (v === player.veh ? 0.45 : 0.75);
+    v.hp -= (imp - 90) / 6.5 * f / VT[v.type].mass / (1 + 0.4 * v.cfg.armor) * (v.driver === "race" ? 0.35 : 1) * (v === player.veh ? 0.45 * perkDmg() : 0.75);
     addDent(v, hx, hy);
     if (v.hp <= 0){ v.hp = 0; explode(v); }
   }
@@ -2544,12 +2546,11 @@ function update(dt){
     const f = player.foot;
     f.a += pin.steer * 3.2 * (SET.steerSens / 100) * dt;
     let sp = 0;
-    if (pin.thr) sp = 135 * (buffs.coffee > 0 ? 1.4 : 1); else if (pin.brk) sp = -55;
+    if (pin.thr) sp = 135 * (buffs.coffee > 0 ? 1.4 : 1) * perkRun(); else if (pin.brk) sp = -55;
     f.moving = sp !== 0; f.t += dt * (sp > 0 ? 1.6 : 1);
     f.x += (Math.cos(f.a) * sp + f.kvx) * dt; f.y += (Math.sin(f.a) * sp + f.kvy) * dt;
     f.kvx *= Math.exp(-5 * dt); f.kvy *= Math.exp(-5 * dt);
-    pushCircle(f, 7);
-    pedVsVehicles(f, true);
+    if (onRoofNow()) roofFootStep(f, dt); else { pushCircle(f, 7); pedVsVehicles(f, true); }
   }
   if (player.mode === "dead"){
     player.deadT -= dt;
@@ -2559,7 +2560,7 @@ function update(dt){
   workUpdate(dt);
   railUpdate(dt);
   if (state === "play"){ economy(dt); if (!race) checkGarage(); checkRaceFlags(); taxiUpdate(dt); missionUpdate(dt); raceUpdate(dt); eventsUpdate(dt); }
-  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); itemsUpdate(dt); armorUpdate(); }
+  if (state === "play"){ policeUpdate(dt); updateBullets(dt); life2Update(dt); natureUpdate(dt); itemsUpdate(dt); armorUpdate(); roofUpdate(dt); careerUpdate(dt); }
   gfxUpdate(dt);
   managePickups(dt);
   updateFx(dt);
@@ -2623,6 +2624,7 @@ function updateCam(dt){
   const speed = Math.hypot(vx, vy);
   let base = clamp(Math.min(W, H) / 520, 0.55, 2.2) * SET.zoom / 100;
   if (player.mode === "foot") base *= 1.25;
+  if (typeof ROOF !== "undefined"){ if (ROOF.b) base *= 0.9; if (ROOF.para) base *= 0.68; if (ROOF.viewT > 0) base *= 0.55; }
   const zt = base * (SET.dynZoom ? 1 - 0.32 * Math.min(1, speed / 600) : 1);
   zoom += (zt - zoom) * Math.min(1, dt * 2);
   const la = SET.lookAhead ? 0.42 : 0.08;
@@ -3227,11 +3229,13 @@ function render(){
   for (const p of peds) if (p.state !== "dead" && inV(p.x, p.y, 20)) drawPed(p, false);
   for (const p of peds) if (p.state !== "dead" && !p.kind && inV(p.x, p.y, 30)) drawPedExtras(p);
   drawBalloon();
-  if (player.mode === "foot") drawPed(player.foot, true);
+  if (player.mode === "foot" && !onRoofNow()) drawPed(player.foot, true);
   drawBulletsWorld(inV);
   drawLife2World(inV);
   drawNatureWorld(inV);
   drawItems(inV);
+  drawAccessGround(inV);
+  drawBizWorld(inV);
   ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const p of peds){
     if (p.state === "dead" || !inV(p.x, p.y, 30)) continue;
@@ -3271,6 +3275,7 @@ function render(){
     if (b.x > x1 + 260 || b.y > y1 + 260 || b.x + b.w < x0 - 260 || b.y + b.h < y0 - 260) continue;
     drawBuilding(b, camX, camY, dark, hq);
   }
+  drawRoofLayer(inV);
   drawFires(inV);
   drawBubbles(inV);
   // ciemny dym nad dachami
@@ -3295,6 +3300,8 @@ function render(){
   drawPoliceHUD();
   drawLife2HUD();
   drawItemsHUD();
+  drawRoofHUD();
+  drawCareerHUD();
 }
 
 const lc = document.createElement("canvas"), lctx = lc.getContext("2d");
@@ -3476,6 +3483,8 @@ function drawHUD(h){
     for (const k of pickups){ const q = toR(k.x, k.y); ctx.fillRect(q[0] - 1.5, q[1] - 1.5, 3, 3); }
     ctx.fillStyle = "#ffd54f";
     for (const it of items){ const q = toR(it.x, it.y); ctx.fillRect(q[0] - 1.5, q[1] - 1.5, 3, 3); }
+    ctx.font = "10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (const k of SAVE.reveal || []){ const ground = k[0] === "g", i = +k.slice(1), g = ground ? GNOMES[i] : ROOF_GNOMES[i]; if (!g || (ground ? SAVE.gnomes[i] : SAVE.rgnomes[i])) continue; const q = toR(g.x, g.y); if (q[0] > mx && q[0] < mx + sz && q[1] > my && q[1] < my + sz) ctx.fillText("🗿", q[0], q[1]); }
     ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     for (const o of pois){ const q = toR(o.x, o.y); if (q[0] > mx - 8 && q[0] < mx + sz + 8 && q[1] > my - 8 && q[1] < my + sz + 8) ctx.fillText(o.icon, q[0], q[1]); }
     for (const k of pickups) if (k.special){ const q = toR(k.x, k.y); ctx.fillText("🎁", q[0], q[1]); }
@@ -3537,6 +3546,7 @@ function drawHUD(h){
   ctx.font = "900 17px system-ui, sans-serif";
   ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(fmt(SAVE.money), W - 13, ry + 1);
   ctx.fillStyle = "#5cd65c"; ctx.fillText(fmt(SAVE.money), W - 14, ry);
+  drawLevelHUD(W - 26 - ctx.measureText(fmt(SAVE.money)).width, ry - 4);
   if (buffs.coffee > 0){
     ctx.font = "800 12px system-ui, sans-serif"; ctx.fillStyle = "#ffd27a";
     ctx.fillText("☕ " + Math.floor(buffs.coffee / 60) + ":" + String(Math.floor(buffs.coffee % 60)).padStart(2, "0"), W - 14, ry + 18);
@@ -7972,13 +7982,14 @@ function policeUpdate(dt){
   const pp = playerPos();
   // gwiazdki: widoczność
   let seen = false;
-  for (const v of police.units){ if (!vehicles.includes(v) || v.wreck) continue; const d = Math.hypot(v.x - pp.x, v.y - pp.y); if (d < 260 || (d < 650 && v.cop && v.cop.los)){ seen = true; break; } }
-  if (!seen) for (const p of peds) if (p.cop && p.chase && p.state !== "dead" && Math.hypot(p.x - pp.x, p.y - pp.y) < 320){ seen = true; break; }
+  const onRoof = onRoofNow();
+  if (!onRoof) for (const v of police.units){ if (!vehicles.includes(v) || v.wreck) continue; const d = Math.hypot(v.x - pp.x, v.y - pp.y); if (d < 260 || (d < 650 && v.cop && v.cop.los)){ seen = true; break; } }
+  if (!seen && !onRoof) for (const p of peds) if (p.cop && p.chase && p.state !== "dead" && Math.hypot(p.x - pp.x, p.y - pp.y) < 320){ seen = true; break; }
   police.seen = seen;
   if (police.stars > 0 && player.mode !== "dead"){
     if (seen) police.lostT = 0;
     else {
-      police.lostT += dt;
+      police.lostT += dt * (onRoof ? 1.8 : 1) * perkPolice();
       if (police.lostT > 5 + police.stars * 2.5){
         police.stars--; police.lostT = 0;
         if (police.stars === 0){ SAVE.stats.escapes = (SAVE.stats.escapes || 0) + 1; saveDirty = true; clearWanted(null); popup("😎 Zgubiłeś policję!", "#5cd65c"); radio("Straciliśmy go z oczu. Kończymy pościg."); }
@@ -8013,7 +8024,7 @@ function policeUpdate(dt){
       const pv = player.veh;
       if (Math.hypot(pv.vx, pv.vy) < 35) for (const v of police.units) if (Math.hypot(v.x - pv.x, v.y - pv.y) < 105){ close = true; break; }
       if (!close && Math.hypot(pv.vx, pv.vy) < 35) for (const p of peds) if (p.cop && p.chase && p.state !== "dead" && Math.hypot(p.x - pv.x, p.y - pv.y) < 40){ close = true; break; }
-    } else if (player.mode === "foot"){
+    } else if (player.mode === "foot" && !onRoof){
       for (const p of peds) if (p.cop && p.chase && p.state !== "dead" && Math.hypot(p.x - pp.x, p.y - pp.y) < 22){ close = true; break; }
     }
     if (close) police.bustT += dt; else police.bustT = Math.max(0, police.bustT - dt * 1.5);
@@ -8093,7 +8104,7 @@ function shoot(x, y, a, w, owner, extraSpread){
   const n = w.pellets || 1;
   for (let k = 0; k < n; k++){
     const ang = a + (Math.random() - 0.5) * 2 * (w.spread + (extraSpread || 0));
-    bullets.push({ x, y, vx: Math.cos(ang) * w.speed, vy: Math.sin(ang) * w.speed, left: w.range, dmg: w.dmg, owner, src: owner === "player" ? player.veh : null });
+    bullets.push({ x, y, vx: Math.cos(ang) * w.speed, vy: Math.sin(ang) * w.speed, left: w.range, dmg: w.dmg, owner, src: owner === "player" ? player.veh : null, air: owner === "player" && onRoofNow() });
   }
   gunSound(x, y, w);
   addPart(x + Math.cos(a) * 6, y + Math.sin(a) * 6, 0, 0, 0.07, 4, 2);
@@ -8168,7 +8179,7 @@ function updateBullets(dt){
     const stepN = Math.ceil(Math.hypot(b.vx, b.vy) * dt / 10);
     for (let s = 0; s < stepN && !hit; s++){
       b.x += b.vx * dt / stepN; b.y += b.vy * dt / stepN; b.left -= Math.hypot(b.vx, b.vy) * dt / stepN;
-      if (b.left <= 0 || pointBlocked(b.x, b.y, 1)){ hit = true; if (b.left > 0) addPart(b.x, b.y, 0, 0, 0.2, 2, 1); break; }
+      if (b.left <= 0 || (!b.air && pointBlocked(b.x, b.y, 1))){ hit = true; if (b.left > 0) addPart(b.x, b.y, 0, 0, 0.2, 2, 1); break; }
       if (b.owner === "cop" || b.owner === "npc"){
         if (player.mode === "foot" && Math.hypot(player.foot.x - b.x, player.foot.y - b.y) < 8){
           player.foot.hp -= b.dmg * 0.55; hit = true; if (SET.shake) shake = Math.max(shake, 5);
@@ -10402,10 +10413,10 @@ function itemsUpdate(dt){
     for (let i = items.length - 1; i >= 0; i--){
       const it = items[i];
       it.t += dt;
-      if (Math.hypot(it.x - pp.x, it.y - pp.y) < rad){ items.splice(i, 1); takeItem(it.kind, it.x, it.y); }
+      if (Math.hypot(it.x - pp.x, it.y - pp.y) < rad && !onRoofNow()){ items.splice(i, 1); takeItem(it.kind, it.x, it.y); }
     }
     for (let i = 0; i < GNOMES.length; i++){
-      if (SAVE.gnomes[i]) continue;
+      if (SAVE.gnomes[i] || onRoofNow()) continue;
       const g = GNOMES[i];
       if (Math.abs(g.x - pp.x) < rad && Math.abs(g.y - pp.y) < rad && Math.hypot(g.x - pp.x, g.y - pp.y) < rad) takeGnome(i);
     }
@@ -11109,16 +11120,1016 @@ function drawGradeNew(dark){
   let col = null, a = 0;
   if (h >= 5 && h < 8){ col = "255,170,150"; a = 0.08 * (1 - Math.abs(h - 6.5) / 1.5); }
   else if (h >= 16.5 && h < 20){ col = "255,150,60"; a = 0.13 * (1 - Math.abs(h - 18.5) / 2); }
-  else if (dark > 0.6){ col = "40,70,140"; a = 0.1 * dark; }
-  if (col && a > 0.005 && WX.gloom < 0.3){ ctx.globalCompositeOperation = "soft-light"; ctx.fillStyle = "rgba(" + col + "," + (a * 3).toFixed(3) + ")"; ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = "source-over"; }
-  ctx.drawImage(FXS.vign, 0, 0, W, H);
+  if (col && a > 0.005 && WX.gloom < 0.3){ ctx.fillStyle = "rgba(" + col + "," + (a * 0.9).toFixed(3) + ")"; ctx.fillRect(0, 0, W, H); }
+  if (SET.quality !== "low") ctx.drawImage(FXS.vign, 0, 0, W, H);
 }
 function drawWarmPools(inV, dark){
-  if (dark < 0.25) return;
-  ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 0.18 * dark;
-  for (const l of lamps) if (inV(l[0], l[1], 100)) ctx.drawImage(SPR_W, l[0] - 80, l[1] - 80, 160, 160);
+  if (dark < 0.25 || SET.quality !== "high") return;
+  ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 0.16 * dark;
+  for (const l of lamps) if (inV(l[0], l[1], 60)) ctx.drawImage(SPR_W, l[0] - 55, l[1] - 55, 110, 110);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
 }
+
+// =====================================================================
+// DACHY: WEJŚCIA (DRABINY, KLATKI, WINDY), KŁADKI, SKOKI, UPADKI,
+// PUNKTY WIDOKOWE, SPADOCHRON, WYŚCIGI PO DACHACH, DACHOWY BAR
+// =====================================================================
+const ROOF = { b: null, anim: null, jump: null, fall: null, para: null, race: null, viewT: 0, items: [], itemT: 4, npcs: [], birds: [], prevX: 0, prevY: 0, sayT: 0 };
+const roofOK = b => !b.round && !["canopy", "pump", "container", "stadium", "ctower"].includes(b.kind) && b.w >= 40 && b.h >= 40 && b.ht >= 0.08;
+const RBS = buildings.filter(roofOK);
+const PLANKS = [];
+const inRect = (x, y, b, m) => x > b.x + m && x < b.x + b.w - m && y > b.y + m && y < b.y + b.h - m;
+const roofK = b => 1 + b.ht;
+// ---------- połączenia między dachami ----------
+(function buildRoofGraph(){
+  RBS.forEach((b, i) => { b.rid = i; b.links = []; });
+  const cell = 320, grid = new Map();
+  for (const b of RBS){
+    const x0 = Math.floor(b.x / cell), x1 = Math.floor((b.x + b.w) / cell), y0 = Math.floor(b.y / cell), y1 = Math.floor((b.y + b.h) / cell);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++){ const k = x + "," + y; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(b); }
+  }
+  const seen = new Set();
+  for (const a of RBS){
+    const x0 = Math.floor((a.x - 50) / cell), x1 = Math.floor((a.x + a.w + 50) / cell), y0 = Math.floor((a.y - 50) / cell), y1 = Math.floor((a.y + a.h + 50) / cell);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++){
+      for (const b of grid.get(x + "," + y) || []){
+        if (b === a) continue;
+        const key = Math.min(a.rid, b.rid) + "-" + Math.max(a.rid, b.rid);
+        if (seen.has(key)) continue; seen.add(key);
+        const gx = Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w)), gy = Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h));
+        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+        const dh = Math.abs(a.ht - b.ht);
+        let horiz = null, gap = 0;
+        if (gx >= -2 && gx <= 46 && oy >= 30){ horiz = true; gap = Math.max(0, gx); }
+        else if (gy >= -2 && gy <= 46 && ox >= 30){ horiz = false; gap = Math.max(0, gy); }
+        if (horiz === null || dh > 0.14) continue;
+        let type = null, plank = null;
+        if (gap <= 5 && dh <= 0.07) type = "touch";
+        else if (dh <= 0.08 && ghash(a.x + b.x, a.y + b.y) < 0.55){
+          type = "plank";
+          if (horiz){ const L = a.x < b.x ? a : b, Rr = a.x < b.x ? b : a, my = (Math.max(a.y, b.y) + Math.min(a.y + a.h, b.y + b.h)) / 2; plank = { x: L.x + L.w - 8, y: my - 9, w: Rr.x - (L.x + L.w) + 16, h: 18, a, b, ht: Math.min(a.ht, b.ht) }; }
+          else { const Tt = a.y < b.y ? a : b, Bb = a.y < b.y ? b : a, mx = (Math.max(a.x, b.x) + Math.min(a.x + a.w, b.x + b.w)) / 2; plank = { x: mx - 9, y: Tt.y + Tt.h - 8, w: 18, h: Bb.y - (Tt.y + Tt.h) + 16, a, b, ht: Math.min(a.ht, b.ht) }; }
+          PLANKS.push(plank);
+        } else if (gap <= 46) type = "jump";
+        if (!type) continue;
+        a.links.push({ o: b, type, plank }); b.links.push({ o: a, type, plank });
+      }
+    }
+  }
+})();
+// ---------- wejścia na dach ----------
+const ACCESS = [];
+(function buildAccess(){
+  for (const b of RBS){
+    const h = ghash(b.x * 1.3, b.y * 0.7), bxy = blockAt(b.x + b.w / 2, b.y + b.h / 2), z = zoneOf(bxy[0], bxy[1]);
+    let type = null;
+    if (b.ht >= 0.28 && (b.kind === "tower" || b.w * b.h > 22000)) type = h < 0.85 ? "lift" : null;
+    else if ((z === "residential" || z === "oldtown" || b.kind === "pitched") && h < 0.26) type = "stairs";
+    else if (h >= 0.26 && h < 0.6) type = "ladder";
+    else if (h < 0.26) type = "stairs";
+    if (!type) continue;
+    const sides = [0, 1, 2, 3].sort((p, q) => ghash(b.x + p, b.y) - ghash(b.x + q, b.y));
+    for (const sd of sides){
+      const t = 0.3 + ghash(b.y, b.x + sd) * 0.4;
+      let wx, wy, nx, ny;
+      if (sd === 0){ wx = b.x + b.w * t; wy = b.y; nx = 0; ny = -1; }
+      else if (sd === 1){ wx = b.x + b.w; wy = b.y + b.h * t; nx = 1; ny = 0; }
+      else if (sd === 2){ wx = b.x + b.w * t; wy = b.y + b.h; nx = 0; ny = 1; }
+      else { wx = b.x; wy = b.y + b.h * t; nx = -1; ny = 0; }
+      const gx = wx + nx * 15, gy = wy + ny * 15, g = getGW(gx, gy);
+      if (pointBlocked(gx, gy, 7) || g === G_ROAD || g === G_WATER) continue;
+      const a = { b, type, sd, wx, wy, nx, ny, gx, gy, rx: wx - nx * 16, ry: wy - ny * 16 };
+      b.access = a; ACCESS.push(a);
+      break;
+    }
+  }
+})();
+// ---------- punkty widokowe, wyścigi, bar, krasnale na dachach ----------
+const VIEWS = ACCESS.filter(a => a.type === "lift").map(a => a.b).sort((p, q) => q.ht - p.ht).slice(0, 7);
+VIEWS.forEach((b, i) => { b.view = i; });
+if (!SAVE.views || typeof SAVE.views !== "object") SAVE.views = {};
+if (!Array.isArray(SAVE.rgnomes)) SAVE.rgnomes = [];
+if (!Array.isArray(SAVE.reveal)) SAVE.reveal = [];
+const ROOF_RACES = [];
+(function buildRaces(){
+  const comp = new Map();
+  let cid = 0;
+  for (const b of RBS){
+    if (comp.has(b)) continue;
+    const q = [b], list = []; comp.set(b, cid);
+    while (q.length){ const c = q.pop(); list.push(c); for (const L of c.links) if (!comp.has(L.o)){ comp.set(L.o, cid); q.push(L.o); } }
+    if (list.length >= 5 && list.some(x => x.access)) ROOF_RACES.push({ list, start: list.find(x => x.access) });
+    cid++;
+  }
+  ROOF_RACES.sort((p, q) => q.list.length - p.list.length);
+  ROOF_RACES.length = Math.min(ROOF_RACES.length, 5);
+  ROOF_RACES.forEach((r, i) => {
+    const path = [r.start], vis = new Set([r.start]);
+    let cur = r.start;
+    while (path.length < 8){
+      const nx = cur.links.map(L => L.o).filter(o => !vis.has(o)).sort((p, q) => Math.hypot(q.x - r.start.x, q.y - r.start.y) - Math.hypot(p.x - r.start.x, p.y - r.start.y))[0];
+      if (!nx) break;
+      vis.add(nx); path.push(nx); cur = nx;
+    }
+    r.path = path; r.id = i; r.name = ["Dachowy sprint", "Przez kamienice", "Kocie ścieżki", "Nad ulicami", "Szlak gołębi"][i];
+    let len = 0; for (let k = 1; k < path.length; k++) len += Math.hypot(path[k].x - path[k - 1].x, path[k].y - path[k - 1].y);
+    r.par = Math.round(len / 105 + 6);
+    r.start.raceStart = r;
+  });
+  const keep = ROOF_RACES.filter(r => r.path.length >= 4);
+  for (const r of ROOF_RACES) if (!keep.includes(r)) delete r.start.raceStart;
+  ROOF_RACES.splice(0, ROOF_RACES.length, ...keep);
+})();
+const ROOF_GNOMES = [];
+(function(){
+  const cand = RBS.filter(b => b.links.length || b.access).sort((p, q) => ghash(p.x, p.y) - ghash(q.x, q.y));
+  for (const b of cand){
+    if (ROOF_GNOMES.length >= 15) break;
+    if (ROOF_GNOMES.some(g => Math.hypot(g.b.x - b.x, g.b.y - b.y) < 600)) continue;
+    ROOF_GNOMES.push({ b, x: b.x + b.w * (0.2 + ghash(b.y, b.x) * 0.6), y: b.y + b.h * (0.2 + ghash(b.x, b.y + 3) * 0.6) });
+  }
+})();
+const BAR_B = (() => {
+  let dt = RBS.filter(b => { const k = blockAt(b.x, b.y); return zoneOf(k[0], k[1]) === "downtown" && b.access && b.w >= 90 && b.h >= 90; });
+  if (!dt.length) dt = RBS.filter(b => b.access && b.access.type === "lift");
+  dt.sort((p, q) => q.w * q.h - p.w * p.h);
+  const b = dt[0] || null;
+  if (b) b.bar = true;
+  return b;
+})();
+const barOpen = () => { const h = hourNow(); return h >= 19 || h < 3; };
+// ---------- ruch po dachu ----------
+function roofBusy(){ return !!(ROOF.anim || ROOF.jump || ROOF.fall || ROOF.para); }
+function onRoofNow(){ return !!(ROOF.b || ROOF.anim || ROOF.jump || ROOF.fall || ROOF.para); }
+function roofFootStep(f, dt){
+  if (ROOF.anim){ roofAnimStep(f, dt); return; }
+  if (ROOF.jump){
+    const J = ROOF.jump; J.t += dt / J.dur;
+    const t = Math.min(1, J.t);
+    f.x = J.sx + (J.tx - J.sx) * t; f.y = J.sy + (J.ty - J.sy) * t; f.moving = true;
+    if (t >= 1){ ROOF.b = J.to; ROOF.jump = null; thud(f.x, f.y); if (ROOF.race) ROOF.race.jumps++; }
+    ROOF.prevX = f.x; ROOF.prevY = f.y; return;
+  }
+  if (ROOF.fall){
+    const F = ROOF.fall; F.t += dt / 0.55;
+    const t = Math.min(1, F.t);
+    f.x = F.sx + (F.tx - F.sx) * t; f.y = F.sy + (F.ty - F.sy) * t;
+    if (t >= 1) fallLand();
+    return;
+  }
+  if (ROOF.para){ paraStep(f, dt); return; }
+  const b = ROOF.b;
+  if (!b) return;
+  f.kvx = 0; f.kvy = 0;
+  const px = ROOF.prevX, py = ROOF.prevY;
+  if (inRect(f.x, f.y, b, 4)){ ROOF.prevX = f.x; ROOF.prevY = f.y; return; }
+  for (const L of b.links){
+    if (L.plank && inRect(f.x, f.y, L.plank, 1)){ ROOF.prevX = f.x; ROOF.prevY = f.y; return; }
+    if ((L.type === "touch" || L.type === "plank") && inRect(f.x, f.y, L.o, 4)){ ROOF.b = L.o; ROOF.prevX = f.x; ROOF.prevY = f.y; return; }
+  }
+  // na kładce, która prowadzi do innego dachu
+  for (const P of PLANKS){ if ((P.a === b || P.b === b) && inRect(px, py, P, 1)){ const o = P.a === b ? P.b : P.a; if (inRect(f.x, f.y, o, 4)){ ROOF.b = o; ROOF.prevX = f.x; ROOF.prevY = f.y; return; } } }
+  // krawędź: skok, barierka albo upadek
+  const dx = f.x - px, dy = f.y - py, dl = Math.hypot(dx, dy) || 1, ux = dx / dl, uy = dy / dl;
+  if (pin.thr && !pin.brk){
+    for (let d = 10; d <= 56; d += 6){
+      const qx = f.x + ux * d, qy = f.y + uy * d;
+      for (const o of RBS){
+        if (o === b || Math.abs(o.x - b.x) > 400 || Math.abs(o.y - b.y) > 400) continue;
+        if (Math.abs(o.ht - b.ht) <= 0.13 && inRect(qx, qy, o, 6)){
+          ROOF.jump = { sx: px, sy: py, tx: qx + ux * 6, ty: qy + uy * 6, to: o, t: 0, dur: 0.42 };
+          f.x = px; f.y = py;
+          if (actx) tone(300, actx.currentTime, 0.12, "sine", 0.05, sfxBus, 500);
+          return;
+        }
+      }
+    }
+  }
+  if (SET.roofFall === "off" || (ROOF.race && SET.roofFall !== "deadly" && false)){
+    f.x = px; f.y = py;
+    if (!(ROOF.sayT > gameTime)){ ROOF.sayT = gameTime + 3; popup("🚧 Barierka – rozpędź się (GAZ), żeby przeskoczyć na sąsiedni dach", "#ffd27a"); }
+    return;
+  }
+  startFall(px, py, ux, uy);
+}
+function startFall(px, py, ux, uy){
+  const b = ROOF.b;
+  let tx = px, ty = py;
+  for (let d = 6; d < 120; d += 6){ const qx = px + ux * d, qy = py + uy * d; if (!inRect(qx, qy, b, -12) && !pointBlocked(qx, qy, 7)){ tx = qx; ty = qy; break; } }
+  if (tx === px && ty === py){ const a = b.access; if (a){ tx = a.gx; ty = a.gy; } else { tx = b.x - 16; ty = b.y + b.h / 2; } }
+  ROOF.fall = { sx: px, sy: py, tx, ty, t: 0, b, k: roofK(b) };
+  ROOF.b = null;
+  if (actx){ const t = actx.currentTime; tone(700, t, 0.5, "sine", 0.06, sfxBus, 200); }
+  say(player.foot, "Aaaaa!", 1);
+}
+function fallLand(){
+  const F = ROOF.fall; ROOF.fall = null;
+  const f = player.foot, ht = F.b.ht;
+  thud(f.x, f.y); if (SET.shake) shake = Math.max(shake, 10);
+  if (ROOF.race){ ROOF.race = null; popup("❌ Spadłeś – wyścig przerwany", "#ff4136"); }
+  let dmg = Math.round(ht * 240);
+  if (SET.roofFall === "deadly" && ht >= 0.25){ f.hp = 0; killPlayer("UPADEK Z DACHU"); return; }
+  if (SET.roofFall === "hurt") dmg = Math.min(dmg, Math.max(5, f.hp - 1));
+  f.hp -= dmg;
+  popup("💥 Upadek z dachu −" + dmg + " zdrowia", "#ff4136");
+  crowdReact(f.x, f.y, "😱", 220, false);
+  if (f.hp <= 0){ f.hp = 0; killPlayer("UPADEK Z DACHU"); }
+}
+// ---------- wchodzenie i schodzenie ----------
+function nearAccess(){
+  if (player.mode !== "foot" || onRoofNow()) return null;
+  const f = player.foot;
+  let best = null, bd = 22;
+  for (const a of ACCESS){ if (Math.abs(a.gx - f.x) > 22 || Math.abs(a.gy - f.y) > 22) continue; const d = Math.hypot(a.gx - f.x, a.gy - f.y); if (d < bd){ bd = d; best = a; } }
+  return best;
+}
+function nearRoofExit(){
+  if (!ROOF.b || roofBusy()) return null;
+  const f = player.foot;
+  for (const b of [ROOF.b].concat(ROOF.b.links.map(L => L.o))){
+    const a = b.access;
+    if (a && Math.hypot(a.rx - f.x, a.ry - f.y) < 22) return a;
+  }
+  return null;
+}
+function nearView(){ if (!ROOF.b || roofBusy() || ROOF.b.view === undefined) return null; const b = ROOF.b, f = player.foot; return Math.hypot(b.x + b.w / 2 - f.x, b.y + b.h / 2 - f.y) < 30 ? b : null; }
+function nearRaceStart(){ if (!ROOF.b || roofBusy() || !ROOF.b.raceStart || ROOF.race) return null; const b = ROOF.b, f = player.foot; return Math.hypot(b.x + b.w / 2 - f.x, b.y + b.h / 2 - f.y) < 34 ? b.raceStart : null; }
+const ANIM_DUR = { ladder: 1.5, stairs: 2.0, lift: 2.6 };
+function startClimb(a, up){
+  const f = player.foot;
+  ROOF.anim = { a, up, t: 0, dur: ANIM_DUR[a.type] };
+  f.moving = true;
+  if (actx){
+    const t = actx.currentTime;
+    if (a.type === "lift"){ tone(880, t, 0.15, "sine", 0.06); tone(1175, t + 0.18, 0.25, "sine", 0.06); }
+    else for (let i = 0; i < 6; i++) tone(a.type === "ladder" ? 1400 : 180, t + i * 0.22, 0.05, a.type === "ladder" ? "triangle" : "square", 0.03);
+  }
+  if (up) popup(a.type === "lift" ? "🛗 Winda jedzie na dach…" : a.type === "stairs" ? "🚪 Klatka schodowa – w górę…" : "🪜 Wspinasz się po drabinie…", "#cfe3ff");
+}
+function roofAnimStep(f, dt){
+  const A = ROOF.anim; A.t += dt / A.dur;
+  const a = A.a;
+  if (A.up){ f.x = a.gx + (a.rx - a.gx) * Math.min(1, A.t); f.y = a.gy + (a.ry - a.gy) * Math.min(1, A.t); }
+  else { f.x = a.rx + (a.gx - a.rx) * Math.min(1, A.t); f.y = a.ry + (a.gy - a.ry) * Math.min(1, A.t); }
+  if (A.t >= 1){
+    ROOF.anim = null;
+    if (A.up){ ROOF.b = a.b; f.x = a.rx; f.y = a.ry; popup("🏙️ Jesteś na dachu! " + (a.b.links.length ? "Kładki 🪵 prowadzą dalej." : ""), "#9fe39f"); }
+    else { ROOF.b = null; f.x = a.gx; f.y = a.gy; ROOF.race = null; }
+    ROOF.prevX = f.x; ROOF.prevY = f.y; lastMode = "";
+    if (actx && a.type === "lift") tone(1320, actx.currentTime, 0.3, "sine", 0.06);
+  }
+}
+function roofLabel(){
+  if (player.mode !== "foot") return "";
+  if (ROOF.b && !roofBusy()){
+    if (nearRaceStart()) return "WYŚCIG 🏁";
+    if (nearView()) return "🪂 SKOK";
+    if (nearRoofExit()) return "ZEJDŹ ⬇";
+    return "";
+  }
+  const a = nearAccess();
+  return a ? (a.type === "lift" ? "WINDA ⬆" : "WEJDŹ ⬆") : "";
+}
+function roofAction(){
+  if (roofBusy()) return true;
+  if (ROOF.b){
+    const r = nearRaceStart(); if (r){ startRoofRace(r); return true; }
+    const v = nearView(); if (v){ viewDialog(v); return true; }
+    const a = nearRoofExit(); if (a){ startClimb(a, false); return true; }
+    toast("Znajdź zejście (🪜 / 🚪 / 🛗), żeby zejść na ulicę", 1500);
+    return true;
+  }
+  const a = nearAccess();
+  if (a){ startClimb(a, true); return true; }
+  return false;
+}
+// ---------- punkty widokowe i spadochron ----------
+function viewCheck(){
+  const b = ROOF.b;
+  if (!b || b.view === undefined || SAVE.views[b.view]) return;
+  const f = player.foot;
+  if (Math.hypot(b.x + b.w / 2 - f.x, b.y + b.h / 2 - f.y) > 60) return;
+  SAVE.views[b.view] = 1; saveDirty = true;
+  ROOF.viewT = 3.5;
+  addMoney(250, "PUNKT WIDOKOWY");
+  // odkryj najbliższe krasnale
+  const all = [];
+  GNOMES.forEach((g, i) => { if (!SAVE.gnomes[i]) all.push(["g", i, g.x, g.y]); });
+  ROOF_GNOMES.forEach((g, i) => { if (!SAVE.rgnomes[i]) all.push(["r", i, g.x, g.y]); });
+  all.sort((p, q) => Math.hypot(p[2] - f.x, p[3] - f.y) - Math.hypot(q[2] - f.x, q[3] - f.y));
+  for (const g of all.slice(0, 4)){ const k = g[0] + g[1]; if (!SAVE.reveal.includes(k)) SAVE.reveal.push(k); }
+  persist();
+  const n = Object.keys(SAVE.views).length;
+  toast("👁️ Punkt widokowy " + n + "/" + VIEWS.length + "! Na minimapie pojawiły się pobliskie krasnale 🗿", 3500);
+  if (actx){ const t = actx.currentTime; [523, 659, 784, 1047].forEach((fq, i) => tone(fq, t + i * 0.12, 0.4, "triangle", 0.07)); }
+}
+function viewDialog(b){
+  showDialog({ name: "Punkt widokowy", item: "🏙️" }, "Całe miasto jak na dłoni. Wiatr świszczy, a w dole wszystko wygląda jak zabawki. Obok leży spadochron do skoku.", [
+    { t: "🪂 Skacz ze spadochronem!", pri: true, fn: () => { closeDialog(); startPara(b); } },
+    { t: "📸 Zdjęcie panoramy", fn: () => { camFlash = 0.8; if (actx) burst(0.15, 3000, 0.08, "highpass"); addMoney(15, "PANORAMA"); showDialog({ name: "Panorama", item: "📷" }, "Piękne ujęcie! Wrzucasz je do sieci.", [{ t: "📱" }]); } },
+    { t: "👋 Zostań", fn: closeDialog }
+  ]);
+}
+const LAND_SPOTS = (() => { const out = [blockC(1, 1)]; parks.forEach(p => out.push(p)); return out.map(p => ({ x: p[0], y: p[1] })); })();
+function startPara(b){
+  if (!b) return;
+  const f = player.foot;
+  let best = LAND_SPOTS[0], bd = 1e18;
+  for (const s of LAND_SPOTS){ const d = Math.hypot(s.x - f.x, s.y - f.y); if (d > 500 && d < bd){ bd = d; best = s; } }
+  ROOF.para = { alt: b.ht + 0.35, a: f.a, sp: 130, target: best, t: 0, open: 0, x: f.x, y: f.y };
+  ROOF.b = null;
+  popup("🪂 Skok! Steruj w lewo/prawo, GAZ – szybciej, HAMULEC – wolniej. Wyląduj na 🎯", "#9fd4ff");
+  if (actx) burst(0.2, 800, 0.5);
+}
+function paraStep(f, dt){
+  const P = ROOF.para;
+  P.t += dt; P.open = Math.min(1, P.t * 2);
+  P.a += pin.steer * 1.6 * dt;
+  const sp = pin.thr ? 175 : pin.brk ? 80 : 125;
+  P.sp += (sp - P.sp) * Math.min(1, dt * 2);
+  P.x += Math.cos(P.a) * P.sp * dt; P.y += Math.sin(P.a) * P.sp * dt; f.x = P.x; f.y = P.y; f.a = P.a; f.moving = false;
+  P.alt -= dt * (pin.brk ? 0.028 : 0.042) * (WX.type === "storm" ? 1.3 : 1);
+  if (WX.rain > 0.3){ P.x += Math.sin(gameTime * 0.7) * 25 * dt; f.x = P.x; }
+  if (P.alt <= 0){
+    ROOF.para = null;
+    const hit = buildings.find(o => !o.round && inRect(f.x, f.y, o, 0));
+    if (hit){
+      if (roofOK(hit)){ ROOF.b = hit; ROOF.prevX = f.x; ROOF.prevY = f.y; popup("🪂 Wylądowałeś na dachu!", "#9fe39f"); }
+      else { f.x = hit.x - 16; f.y = hit.y + hit.h / 2; player.foot.hp -= 15; popup("💥 Twarde lądowanie! −15", "#ff4136"); }
+      return;
+    }
+    for (let i = 0; i < 12 && pointBlocked(f.x, f.y, 7); i++){ f.x += 8; }
+    const d = Math.hypot(P.target.x - f.x, P.target.y - f.y);
+    const prize = d < 40 ? 300 : d < 120 ? 120 : d < 300 ? 40 : 0;
+    if (prize) addMoney(prize, d < 40 ? "LĄDOWANIE W PUNKT!" : "LĄDOWANIE");
+    else popup("🪂 Wylądowałeś… daleko od celu", "#bbb");
+    thud(f.x, f.y); crowdReact(f.x, f.y, "👏", 220, prize >= 120);
+    ROOF.prevX = f.x; ROOF.prevY = f.y;
+    return;
+  }
+  // zderzenie ze ścianą wyższego budynku
+  for (const o of buildings){
+    if (o.round || Math.abs(o.x - f.x) > 300 || Math.abs(o.y - f.y) > 300) continue;
+    if (inRect(f.x, f.y, o, 0) && o.ht > P.alt){
+      ROOF.para = null;
+      if (roofOK(o) && o.ht - P.alt < 0.06){ ROOF.b = o; ROOF.prevX = f.x; ROOF.prevY = f.y; popup("🪂 Lądowanie na dachu!", "#9fe39f"); return; }
+      player.foot.hp -= 25; thud(f.x, f.y); popup("💥 Uderzyłeś w budynek! −25", "#ff4136");
+      const a = P.a + Math.PI; f.x += Math.cos(a) * 30; f.y += Math.sin(a) * 30;
+      for (let i = 0; i < 20 && pointBlocked(f.x, f.y, 7); i++){ f.x += Math.cos(a) * 8; f.y += Math.sin(a) * 8; }
+      if (player.foot.hp <= 0){ player.foot.hp = 0; killPlayer("ROZBITY O ŚCIANĘ"); }
+      return;
+    }
+  }
+}
+// ---------- wyścigi po dachach ----------
+function startRoofRace(r){
+  ROOF.race = { r, i: 1, t: 0, jumps: 0 };
+  popup("🏁 " + r.name + "! Biegnij przez punkty – rekord: " + (SAVE.records["roof" + r.id] ? SAVE.records["roof" + r.id].toFixed(1) + " s" : "brak"), "#ffd27a");
+  if (actx){ const t = actx.currentTime; tone(660, t, 0.15, "square", 0.06); tone(990, t + 0.3, 0.3, "square", 0.06); }
+}
+function roofRaceStep(dt){
+  const R = ROOF.race;
+  if (!R) return;
+  R.t += dt;
+  if (!ROOF.b && !ROOF.jump){ if (!ROOF.fall) ROOF.race = null; return; }
+  const cp = R.r.path[R.i], f = player.foot;
+  if (ROOF.b === cp && Math.hypot(cp.x + cp.w / 2 - f.x, cp.y + cp.h / 2 - f.y) < Math.min(cp.w, cp.h) * 0.45 + 10){
+    R.i++;
+    if (actx) tone(880 + R.i * 60, actx.currentTime, 0.1, "sine", 0.07);
+    if (R.i >= R.r.path.length){
+      const key = "roof" + R.r.id, rec = SAVE.records[key], t = R.t;
+      const prize = Math.round((t <= R.r.par ? 300 : 150) + R.r.path.length * 20);
+      addMoney(prize, "DACHOWY WYŚCIG");
+      if (!rec || t < rec){ SAVE.records[key] = t; persist(); popup("🏆 Nowy rekord: " + t.toFixed(1) + " s!", "#ffd700"); }
+      else popup("🏁 Meta! " + t.toFixed(1) + " s (rekord " + rec.toFixed(1) + " s)", "#ffd27a");
+      ROOF.race = null;
+    }
+  }
+}
+// ---------- przedmioty, krasnale i ptaki na dachach ----------
+function roofItemsStep(dt){
+  const f = player.foot;
+  if (ROOF.b){
+    ROOF.itemT -= dt;
+    if (ROOF.itemT <= 0 && ROOF.items.length < 4){
+      ROOF.itemT = 15;
+      const near = [ROOF.b].concat(ROOF.b.links.map(L => L.o)).concat(...ROOF.b.links.map(L => L.o.links.map(M => M.o)));
+      const b = pick(near);
+      if (b && b !== ROOF.b) ROOF.items.push({ b, x: b.x + b.w * (0.2 + Math.random() * 0.6), y: b.y + b.h * (0.2 + Math.random() * 0.6), kind: Math.random() < 0.4 ? "cash" : rollKind(), t: 0 });
+    }
+    for (let i = ROOF.items.length - 1; i >= 0; i--){
+      const it = ROOF.items[i];
+      it.t += dt;
+      if (ROOF.b === it.b && Math.hypot(it.x - f.x, it.y - f.y) < 20){ ROOF.items.splice(i, 1); takeItem(it.kind, it.x, it.y); }
+    }
+    ROOF_GNOMES.forEach((g, i) => {
+      if (SAVE.rgnomes[i] || ROOF.b !== g.b || Math.hypot(g.x - f.x, g.y - f.y) > 18) return;
+      SAVE.rgnomes[i] = 1; persist();
+      const n = SAVE.rgnomes.filter(Boolean).length;
+      addMoney(150, "DACHOWY KRASNAL");
+      popup("🗿 Krasnal na dachu " + n + "/" + ROOF_GNOMES.length + "!", "#ffd700");
+      if (actx){ const t = actx.currentTime; [784, 988, 1175, 1568].forEach((fq, k) => tone(fq, t + k * 0.08, 0.2, "triangle", 0.08)); }
+      if (n === ROOF_GNOMES.length){ addMoney(2500, "WSZYSTKIE DACHOWE KRASNALE!"); toast("🏆 Wszystkie krasnale z dachów! Król dachów!", 4000); }
+    });
+  }
+  // gołębie na dachach
+  if (ROOF.b && ROOF.birds.length < 6 && Math.random() < dt * 0.3){
+    const b = pick([ROOF.b].concat(ROOF.b.links.map(L => L.o)));
+    ROOF.birds.push({ b, x: b.x + b.w * Math.random(), y: b.y + b.h * Math.random(), z: 0, vx: 0, vy: 0, fly: false, t: 0, a: Math.random() * 6 });
+  }
+  for (let i = ROOF.birds.length - 1; i >= 0; i--){
+    const q = ROOF.birds[i]; q.t += dt;
+    if (!q.fly && ROOF.b && Math.hypot(q.x - f.x, q.y - f.y) < 45){ q.fly = true; const a = Math.random() * 6.28; q.vx = Math.cos(a) * 120; q.vy = Math.sin(a) * 120; }
+    if (q.fly){ q.x += q.vx * dt; q.y += q.vy * dt; q.z += 60 * dt; if (q.t > 6 || q.z > 200) ROOF.birds.splice(i, 1); }
+    else if (!ROOF.b) ROOF.birds.splice(i, 1);
+  }
+}
+// ---------- dachowy bar ----------
+function barStep(dt){
+  if (!BAR_B) return;
+  const open = barOpen(), f = player.foot;
+  if (!open){ ROOF.npcs.length = 0; return; }
+  if (!ROOF.npcs.length){
+    const b = BAR_B;
+    ROOF.npcs.push({ x: b.x + b.w * 0.5, y: b.y + b.h * 0.22, a: Math.PI / 2, col: "#111", hair: "#3b2a1a", bartender: true, t: 0, name: pick(NAMES_M) });
+    for (let i = 0; i < 9; i++) ROOF.npcs.push({ x: b.x + b.w * (0.2 + Math.random() * 0.6), y: b.y + b.h * (0.4 + Math.random() * 0.45), a: Math.random() * 6.28, col: pick(SHIRTS), hair: pick(HAIRS), t: Math.random() * 5, dance: Math.random() < 0.7, name: pick(Math.random() < 0.5 ? NAMES_M : NAMES_F), fem: Math.random() < 0.5 });
+  }
+  for (const n of ROOF.npcs){ n.t += dt; if (n.dance) n.a += Math.sin(n.t * 3) * dt * 2; }
+  if (ROOF.b === BAR_B && actx){ ROOF.bassT = (ROOF.bassT || 0) - dt; if (ROOF.bassT <= 0){ ROOF.bassT = 0.46; tone(52, actx.currentTime, 0.22, "sine", 0.13, cityBus, 40); } }
+}
+function roofTalkTarget(){
+  if (!ROOF.b || roofBusy()) return null;
+  const f = player.foot;
+  if (ROOF.b === BAR_B) for (const n of ROOF.npcs) if (Math.hypot(n.x - f.x, n.y - f.y) < 30) return { roofNpc: n, x: n.x, y: n.y };
+  return null;
+}
+function roofNpcDialog(n){
+  const w = { name: n.bartender ? n.name + " · barman" : n.name, col: n.col, hair: n.hair, fem: n.fem };
+  if (n.bartender){
+    showDialog(w, pick(["Witaj na najwyższym barze w mieście! Co podać?", "Widok gratis, drinki niestety nie. Co dla ciebie?", "Najlepszy zachód słońca w mieście, mówię ci. Coś do picia?"]), [
+      { t: "🍹 Drink z widokiem ($9)", pri: true, fn: () => { if (SAVE.money < 9){ showDialog(w, "Brakuje ci kilku dolców, przyjacielu.", [{ t: "😅" }]); return; } SAVE.money -= 9; saveDirty = true; cashSound(); heal(15); showDialog(w, "Proszę bardzo – firmowy „Zachód nad miastem”. (+15 zdrowia)", [{ t: "🍹" }]); } },
+      { t: "🥤 Lemoniada ($3)", fn: () => { if (SAVE.money < 3) return closeDialog(); SAVE.money -= 3; saveDirty = true; heal(6); showDialog(w, "Zimna i kwaśna, jak lubisz. (+6)", [{ t: "🥤" }]); } },
+      { t: "🗣️ Co słychać na dachach?", fn: () => showDialog(w, pick(["Mówią, że z najwyższych wieżowców da się skoczyć ze spadochronem. Szaleńcy!", "Po dachach biegają ludzie na czas – startują przy fladze 🏁.", gnomeHint() || "Ktoś podobno chowa złote krasnale na dachach. Dziwne miasto."]), [{ t: "👍" }]) },
+      { t: "👋 Na razie", fn: closeDialog }
+    ], "Bar na dachu");
+  } else {
+    showDialog(w, pick(["Ale widok, co?", "Uwielbiam tu przychodzić po pracy.", "Ta muzyka jest super!", "Patrz, jak światła miasta migają!", "Byłeś kiedyś na punkcie widokowym? Stamtąd skaczą ze spadochronem!"]), [
+      { t: "💃 Zatańczmy!", pri: true, fn: () => { n.dance = true; addRep(1); crowdReact(player.foot.x, player.foot.y, "🎉", 200, false); showDialog(w, "Woo! Masz rytm! 💃🕺", [{ t: "🎶" }]); } },
+      { t: "🥂 Toast za miasto!", fn: () => { heal(3); showDialog(w, "Za miasto! I za to, żeby nikt nie spadł z dachu! 🥂", [{ t: "🥂" }]); } },
+      { t: "👋 Pa", fn: closeDialog }
+    ], "Gość baru");
+  }
+}
+// ---------- rysowanie ----------
+function projK(x, y, k){ return [camX + (x - camX) * k, camY + (y - camY) * k]; }
+function drawAccessGround(inV){
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const f = player.foot;
+  for (const a of ACCESS){
+    if (!inV(a.gx, a.gy, 40)) continue;
+    const near = player.mode === "foot" && !onRoofNow() && Math.hypot(a.gx - f.x, a.gy - f.y) < 80;
+    if (a.type !== "ladder"){
+      ctx.fillStyle = a.type === "lift" ? "#9fb4c8" : "#5b3a24";
+      if (a.nx) ctx.fillRect(a.wx - 2 + (a.nx > 0 ? 0 : -2), a.wy - 9, 4, 18); else ctx.fillRect(a.wx - 9, a.wy - 2 + (a.ny > 0 ? 0 : -2), 18, 4);
+      ctx.fillStyle = "rgba(90,70,50,.6)"; ctx.fillRect(a.gx - 8, a.gy - 5, 16, 10);
+    }
+    if (near){
+      ctx.font = "15px system-ui, sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.arc(a.gx, a.gy - 20, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText(a.type === "lift" ? "🛗" : a.type === "stairs" ? "🚪" : "🪜", a.gx, a.gy - 19 + Math.sin(gameTime * 4) * 1.5);
+    }
+  }
+}
+const _drawBuildingR = drawBuilding;
+drawBuilding = function(b, cx, cy, dark, hq){
+  _drawBuildingR(b, cx, cy, dark, hq);
+  const a = b.access;
+  if (!a || a.type !== "ladder") return;
+  const vis = (a.sd === 0 && cy < b.y) || (a.sd === 1 && cx > b.x + b.w) || (a.sd === 2 && cy > b.y + b.h) || (a.sd === 3 && cx < b.x);
+  if (!vis) return;
+  const k = roofK(b), top = projK(a.wx, a.wy, k), px = -a.ny * 5, py = a.nx * 5;
+  ctx.strokeStyle = "#c9cdd1"; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(a.wx + px, a.wy + py); ctx.lineTo(top[0] + px, top[1] + py); ctx.moveTo(a.wx - px, a.wy - py); ctx.lineTo(top[0] - px, top[1] - py); ctx.stroke();
+  ctx.lineWidth = 1; ctx.beginPath();
+  for (let t = 0.08; t < 1; t += 0.1){ const x = a.wx + (top[0] - a.wx) * t, y = a.wy + (top[1] - a.wy) * t; ctx.moveTo(x + px, y + py); ctx.lineTo(x - px, y - py); }
+  ctx.stroke();
+};
+function drawRoofLayer(inV){
+  const f = player.foot, onR = onRoofNow();
+  // kładki
+  for (const P of PLANKS){
+    if (!inV(P.x + P.w / 2, P.y + P.h / 2, 80)) continue;
+    const k = 1 + P.ht, a = projK(P.x, P.y, k), b = projK(P.x + P.w, P.y + P.h, k);
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(a[0] + 3, a[1] + 4, b[0] - a[0], b[1] - a[1]);
+    ctx.fillStyle = "#8d6e4a"; ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+    ctx.strokeStyle = "rgba(60,40,20,.6)"; ctx.lineWidth = 1; ctx.beginPath();
+    if (P.w > P.h) for (let x = a[0] + 6; x < b[0]; x += 6){ ctx.moveTo(x, a[1]); ctx.lineTo(x, b[1]); }
+    else for (let y = a[1] + 6; y < b[1]; y += 6){ ctx.moveTo(a[0], y); ctx.lineTo(b[0], y); }
+    ctx.stroke();
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  // znaczniki na dachach (wyjścia, widoki, flagi)
+  for (const a of ACCESS){
+    const b = a.b;
+    if (!inV(a.rx, a.ry, 60)) continue;
+    const k = roofK(b), p = projK(a.rx, a.ry, k);
+    ctx.fillStyle = "#3c4148"; ctx.fillRect(p[0] - 8 * k, p[1] - 6 * k, 16 * k, 12 * k);
+    ctx.fillStyle = a.type === "lift" ? "#9fb4c8" : "#6d4c2f"; ctx.fillRect(p[0] - 5 * k, p[1] - 3.5 * k, 10 * k, 7 * k);
+    if (onR && ROOF.b && (ROOF.b === b || ROOF.b.links.some(L => L.o === b))){ ctx.font = (12 * k).toFixed(0) + "px system-ui, sans-serif"; ctx.fillText(a.type === "lift" ? "🛗" : a.type === "stairs" ? "🚪" : "🪜", p[0], p[1] - 14 * k); }
+  }
+  for (const b of VIEWS){
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (!inV(cx, cy, 80)) continue;
+    const k = roofK(b), p = projK(cx, cy, k);
+    ctx.strokeStyle = SAVE.views[b.view] ? "rgba(92,214,92,.8)" : "rgba(255,210,80,.9)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p[0], p[1], 18 * k + Math.sin(gameTime * 3) * 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.font = (16 * k).toFixed(0) + "px system-ui, sans-serif"; ctx.fillText(SAVE.views[b.view] ? "🪂" : "👁️", p[0], p[1]);
+  }
+  for (const r of ROOF_RACES){
+    const b = r.start, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (!inV(cx, cy, 60) || ROOF.race) continue;
+    const k = roofK(b), p = projK(cx, cy, k);
+    ctx.font = (16 * k).toFixed(0) + "px system-ui, sans-serif"; ctx.fillText("🏁", p[0], p[1] - Math.abs(Math.sin(gameTime * 3)) * 4);
+  }
+  if (ROOF.race){
+    const R = ROOF.race, cp = R.r.path[R.i];
+    if (cp){ const k = roofK(cp), p = projK(cp.x + cp.w / 2, cp.y + cp.h / 2, k); ctx.strokeStyle = "rgba(255,179,0,.95)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(p[0], p[1], 22 * k + Math.sin(gameTime * 6) * 3, 0, Math.PI * 2); ctx.stroke(); }
+  }
+  // przedmioty i krasnale na dachach
+  for (const it of ROOF.items){ if (!inV(it.x, it.y, 30)) continue; const k = roofK(it.b), p = projK(it.x, it.y, k); ctx.font = (15 * k).toFixed(0) + "px system-ui, sans-serif"; ctx.globalAlpha = 0.3; ctx.fillStyle = ITEMS[it.kind].col; ctx.beginPath(); ctx.arc(p[0], p[1], 13 * k, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; ctx.fillText(ITEMS[it.kind].icon, p[0], p[1] - 2 + Math.sin(it.t * 3) * 2); }
+  ROOF_GNOMES.forEach((g, i) => {
+    if (SAVE.rgnomes[i] || !inV(g.x, g.y, 30)) return;
+    const k = roofK(g.b), p = projK(g.x, g.y, k);
+    ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(k, k);
+    ctx.fillStyle = "#d4a017"; ctx.beginPath(); ctx.ellipse(0, 1, 4, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffd700"; ctx.beginPath(); ctx.moveTo(-3.5, -2); ctx.lineTo(0, -10); ctx.lineTo(3.5, -2); ctx.fill();
+    ctx.restore();
+  });
+  // bar na dachu
+  if (BAR_B && inV(BAR_B.x + BAR_B.w / 2, BAR_B.y + BAR_B.h / 2, BAR_B.w)){
+    const b = BAR_B, k = roofK(b);
+    const c1 = projK(b.x + b.w * 0.3, b.y + b.h * 0.15, k), c2 = projK(b.x + b.w * 0.7, b.y + b.h * 0.27, k);
+    ctx.fillStyle = "#4e342e"; ctx.fillRect(c1[0], c1[1], c2[0] - c1[0], c2[1] - c1[1]);
+    for (let i = 0; i < 4; i++){ const t = projK(b.x + b.w * (0.2 + i * 0.2), b.y + b.h * 0.7, k); ctx.fillStyle = "#795548"; ctx.beginPath(); ctx.arc(t[0], t[1], 7 * k, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#ffeb3b"; ctx.beginPath(); ctx.arc(t[0], t[1], 2 * k, 0, Math.PI * 2); ctx.fill(); }
+    if (barOpen()){
+      for (let i = 0; i < 10; i++){ const t = projK(b.x + b.w * (0.1 + i * 0.09), b.y + b.h * 0.08, k); ctx.fillStyle = ["#ff5252", "#ffd740", "#69f0ae", "#40c4ff", "#e040fb"][i % 5]; ctx.globalAlpha = 0.6 + 0.4 * Math.sin(gameTime * 4 + i); ctx.beginPath(); ctx.arc(t[0], t[1], 2.5 * k, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 1;
+      for (const n of ROOF.npcs){ const p = projK(n.x, n.y, k); n.moving = !!n.dance; n.state = "stand"; ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(k, k); ctx.translate(-n.x, -n.y); drawPed(n, false); ctx.restore(); }
+    } else { const p = projK(b.x + b.w / 2, b.y + b.h * 0.5, k); ctx.font = "800 " + (10 * k).toFixed(0) + "px system-ui"; ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.fillText("ROOFTOP BAR · od 19:00", p[0], p[1]); }
+  }
+  // gołębie na dachu
+  if (ROOF.b) for (const q of ROOF.birds){ const k = roofK(q.b), p = projK(q.x, q.y, k + q.z / 300); if (q.fly) drawBirdShape(p[0], p[1], Math.atan2(q.vy, q.vx), 1, Math.sin(q.t * 30), "#9aa3ad"); else { ctx.fillStyle = "#9aa3ad"; ctx.beginPath(); ctx.ellipse(p[0], p[1], 3.4 * k, 2.1 * k, q.a, 0, Math.PI * 2); ctx.fill(); } }
+  // gracz na dachu / w trakcie wspinaczki / skoku / upadku / lotu
+  if (player.mode !== "foot" || !onR) return;
+  let k = 1, s = 1;
+  if (ROOF.b && !ROOF.jump) k = roofK(ROOF.b);
+  if (ROOF.anim){ const A = ROOF.anim, t = Math.min(1, A.t); k = 1 + A.a.b.ht * (A.up ? t : 1 - t); }
+  if (ROOF.jump){ const J = ROOF.jump, t = Math.min(1, J.t); const kb = ROOF.b ? roofK(ROOF.b) : 1; k = kb + (roofK(J.to) - kb) * t; s = 1 + Math.sin(t * Math.PI) * 0.35; }
+  if (ROOF.fall){ const F = ROOF.fall, t = Math.min(1, F.t); k = 1 + (F.k - 1) * (1 - t * t); }
+  if (ROOF.para){ k = 1 + ROOF.para.alt; }
+  const p = projK(f.x, f.y, k);
+  if (ROOF.para){
+    const P = ROOF.para;
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(f.x + 4, f.y + 5, 14, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,0,.8)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(P.target.x, P.target.y, 40, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(P.target.x, P.target.y, 120, 0, Math.PI * 2); ctx.stroke();
+    ctx.font = "18px system-ui"; ctx.fillText("🎯", P.target.x, P.target.y);
+  }
+  ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(k * s, k * s); ctx.translate(-f.x, -f.y);
+  if (ROOF.anim){ ctx.globalAlpha = ROOF.anim.a.type === "ladder" ? 1 : Math.abs(ROOF.anim.t - 0.5) * 2; }
+  drawPed(f, true);
+  ctx.globalAlpha = 1;
+  if (ROOF.para){
+    const P = ROOF.para;
+    ctx.translate(f.x, f.y); ctx.rotate(P.a);
+    ctx.strokeStyle = "rgba(40,40,40,.6)"; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(2, 0); ctx.lineTo(16, -14 * P.open); ctx.moveTo(2, 0); ctx.lineTo(16, 14 * P.open); ctx.stroke();
+    ctx.fillStyle = "#e53935"; ctx.beginPath(); ctx.ellipse(18, 0, 5, 18 * P.open, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.ellipse(18, 0, 5, 6 * P.open, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawRoofHUD(){
+  if (state !== "play") return;
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "800 12px system-ui, sans-serif";
+  let txt = null;
+  if (ROOF.race){ const R = ROOF.race; txt = "🏁 " + R.r.name + " · " + (R.i) + "/" + R.r.path.length + " · " + R.t.toFixed(1) + " s (wzorzec " + R.r.par + " s)"; }
+  else if (ROOF.para) txt = "🪂 Wysokość " + Math.round(ROOF.para.alt * 110) + " m · cel 🎯 " + Math.round(Math.hypot(ROOF.para.target.x - player.foot.x, ROOF.para.target.y - player.foot.y) / 10) + " m";
+  else if (ROOF.b) txt = "🏙️ Dach · " + Math.round(ROOF.b.ht * 110) + " m" + (ROOF.b === BAR_B ? " · Rooftop Bar" : "") + (ROOF.b.links.length ? " · rozpędź się, by skoczyć" : "");
+  if (txt){ const tw = ctx.measureText(txt).width; ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, 10, 186, tw + 18, 21, 8); ctx.fill(); ctx.fillStyle = "#cfe3ff"; ctx.fillText(txt, 19, 201); }
+  if (ROOF.race){ const cp = ROOF.race.r.path[ROOF.race.i]; if (cp) drawEdgeArrow(cp.x + cp.w / 2, cp.y + cp.h / 2, "#ffb300"); }
+  if (ROOF.para) drawEdgeArrow(ROOF.para.target.x, ROOF.para.target.y, "#ffb300");
+  ctx.textAlign = "center";
+}
+// ---------- integracja z resztą gry ----------
+function roofUpdate(dt){
+  if (ROOF.viewT > 0) ROOF.viewT -= dt;
+  if (player.mode !== "foot"){ if (onRoofNow()){ ROOF.b = null; ROOF.anim = ROOF.jump = ROOF.fall = ROOF.para = null; ROOF.race = null; } return; }
+  viewCheck();
+  roofRaceStep(dt);
+  roofItemsStep(dt);
+  barStep(dt);
+  if (onRoofNow()){
+    for (const p of peds) if (p.cop && p.chase && p.state !== "dead" && Math.hypot(p.x - player.foot.x, p.y - player.foot.y) < 220 && Math.random() < dt * 0.25) say(p, pick(["Zejdź na dół!", "Wiemy, że tam jesteś!", "Złaź z tego dachu!", "Nie uciekniesz po dachach!"]), 1.8);
+  }
+}
+const _actRoof = actionBtn;
+actionBtn = function(){
+  if (state === "play" && player.mode === "foot" && roofAction()) { lastMode = ""; return; }
+  _actRoof();
+};
+const _talkTargetR = talkTarget;
+talkTarget = function(){
+  if (onRoofNow()) return roofTalkTarget();
+  return _talkTargetR();
+};
+const _tryTalkR = tryTalk;
+tryTalk = function(){
+  if (onRoofNow()){ const t = roofTalkTarget(); if (t) roofNpcDialog(t.roofNpc); return; }
+  _tryTalkR();
+};
+const _checkDoorsR = checkDoors;
+checkDoors = function(){ if (onRoofNow()) return; _checkDoorsR(); };
+const _approachR = approachUpdate;
+approachUpdate = function(dt){ if (onRoofNow()) return; _approachR(dt); };
+const _catchR = playerCatch;
+playerCatch = function(th, d){ if (onRoofNow()) return false; return _catchR(th, d); };
+const _copsSpotR = copsSpot;
+copsSpot = function(dt){ if (!onRoofNow()) _copsSpotR(dt); };
+const _respawnR = respawn;
+respawn = function(){ ROOF.b = null; ROOF.anim = ROOF.jump = ROOF.fall = ROOF.para = null; ROOF.race = null; _respawnR(); };
+const _killR = killPlayer;
+killPlayer = function(msg){ ROOF.b = null; ROOF.anim = ROOF.jump = ROOF.para = null; ROOF.race = null; _killR(msg); };
+
+// =====================================================================
+// KARIERA: POZIOMY KIEROWCY, OSIĄGNIĘCIA, WŁASNE BIZNESY
+// =====================================================================
+if (typeof SAVE.xp !== "number") SAVE.xp = 0;
+if (typeof SAVE.lvl !== "number") SAVE.lvl = 1;
+if (!SAVE.ach || typeof SAVE.ach !== "object") SAVE.ach = {};
+if (!SAVE.biz || typeof SAVE.biz !== "object") SAVE.biz = {};
+SAVE.stats = Object.assign({ km: 0, footKm: 0, bikeKm: 0, boatKm: 0, nightKm: 0, rainKm: 0, maxKmh: 0, bestDrift: 0, earned: 0, jacked: 0, paraBull: 0, robStop: 0 }, SAVE.stats);
+const TITLES = ["Nowicjusz", "Kierowca niedzielny", "Kurier", "Taksówkarz", "Rajdowiec", "Zawodowiec", "As kierownicy", "Mistrz miasta", "Legenda ulic", "Król asfaltu", "Nieśmiertelny"];
+const titleOf = L => TITLES[Math.min(TITLES.length - 1, Math.floor((L - 1) / 5))];
+const xpNeed = L => Math.round(160 * Math.pow(L, 1.45));
+const PERKS = [
+  [2, "💵 +5% zarobków"], [4, "🏃 Szybszy bieg (+8%)"], [6, "🛡️ Auto −10% obrażeń"], [8, "🚓 Policja gubi trop szybciej (+15%)"],
+  [10, "💵 +10% zarobków"], [12, "🛡️ Auto −18% obrażeń"], [15, "💵 +15% zarobków"], [18, "🚓 Policja gubi trop szybciej (+30%)"],
+  [20, "🛡️ Auto −25% obrażeń"], [25, "💵 +25% zarobków"], [30, "🏃 Sprinter (+15% bieg)"], [35, "💵 +35% zarobków"], [40, "👑 Legenda: −35% obrażeń auta"]
+];
+const perkEarn = () => { const L = SAVE.lvl; return L >= 35 ? 1.35 : L >= 25 ? 1.25 : L >= 15 ? 1.15 : L >= 10 ? 1.1 : L >= 2 ? 1.05 : 1; };
+const perkDmg = () => { const L = SAVE.lvl; return L >= 40 ? 0.65 : L >= 20 ? 0.75 : L >= 12 ? 0.82 : L >= 6 ? 0.9 : 1; };
+const perkPolice = () => { const L = SAVE.lvl; return L >= 18 ? 1.3 : L >= 8 ? 1.15 : 1; };
+const perkRun = () => { const L = SAVE.lvl; return L >= 30 ? 1.15 : L >= 4 ? 1.08 : 1; };
+function addXP(n, quiet){
+  if (n <= 0) return;
+  SAVE.xp += n; saveDirty = true;
+  career.xpPop = (career.xpPop || 0) + n; career.xpPopT = 1.6;
+  while (SAVE.xp >= xpNeed(SAVE.lvl)){
+    SAVE.xp -= xpNeed(SAVE.lvl); SAVE.lvl++;
+    const L = SAVE.lvl, prize = L * 60;
+    SAVE.money += prize;
+    const perk = PERKS.find(p => p[0] === L);
+    toast("⭐ POZIOM " + L + " – " + titleOf(L) + "! +" + fmt(prize) + (perk ? "\nNowa umiejętność: " + perk[1] : ""), 4200);
+    if (actx){ const t = actx.currentTime; [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, t + i * 0.1, 0.35, "triangle", 0.08)); }
+    persist();
+  }
+}
+const career = { t: 0, xpPop: 0, xpPopT: 0, achQ: [] };
+// zarobki: bonus z poziomu + doświadczenie
+const _addMoneyC = addMoney;
+addMoney = function(n, label){
+  n = Math.round(n);
+  if (n <= 0) return;
+  const m = perkEarn(), v = Math.round(n * m);
+  _addMoneyC(v, label + (m > 1 && v - n >= 2 ? " (+" + Math.round((m - 1) * 100) + "%)" : ""));
+  SAVE.stats.earned += v;
+  if (label === "LĄDOWANIE W PUNKT!") SAVE.stats.paraBull++;
+  if (label && label.indexOf("DRIFT") === 0) SAVE.stats.bestDrift = Math.max(SAVE.stats.bestDrift, n);
+  addXP(Math.max(1, Math.round(n * 0.22)));
+};
+// ---------- liczniki jazdy ----------
+function careerTrack(dt){
+  const h = hourNow(), night = h >= 21 || h < 5;
+  if (player.mode === "car" && player.veh){
+    const v = player.veh, sp = Math.hypot(v.vx, v.vy), d = sp * dt / 10000, t = VT[v.type];
+    if (t.boat) SAVE.stats.boatKm += d;
+    else if (t.human) SAVE.stats.bikeKm += d;
+    else { SAVE.stats.km += d; if (night) SAVE.stats.nightKm += d; if (WX.rain > 0.3) SAVE.stats.rainKm += d; }
+    const kmh = sp / 10 * 3.6;
+    if (kmh > SAVE.stats.maxKmh && !t.human) SAVE.stats.maxKmh = kmh;
+    career.xpKm = (career.xpKm || 0) + d;
+    if (career.xpKm >= 0.1){ career.xpKm -= 0.1; addXP(2); }
+  } else if (player.mode === "foot" && player.foot.moving){
+    SAVE.stats.footKm += 135 * dt / 10000;
+  }
+  if (police.stars > (career.chaseMax || 0)) career.chaseMax = police.stars;
+  if (police.stars === 0 && career.chaseMax){ if (career.chaseMax >= 3 && player.mode !== "dead") SAVE.stats.bigEscape = (SAVE.stats.bigEscape || 0) + 1; career.chaseMax = 0; }
+}
+// ---------- osiągnięcia ----------
+const ST = () => SAVE.stats;
+const ACH = [
+  ["km1", "🚗", "Pierwszy kilometr", "Przejedź 1 km", 100, () => ST().km >= 1],
+  ["km50", "🛣️", "Kierowca", "Przejedź 50 km", 400, () => ST().km >= 50],
+  ["km250", "🏁", "Szosowy wojownik", "Przejedź 250 km", 1200, () => ST().km >= 250],
+  ["km1000", "🌍", "Tysiąc kilometrów", "Przejedź 1000 km", 5000, () => ST().km >= 1000],
+  ["v150", "💨", "Szybciej!", "Rozpędź się do 150 km/h", 200, () => ST().maxKmh >= 150],
+  ["v220", "🚀", "Rakieta", "Rozpędź się do 220 km/h", 800, () => ST().maxKmh >= 220],
+  ["drift", "🌀", "Drifter", "Zdobądź $100 jednym driftem", 400, () => ST().bestDrift >= 100],
+  ["win1", "🏆", "Pierwsze zwycięstwo", "Wygraj uliczny wyścig", 300, () => (ST().wins || 0) >= 1],
+  ["win5", "👑", "Król ulic", "Wygraj 5 wyścigów", 1500, () => (ST().wins || 0) >= 5],
+  ["taxi10", "🚕", "Taksówkarz", "Przewieź 10 pasażerów taxi", 300, () => (ST().fares || 0) >= 10],
+  ["taxi50", "🎫", "Licencja na wożenie", "Przewieź 50 pasażerów taxi", 1500, () => (ST().fares || 0) >= 50],
+  ["tune", "✨", "Tuning", "Zamontuj neon albo silnik poziomu 2+", 300, () => SAVE.cur && (SAVE.cur.neon || SAVE.cur.eng >= 2)],
+  ["col3", "🚙", "Kolekcjoner aut", "Miej 3 auta w garażu", 600, () => SAVE.col.length >= 3],
+  ["col8", "🏎️", "Salon samochodowy", "Miej 8 aut w garażu", 3000, () => SAVE.col.length >= 8],
+  ["bike10", "🚲", "Ekolog", "Przejedź 10 km rowerem lub deską", 400, () => ST().bikeKm >= 10],
+  ["foot10", "🥾", "Piechur", "Przejdź 10 km pieszo", 400, () => ST().footKm >= 10],
+  ["boat5", "🚤", "Wilk rzeczny", "Przepłyń 5 km łodzią", 400, () => ST().boatKm >= 5],
+  ["night50", "🌙", "Nocny jeździec", "Przejedź 50 km nocą", 600, () => ST().nightKm >= 50],
+  ["rain20", "🌧️", "Mokra nawierzchnia", "Przejedź 20 km w deszczu", 500, () => ST().rainKm >= 20],
+  ["star1", "⭐", "Pierwsza gwiazdka", "Zostań poszukiwanym", 100, () => (ST().maxStars || 0) >= 1],
+  ["star5", "🚨", "Wróg publiczny nr 1", "Zdobądź 5 gwiazdek", 1000, () => (ST().maxStars || 0) >= 5],
+  ["esc1", "😎", "Zgubiłeś ogon", "Ucieknij policji", 200, () => (ST().escapes || 0) >= 1],
+  ["esc10", "🦊", "Nieuchwytny", "Ucieknij policji 10 razy", 1200, () => (ST().escapes || 0) >= 10],
+  ["esc3s", "🔥", "Wielka ucieczka", "Ucieknij przy 3+ gwiazdkach", 900, () => (ST().bigEscape || 0) >= 1],
+  ["bust1", "🚔", "Kajdanki", "Daj się zatrzymać policji", 50, () => (ST().busted || 0) >= 1],
+  ["good5", "😇", "Dobry samarytanin", "Pomóż ludziom 5 razy", 400, () => (ST().good || 0) >= 5],
+  ["good25", "🦸", "Bohater miasta", "Pomóż ludziom 25 razy", 2000, () => (ST().good || 0) >= 25],
+  ["friends5", "💛", "Towarzyski", "Miej 5 znajomych", 500, () => SAVE.friends.length >= 5],
+  ["pet", "🐈", "Kociarz", "Przygarnij kota", 400, () => !!SAVE.pet],
+  ["rep50", "😊", "Lubiany", "Zdobądź 50 punktów reputacji", 800, () => (SAVE.rep || 0) >= 50],
+  ["album5", "📷", "Fotograf przyrody", "Sfotografuj 5 gatunków", 500, () => ALBUM.filter(k => SAVE.album[k]).length >= 5],
+  ["albumAll", "🦌", "Przyrodnik", "Skompletuj album przyrody", 2500, () => ALBUM.every(k => SAVE.album[k])],
+  ["gn10", "🗿", "Łowca krasnali", "Znajdź 10 złotych krasnali", 800, () => SAVE.gnomes.filter(Boolean).length >= 10],
+  ["gnAll", "🏅", "Pan krasnali", "Znajdź wszystkie krasnale w mieście", 5000, () => SAVE.gnomes.filter(Boolean).length >= GNOMES.length],
+  ["rgnAll", "🏙️", "Król dachów", "Znajdź wszystkie krasnale na dachach", 3000, () => SAVE.rgnomes.filter(Boolean).length >= ROOF_GNOMES.length],
+  ["views", "👁️", "Wszystko widzę", "Odwiedź wszystkie punkty widokowe", 2000, () => Object.keys(SAVE.views).length >= VIEWS.length],
+  ["roofrace", "🏃", "Parkour", "Ukończ wyścig po dachach", 500, () => Object.keys(SAVE.records).some(k => k.indexOf("roof") === 0)],
+  ["para", "🪂", "W dziesiątkę", "Wyląduj spadochronem w punkt", 700, () => ST().paraBull >= 1],
+  ["home", "🏠", "Na swoim", "Kup mieszkanie", 600, () => SAVE.homes.length >= 1],
+  ["villa", "🏊", "Willa z basenem", "Kup willę", 3000, () => SAVE.homes.includes("villa")],
+  ["quests", "🤝", "Zaufany", "Wykonaj wszystkie zlecenia postaci", 3000, () => QCHARS.every(c => questStage(c) >= c.missions.length)],
+  ["rich10", "💰", "Dziesięć tysięcy", "Miej $10 000 w portfelu", 500, () => SAVE.money >= 10000],
+  ["rich100", "🤑", "Bogacz", "Miej $100 000 (portfel + lokata)", 4000, () => SAVE.money + SAVE.bank >= 100000],
+  ["biz1", "💼", "Przedsiębiorca", "Kup pierwszy biznes", 800, () => Object.keys(SAVE.biz).length >= 1],
+  ["biz4", "🏢", "Biznesmen", "Miej 4 biznesy", 2500, () => Object.keys(SAVE.biz).length >= 4],
+  ["bizAll", "🎩", "Magnat", "Kup wszystkie biznesy", 10000, () => BIZ.every(b => SAVE.biz[b.id])],
+  ["robStop", "🛡️", "Ochroniarz", "Udaremnij napad na swoją firmę", 600, () => ST().robStop >= 1],
+  ["jack5", "🔑", "Złodziej aut", "Ukradnij 5 aut", 300, () => ST().jacked >= 5],
+  ["lvl10", "⭐", "Doświadczony", "Osiągnij 10. poziom", 1000, () => SAVE.lvl >= 10],
+  ["lvl25", "🌟", "Weteran", "Osiągnij 25. poziom", 5000, () => SAVE.lvl >= 25]
+];
+function achCheck(){
+  for (const a of ACH){
+    if (SAVE.ach[a[0]]) continue;
+    let ok = false; try { ok = a[5](); } catch (e) {}
+    if (!ok) continue;
+    SAVE.ach[a[0]] = Date.now();
+    career.achQ.push(a);
+  }
+  if (career.achQ.length && !(career.achT > 0)){
+    const a = career.achQ.shift();
+    career.achShow = a; career.achT = 4;
+    SAVE.money += a[4]; addXP(Math.round(a[4] * 0.5));
+    persist();
+    if (actx){ const t = actx.currentTime; [784, 1047, 1319].forEach((f, i) => tone(f, t + i * 0.09, 0.4, "triangle", 0.09)); }
+  }
+}
+// kradzieże aut – licznik
+const _actC = actionBtn;
+actionBtn = function(){
+  const was = player.mode, nc = was === "foot" ? nearestCar() : null, wasAI = nc && (nc.driver === "ai" || nc.driver === "cop");
+  _actC();
+  if (wasAI && player.mode === "car" && player.veh === nc){ SAVE.stats.jacked++; saveDirty = true; }
+};
+// ---------- biznesy ----------
+function freeNear(x, y){
+  for (let r = 0; r < 200; r += 12) for (let k = 0; k < 12; k++){
+    const a = k / 12 * Math.PI * 2, px = x + Math.cos(a) * r, py = y + Math.sin(a) * r, g = getGW(px, py);
+    if (!pointBlocked(px, py, 20) && g !== G_ROAD && g !== G_WATER) return [px, py];
+  }
+  return [x, y];
+}
+const poiBy = (pred) => pois.find(pred);
+const BIZ = (() => {
+  const out = [];
+  const add = (id, name, icon, price, rate, desc, perk, at) => { if (!at) return; const p = freeNear(at[0], at[1]); out.push({ id, name, icon, price, rate, desc, perk, x: p[0], y: p[1] }); };
+  const gas = poiBy(o => o.icon === "⛽");
+  add("wash", "Myjnia „Błysk”", "🧽", 15000, 70, "Myjnia samochodowa przy stacji paliw.", "Darmowe mycie i naprawa +30% (wjedź autem)", gas ? [gas.x + 90, gas.y + 90] : null);
+  const rb = blockC(1, 1);
+  add("food", "Food truck „Zapiekanka”", "🍔", 8000, 40, "Kultowa zapiekanka na Rynku.", "Darmowy posiłek: +30 zdrowia (podejdź)", [rb[0] + 150, rb[1] + 170]);
+  const st = RSTATIONS[0];
+  add("taxi", "Korporacja „Taxi Miasto”", "🚕", 30000, 140, "Firma taksówkowa przy dworcu – zarabia na wszystkich kursach.", "+25% za kursy taxi", st ? [st.x + 120, st.y + 60] : null);
+  const shop = DOORS.find(d => d.kind === "shop");
+  add("shop", "Sklep „Osiedlowy 24h”", "🏪", 12000, 55, "Sklep całodobowy – zawsze ktoś kupuje piwo i chleb.", "Darmowa kawa: buff szybkości (podejdź)", shop ? [shop.x + 40, shop.y] : null);
+  add("club", "Klub 24", "🎵", 50000, 60, "Nocny klub w centrum. Zarabia głównie po zmroku (×4).", "Więcej zarobków nocą", CLUB ? [CLUB.x - 60, CLUB.y + 10] : null);
+  const gr = garages[1] || garages[0];
+  add("shop2", "Warsztat „Złota Rączka”", "🔧", 25000, 95, "Warsztat samochodowy obok garażu.", "Darmowa pełna naprawa (wjedź autem)", gr ? [gr.x + gr.w + 60, gr.y + gr.h / 2] : null);
+  const lot = decals.filter(d => d.type === "lot").sort((p, q) => q.w * q.h - p.w * p.h)[0];
+  add("park", "Parking strzeżony", "🅿️", 20000, 80, "Duży parking – kierowcy płacą za każdą godzinę.", "Stały, pewny dochód", lot ? [lot.x + lot.w / 2, lot.y + lot.h / 2] : null);
+  const tw = typeof VIEWS !== "undefined" && VIEWS[0] && VIEWS[0].access ? VIEWS[0].access : null;
+  add("hotel", "Hotel „Panorama”", "🏨", 80000, 300, "Luksusowy hotel w wieżowcu z punktem widokowym.", "Największy dochód w mieście", tw ? [tw.gx + 30, tw.gy] : null);
+  return out;
+})();
+for (const b of BIZ) pois.push({ icon: "💼", name: b.name, x: b.x, y: b.y });
+const bizState = { t: 0, lock: null, rob: null, robT: 300 + Math.random() * 240, perkT: {} };
+function bizRate(b){
+  const s = SAVE.biz[b.id];
+  if (!s) return 0;
+  let r = b.rate * (1 + 0.5 * s.lvl);
+  if (b.id === "club"){ const h = hourNow(); r *= (h >= 20 || h < 5) ? 4 : 0.5; }
+  return r;
+}
+const bizCap = b => b.rate * (1 + 0.5 * (SAVE.biz[b.id] ? SAVE.biz[b.id].lvl : 0)) * 40;
+function bizUpdate(dt){
+  for (const b of BIZ){
+    const s = SAVE.biz[b.id];
+    if (!s) continue;
+    const inc = bizRate(b) / 60 * dt;
+    if (s.mgr){ SAVE.bank += inc * 0.85; s.earned += inc * 0.85; }
+    else { s.cash = Math.min(bizCap(b), s.cash + inc); s.earned += inc; }
+  }
+  saveDirty = true;
+  // napady
+  if (bizState.rob){
+    const R = bizState.rob, b = R.b, s = SAVE.biz[b.id];
+    R.t -= dt;
+    const pp = playerPos();
+    if (Math.hypot(b.x - pp.x, b.y - pp.y) < 90){
+      bizState.rob = null; SAVE.stats.robStop++; addRep(3); addXP(150);
+      popup("🛡️ Złodzieje uciekli na twój widok! Kasa uratowana", "#5cd65c");
+      const p = makePed(0, 0, 0); p.x = b.x + 30; p.y = b.y; p.col = "#26262b"; startFlee(p, pp.x, pp.y); p.fleeT = 5; say(p, "Spadamy!", 2);
+    } else if (R.t <= 0 || !s){
+      bizState.rob = null;
+      if (s){ const lost = Math.round(s.cash * 0.6); s.cash -= lost; popup("😡 Okradli " + b.name + ": −" + fmt(lost), "#ff4136"); }
+    }
+  } else {
+    bizState.robT -= dt;
+    if (bizState.robT <= 0){
+      bizState.robT = 360 + Math.random() * 300;
+      const cand = BIZ.filter(b => SAVE.biz[b.id] && !SAVE.biz[b.id].mgr && SAVE.biz[b.id].cash > 250 && !SAVE.biz[b.id].guard);
+      if (cand.length && !mission && !race){ const b = pick(cand); bizState.rob = { b, t: 100 }; toast("🚨 NAPAD na Twoją firmę: " + b.name + "!\nDojedź tam w 100 s, żeby ratować kasę.", 4000); if (actx){ const t = actx.currentTime; for (let i = 0; i < 4; i++) tone(i % 2 ? 700 : 950, t + i * 0.2, 0.18, "square", 0.06); } }
+    }
+  }
+  // wejście na znacznik firmy
+  const pp = playerPos(), slow = player.mode === "foot" || (player.mode === "car" && Math.hypot(player.veh.vx, player.veh.vy) < 80);
+  let near = null;
+  if ((player.mode === "foot" || player.mode === "car") && slow && !onRoofNow()) for (const b of BIZ) if (Math.hypot(b.x - pp.x, b.y - pp.y) < 30) near = b;
+  if (!near){ if (bizState.lock && Math.hypot(bizState.lock.x - pp.x, bizState.lock.y - pp.y) > 60) bizState.lock = null; return; }
+  if (bizState.lock === near) return;
+  bizState.lock = near;
+  bizPerk(near);
+  bizDialog(near);
+}
+function bizPerk(b){
+  const s = SAVE.biz[b.id];
+  if (!s || (bizState.perkT[b.id] || 0) > gameTime) return;
+  bizState.perkT[b.id] = gameTime + 90;
+  if (b.id === "wash" && player.mode === "car"){ const v = player.veh; v.poop = 0; v.hp = Math.min(100, v.hp + 30); v.dents.length = Math.floor(v.dents.length / 2); popup("🧽 Mycie i szybka naprawa – gratis dla właściciela!", "#9fd4ff"); }
+  if (b.id === "shop2" && player.mode === "car"){ const v = player.veh; v.hp = 100; v.dents.length = 0; v.burning = false; v.flat = false; popup("🔧 Pełna naprawa – gratis!", "#9fd4ff"); }
+  if (b.id === "food"){ heal(30); popup("🍔 Zapiekanka od firmy – +30 zdrowia", "#ffd27a"); }
+  if (b.id === "shop"){ buffCoffee(); popup("☕ Kawa z własnego sklepu!", "#ffd27a"); }
+}
+function bizDialog(b){
+  const s = SAVE.biz[b.id], w = { name: b.name, item: b.icon };
+  if (!s){
+    showDialog(w, b.desc + "\n\n💵 Dochód: ok. " + fmt(b.rate) + " / min gry" + (b.id === "club" ? " (nocą ×4)" : "") + "\n🎁 Korzyść: " + b.perk, [
+      { t: "💼 Kup za " + fmt(b.price), pri: true, fn: () => {
+        if (SAVE.money < b.price){ showDialog(w, "Brakuje ci " + fmt(b.price - SAVE.money) + ". Wróć, gdy uzbierasz.", [{ t: "👌" }]); return; }
+        SAVE.money -= b.price; SAVE.biz[b.id] = { lvl: 0, cash: 0, mgr: false, guard: false, earned: 0, t: Date.now() }; persist(); cashSound(); addXP(Math.round(b.price / 40));
+        showDialog(w, "🎉 Gratulacje! " + b.name + " jest teraz twoja. Pieniądze zbierają się w kasie firmy – wpadaj je odbierać albo zatrudnij menedżera.", [{ t: "🤝" }]);
+      } },
+      { t: "👋 Może później", fn: closeDialog }
+    ], "Na sprzedaż");
+    return;
+  }
+  const up = s.lvl < 3 ? Math.round(b.price * 0.5 * (s.lvl + 1)) : 0;
+  const ch = [{ t: "💰 Odbierz kasę (" + fmt(s.cash) + ")", pri: true, fn: () => { const n = Math.floor(s.cash); s.cash -= n; if (n > 0) addMoney(n, b.name.toUpperCase()); persist(); bizDialog(b); } }];
+  if (up) ch.push({ t: "⬆ Rozbudowa " + (s.lvl + 1) + "/3 (" + fmt(up) + "): +50% dochodu", fn: () => { if (SAVE.money < up){ showDialog(w, "Za mało pieniędzy na rozbudowę.", [{ t: "😅" }]); return; } SAVE.money -= up; s.lvl++; persist(); cashSound(); addXP(Math.round(up / 40)); bizDialog(b); } });
+  if (!s.mgr) ch.push({ t: "👔 Zatrudnij menedżera (" + fmt(Math.round(b.price * 0.3)) + ")", fn: () => { const c = Math.round(b.price * 0.3); if (SAVE.money < c){ showDialog(w, "Menedżer kosztuje " + fmt(c) + ".", [{ t: "😅" }]); return; } SAVE.money -= c; s.mgr = true; persist(); showDialog(w, "Menedżer co minutę przelewa 85% zysku prosto na twoją lokatę w banku. Napady przestają cię martwić.", [{ t: "👔" }]); } });
+  if (!s.guard && !s.mgr) ch.push({ t: "🛡️ Ochrona (" + fmt(Math.round(b.price * 0.15)) + "): koniec napadów", fn: () => { const c = Math.round(b.price * 0.15); if (SAVE.money < c) return closeDialog(); SAVE.money -= c; s.guard = true; persist(); showDialog(w, "Ochroniarz pilnuje interesu. Złodzieje omijają cię szerokim łukiem.", [{ t: "🛡️" }]); } });
+  ch.push({ t: "🏷️ Sprzedaj (" + fmt(Math.round(b.price * 0.6)) + ")", fn: () => showDialog(w, "Na pewno sprzedać " + b.name + "?", [{ t: "✅ Tak, sprzedaj", fn: () => { addMoney(Math.round(b.price * 0.6) + Math.floor(s.cash), "SPRZEDAŻ FIRMY"); delete SAVE.biz[b.id]; persist(); closeDialog(); } }, { t: "❌ Nie", fn: () => bizDialog(b) }]) });
+  ch.push({ t: "👋 Wyjdź", fn: closeDialog });
+  showDialog(w, "📊 Poziom rozbudowy: " + s.lvl + "/3 · dochód " + fmt(bizRate(b)) + "/min" + (s.mgr ? " (menedżer → bank)" : "") + "\n💵 Zarobione łącznie: " + fmt(s.earned) + "\n🎁 " + b.perk + (s.mgr ? "" : "\n🧾 Kasa firmy mieści maks. " + fmt(bizCap(b))), ch, "Twoja firma");
+}
+// premia taxi
+const _addMoneyTaxi = addMoney;
+addMoney = function(n, label){
+  if (SAVE.biz.taxi && label && /KURS|TAXI|TAKS/i.test(label)) n *= 1.25;
+  _addMoneyTaxi(n, label);
+};
+function drawBizWorld(inV){
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const b of BIZ){
+    if (!inV(b.x, b.y, 80)) continue;
+    const s = SAVE.biz[b.id], pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
+    if (b.id === "food"){
+      ctx.save(); ctx.translate(b.x, b.y - 34);
+      ctx.fillStyle = "rgba(0,0,0,.3)"; rrect(ctx, -26, -11, 56, 26, 4); ctx.fill();
+      ctx.fillStyle = "#f4c20d"; rrect(ctx, -28, -13, 56, 26, 4); ctx.fill();
+      ctx.fillStyle = "#c62828"; ctx.fillRect(-28, -13, 56, 6);
+      ctx.fillStyle = "#222"; ctx.fillRect(-20, 9, 8, 4); ctx.fillRect(12, 9, 8, 4);
+      ctx.font = "13px system-ui"; ctx.fillText("🍔", 0, 2);
+      ctx.restore();
+    }
+    ctx.strokeStyle = s ? "rgba(255,215,0," + (0.5 + pulse * 0.4).toFixed(2) + ")" : "rgba(120,220,160," + (0.4 + pulse * 0.4).toFixed(2) + ")";
+    ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(b.x, b.y, 24, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.arc(b.x, b.y, 21, 0, Math.PI * 2); ctx.fill();
+    ctx.font = "18px system-ui, sans-serif"; ctx.fillText(b.icon, b.x, b.y + 1);
+    const txt = s ? "💰 " + fmt(s.mgr ? 0 : s.cash) + (s.mgr ? " · menedżer" : "") : "NA SPRZEDAŻ " + fmt(b.price);
+    ctx.font = "800 10px system-ui, sans-serif";
+    const tw = ctx.measureText(txt).width;
+    ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, b.x - tw / 2 - 6, b.y + 26, tw + 12, 15, 5); ctx.fill();
+    ctx.fillStyle = s ? "#ffd700" : "#9fe3b8"; ctx.fillText(txt, b.x, b.y + 34);
+  }
+  if (bizState.rob && inV(bizState.rob.b.x, bizState.rob.b.y, 100)){ const b = bizState.rob.b; ctx.strokeStyle = Math.sin(gameTime * 10) > 0 ? "#ff3b30" : "#2a6bff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(b.x, b.y, 40, 0, Math.PI * 2); ctx.stroke(); }
+}
+// ---------- HUD: poziom, doświadczenie, osiągnięcie ----------
+function drawLevelHUD(x, y){
+  const L = SAVE.lvl, f = clamp(SAVE.xp / xpNeed(L), 0, 1);
+  ctx.textAlign = "right"; ctx.font = "800 11px system-ui, sans-serif";
+  const t = "⭐" + L;
+  ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillText(t, x + 1, y + 1); ctx.fillStyle = "#ffd27a"; ctx.fillText(t, x, y);
+  const bw = 30;
+  ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(x - bw, y + 4, bw, 3);
+  ctx.fillStyle = "#ffd27a"; ctx.fillRect(x - bw, y + 4, bw * f, 3);
+  if (career.xpPopT > 0){ ctx.globalAlpha = Math.min(1, career.xpPopT); ctx.fillStyle = "#fff3c4"; ctx.fillText("+" + Math.round(career.xpPop) + " XP", x, y - 14); ctx.globalAlpha = 1; }
+}
+function drawCareerHUD(){
+  if (state !== "play") return;
+  if (career.achT > 0 && career.achShow){
+    const a = career.achShow, al = Math.min(1, career.achT, (4 - career.achT) * 3);
+    ctx.globalAlpha = al; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    const y = H - 92, w = Math.min(W - 40, 360);
+    ctx.fillStyle = "rgba(20,16,4,.88)"; rrect(ctx, W / 2 - w / 2, y - 26, w, 46, 12); ctx.fill();
+    ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = "900 13px system-ui, sans-serif"; ctx.fillStyle = "#ffd700"; ctx.fillText("🏆 OSIĄGNIĘCIE: " + a[1] + " " + a[2], W / 2, y - 6);
+    ctx.font = "700 11px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText(a[3] + " · +" + fmt(a[4]) + " i " + Math.round(a[4] * 0.5) + " XP", W / 2, y + 11);
+    ctx.globalAlpha = 1;
+  }
+  if (bizState.rob){
+    const b = bizState.rob.b;
+    drawEdgeArrow(b.x, b.y, "#ff3b30");
+    ctx.textAlign = "left"; ctx.font = "800 12px system-ui, sans-serif";
+    const t = "🚨 Napad: " + b.name + " · " + Math.ceil(bizState.rob.t) + " s";
+    const tw = ctx.measureText(t).width;
+    ctx.fillStyle = "rgba(60,0,0,.75)"; rrect(ctx, 10, 210, tw + 18, 21, 8); ctx.fill();
+    ctx.fillStyle = "#ffb3b0"; ctx.fillText(t, 19, 225);
+  }
+  ctx.textAlign = "center";
+}
+function careerUpdate(dt){
+  careerTrack(dt);
+  if (career.xpPopT > 0){ career.xpPopT -= dt; if (career.xpPopT <= 0) career.xpPop = 0; }
+  if (career.achT > 0) career.achT -= dt;
+  career.t -= dt;
+  if (career.t <= 0){ career.t = 1; achCheck(); }
+  bizUpdate(dt);
+}
+// ---------- panel: kierowca, osiągnięcia, biznesy ----------
+(function buildProfPanel(){
+  const wrap = document.createElement("div");
+  wrap.className = "wrap"; wrap.id = "prof";
+  wrap.innerHTML = '<div class="panel" style="max-height:92vh;display:flex;flex-direction:column"><div class="phead"><span>🏆 KARIERA</span><button id="prClose">✕</button></div>' +
+    '<div style="display:flex;gap:6px;padding:8px 14px"><button class="smallbtn" data-t="drv">⭐ Kierowca</button><button class="smallbtn" data-t="ach">🏆 Osiągnięcia</button><button class="smallbtn" data-t="biz">💼 Biznesy</button></div>' +
+    '<div class="pbody" id="prBody" style="overflow-y:auto;flex:1;min-height:0"></div></div>';
+  document.body.appendChild(wrap);
+  const top = $("top"), btn = document.createElement("button");
+  btn.className = "sbtn"; btn.id = "profBtn"; btn.textContent = "🏆"; btn.setAttribute("aria-label", "Kariera");
+  top.insertBefore(btn, $("muteBtn"));
+  const pb = document.createElement("button"); pb.className = "mbtn"; pb.id = "pProf"; pb.textContent = "🏆 KARIERA, OSIĄGNIĘCIA, BIZNESY";
+  $("pSet").parentNode.insertBefore(pb, $("pSet"));
+  let tab = "drv", prevState = "play";
+  const render = () => {
+    const body = $("prBody"); body.innerHTML = "";
+    wrap.querySelectorAll("[data-t]").forEach(b => { b.style.opacity = b.dataset.t === tab ? "1" : "0.55"; });
+    const row = (html) => { const d = document.createElement("div"); d.style.cssText = "padding:9px 2px;border-bottom:1px solid #2a2d33;font-size:14px;line-height:1.35"; d.innerHTML = html; body.appendChild(d); return d; };
+    const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+    if (tab === "drv"){
+      const L = SAVE.lvl, need = xpNeed(L), st = SAVE.stats;
+      row('<div style="font-size:22px;font-weight:900;color:#ffd27a">⭐ Poziom ' + L + ' · ' + titleOf(L) + '</div><div style="background:#111;border-radius:6px;height:10px;margin:8px 0;overflow:hidden"><div style="height:10px;background:#ffd27a;width:' + Math.round(SAVE.xp / need * 100) + '%"></div></div><small>' + Math.round(SAVE.xp) + ' / ' + need + ' XP do kolejnego poziomu · nagroda za poziom: ' + fmt((L + 1) * 60) + '</small>');
+      row('<b>Umiejętności</b><br>' + PERKS.map(p => (L >= p[0] ? "✅ " : "🔒 ") + "poz. " + p[0] + ": " + p[1]).join("<br>"));
+      row('<b>Statystyki</b><br>🚗 ' + st.km.toFixed(1) + ' km autem · 🚲 ' + st.bikeKm.toFixed(1) + ' km · 🥾 ' + st.footKm.toFixed(1) + ' km pieszo · 🚤 ' + st.boatKm.toFixed(1) + ' km<br>💨 Rekord prędkości: ' + Math.round(st.maxKmh) + ' km/h · 🌀 Najlepszy drift: ' + fmt(st.bestDrift) + '<br>🏆 Wygrane wyścigi: ' + (st.wins || 0) + ' · 🚕 Kursy taxi: ' + (st.fares || 0) + '<br>😎 Ucieczki: ' + (st.escapes || 0) + ' · 🚔 Zatrzymania: ' + (st.busted || 0) + ' · 😇 Pomoc: ' + (st.good || 0) + '<br>💵 Zarobione łącznie: ' + fmt(st.earned) + ' · 🔑 Ukradzione auta: ' + st.jacked);
+    } else if (tab === "ach"){
+      const n = ACH.filter(a => SAVE.ach[a[0]]).length;
+      row('<b>' + n + ' / ' + ACH.length + ' osiągnięć</b>');
+      for (const a of ACH){ const ok = !!SAVE.ach[a[0]]; row('<span style="opacity:' + (ok ? 1 : 0.5) + '">' + (ok ? a[1] : "🔒") + ' <b>' + esc(a[2]) + '</b> · <small>' + esc(a[3]) + ' · ' + fmt(a[4]) + '</small></span>'); }
+    } else {
+      const owned = BIZ.filter(b => SAVE.biz[b.id]);
+      const total = owned.reduce((s, b) => s + bizRate(b), 0);
+      row('<b>' + owned.length + ' / ' + BIZ.length + ' firm</b> · łączny dochód ok. ' + fmt(total) + ' / min<br><small>Podjedź do znacznika 💼 na mapie, żeby kupić firmę, odebrać kasę albo ją rozbudować.</small>');
+      for (const b of BIZ){
+        const s = SAVE.biz[b.id];
+        row(b.icon + ' <b>' + esc(b.name) + '</b><br><small>' + (s ? "Twoja · poziom " + s.lvl + "/3 · w kasie " + fmt(s.cash) + (s.mgr ? " · menedżer" : "") + (s.guard ? " · ochrona" : "") + " · zarobione " + fmt(s.earned) : "Na sprzedaż: " + fmt(b.price) + " · dochód ok. " + fmt(b.rate) + "/min") + '<br>🎁 ' + esc(b.perk) + '</small>');
+      }
+    }
+  };
+  const open = () => { prevState = state; if (state === "play") state = "pause"; render(); wrap.classList.add("show"); };
+  const close = () => { wrap.classList.remove("show"); if (!$("pause").classList.contains("show") && state === "pause"){ state = "play"; last = performance.now(); } };
+  btn.addEventListener("click", open); pb.addEventListener("click", open);
+  $("prClose").addEventListener("click", close);
+  wrap.querySelectorAll("[data-t]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.t; render(); }));
+  window.openProf = open;
+})();
 
 // START
 // =====================================================================
