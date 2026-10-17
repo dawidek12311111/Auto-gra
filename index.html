@@ -954,7 +954,7 @@ function addRoad(raw, hw, o){
     const [x, y] = pts[i], tx = Math.floor(x / T), ty = Math.floor(y / T);
     for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
       const cx = (tx + dx + 0.5) * T, cy = (ty + dy + 0.5) * T;
-      if (Math.hypot(cx - x, cy - y) <= hw + 6){ const g = getGT(tx + dx, ty + dy); if (g !== G_WATER) wsetG(tx + dx, ty + dy, R.surf); }
+      if (Math.hypot(cx - x, cy - y) <= hw + 6){ const g = getGT(tx + dx, ty + dy); if (g !== G_WATER && !(R.surf !== G_ROAD && g === G_ROAD)) wsetG(tx + dx, ty + dy, R.surf); }
     }
   }
   // oznakowanie jako dekale (kawałkami, żeby działało przycinanie do widoku)
@@ -963,7 +963,7 @@ function addRoad(raw, hw, o){
       const seg = pts.slice(i, Math.min(pts.length, i + 50));
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       for (const p of seg){ x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
-      decal("road", x0 - hw, y0 - hw, x1 - x0 + hw * 2, y1 - y0 + hw * 2, { pts: seg, hw, lanes: R.lanes });
+      decal("road", x0 - hw, y0 - hw, x1 - x0 + hw * 2, y1 - y0 + hw * 2, { pts: seg, hw, lanes: R.lanes, noEdge: !!o.noEdge });
     }
   }
   if (R.lamp) for (let s = 200; s < R.len; s += 420){ const p = roadAt(R, s); lamps.push([p[0] - p[3] * (hw + 14), p[1] + p[2] * (hw + 14)]); }
@@ -996,7 +996,7 @@ const MOUNT = { yb: RA - RHW - 260 };
     h = clamp(h, 0, 1);
     HEIGHT[ty * MW + tx] = h;
     if (ground[ty * MW + tx] === G_WATER) continue;
-    const g = h < 0.2 ? G_FIELD : h < 0.46 ? G_GRASS : h < 0.62 ? (vhash(tx, ty, 5) < 0.35 + (h - 0.46) * 3 ? G_ROCK : G_GRASS) : h < 0.8 ? G_ROCK : G_SNOW;
+    const g = h < 0.2 ? G_FIELD : h < 0.46 ? G_GRASS : h < 0.62 ? (fbm(x / 420, y / 420, 77) < 0.28 + (h - 0.46) * 3.4 ? G_ROCK : G_GRASS) : h < 0.8 ? G_ROCK : G_SNOW;
     ground[ty * MW + tx] = g;
   }
   // górskie jeziorko
@@ -1016,7 +1016,7 @@ const MOUNT = { yb: RA - RHW - 260 };
   MOUNT.road = addRoad(raw, 40, { smooth: 3, name: "Serpentyna", lanes: 1, cruise: 170, toRing: true, lamp: false });
   MOUNT.summit = [sx, sy];
   // plac na szczycie i schronisko
-  for (let ty = Math.floor((sy - 170) / T); ty < (sy + 200) / T; ty++) for (let tx = Math.floor((sx - 260) / T); tx < (sx + 260) / T; tx++) wsetG(tx, ty, G_LOT);
+  for (let ty = Math.floor((sy - 230) / T); ty < (sy + 240) / T; ty++) for (let tx = Math.floor((sx - 300) / T); tx < (sx + 300) / T; tx++){ const x = (tx + 0.5) * T, y = (ty + 0.5) * T; if (((x - sx) / 275) ** 2 + ((y - sy - 10) / 205) ** 2 < 1 + (fbm(x / 140, y / 140, 91) - 0.5) * 0.4) wsetG(tx, ty, G_LOT); }
   curB = [];
   MOUNT.hut = addB(sx - 240, sy - 330, 190, 130, { kind: "pitched", col: "#6d4c41", wallCol: "#a1887f", ht: 0.18, label: "SCHRONISKO", labelSize: 11, det: false, chim: true });
   addB(sx + 120, sy - 280, 110, 90, { col: "#90a4ae", wallCol: "#b0bec5", ht: 0.12, label: "🚡 GÓRNA STACJA", labelSize: 9, det: false });
@@ -1130,6 +1130,280 @@ const WEST = {}, SOUTH = {};
   }
 })();
 
+// =====================================================================
+// PUSZCZA ZACHODNIA (ZACHÓD) + DĘBOWO: MIASTECZKO, WIEŚ I POLA (POŁUDNIE)
+// =====================================================================
+const G_FOREST = 14, G_CROP = 15, G_RAPE = 16, G_PLOW = 17;
+const HARDG = new Set([G_ROAD, G_DIRT, G_LOT, G_PAVE, G_WALK, G_WATER, G_DECK, G_CONC, G_IND]);
+function hardNear(x, y, m){
+  const r = Math.ceil(m / T), tx = Math.floor(x / T), ty = Math.floor(y / T);
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (HARDG.has(getGT(tx + dx, ty + dy))) return true;
+  return false;
+}
+function wfill(x0, y0, x1, y1, g, only){
+  for (let ty = Math.max(0, Math.floor(y0 / T)); ty < Math.min(MW, Math.ceil(y1 / T)); ty++)
+    for (let tx = Math.max(0, Math.floor(x0 / T)); tx < Math.min(MW, Math.ceil(x1 / T)); tx++){
+      const c = ground[ty * MW + tx];
+      if (only ? only(c) : c !== G_WATER) ground[ty * MW + tx] = g;
+    }
+}
+const softG = c => c === G_FIELD || c === G_GRASS || c === G_FOREST;
+function bandAlong(R, w, g, keep){
+  const rt = Math.ceil(w / T) + 1;
+  for (let i = 0; i < R.pts.length; i += 2){
+    const [x, y] = R.pts[i];
+    if (keep && !keep(x, y)) continue;
+    const tx = Math.floor(x / T), ty = Math.floor(y / T);
+    for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
+      const cx = (tx + dx + 0.5) * T, cy = (ty + dy + 0.5) * T;
+      if (Math.hypot(cx - x, cy - y) > w) continue;
+      const c = getGT(tx + dx, ty + dy);
+      if (c !== G_ROAD && c !== G_WATER && c !== G_DIRT && c !== G_LOT) wsetG(tx + dx, ty + dy, g);
+    }
+  }
+}
+const NEWB0 = buildings.length;
+const CLEAR = [];
+const clearAt = (x, y, r) => CLEAR.push([x, y, r]);
+const inClear = (x, y) => CLEAR.some(c => (x - c[0]) ** 2 + (y - c[1]) ** 2 < c[2] * c[2]);
+function rectFree(x, y, w, h){
+  for (let ty = Math.floor(y / T); ty <= Math.floor((y + h) / T); ty++) for (let tx = Math.floor(x / T); tx <= Math.floor((x + w) / T); tx++) if (HARDG.has(getGT(tx, ty))) return false;
+  for (let i = NEWB0; i < buildings.length; i++){ const b = buildings[i]; if (x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y) return false; }
+  return true;
+}
+// ---------- PUSZCZA ----------
+const FOREST = { x0: 300, x1: RA - 1900, y0: MOUNT.yb + 250, y1: 23800 };
+FOREST.lodge = [2700, 15300]; FOREST.lake = [1650, 18900]; FOREST.tower = [8350, 20700]; FOREST.mill = [8500, 15750]; FOREST.c = [4700, 19900];
+function inForest(x, y){
+  const F = FOREST, e = Math.min(x - F.x0, F.x1 - x, y - F.y0, F.y1 - y);
+  return e + (fbm(x / 1500, y / 1500, 71) - 0.5) * 2000 > 0;
+}
+(function genForest(){
+  const F = FOREST;
+  // ściółka
+  for (let ty = Math.floor((F.y0 - 900) / T); ty < (F.y1 + 900) / T; ty++) for (let tx = 1; tx < (F.x1 + 900) / T; tx++){
+    const x = (tx + 0.5) * T, y = (ty + 0.5) * T, i = ty * MW + tx;
+    if (y < MOUNT.yb || !softG(ground[i]) || !inForest(x, y)) continue;
+    ground[i] = fbm(x / 520, y / 520, 73) < 0.33 ? G_GRASS : G_FOREST;
+  }
+  // leśne jezioro
+  const [lx, ly] = F.lake;
+  for (let ty = Math.floor((ly - 600) / T); ty < (ly + 600) / T; ty++) for (let tx = Math.floor((lx - 800) / T); tx < (lx + 800) / T; tx++){
+    const x = (tx + 0.5) * T, y = (ty + 0.5) * T;
+    const e = ((x - lx) / 560) ** 2 + ((y - ly) / 380) ** 2 + (fbm(x / 260, y / 260, 75) - 0.5) * 0.6;
+    if (e < 1) wsetG(tx, ty, G_WATER); else if (e < 1.5 && getGT(tx, ty) !== G_WATER) wsetG(tx, ty, G_GRASS);
+  }
+  // pomost wędkarski od wschodu
+  const shore = (() => { const ty = Math.floor(ly / T); for (let tx = Math.floor((lx + 800) / T); tx > lx / T; tx--) if (getGT(tx, ty) === G_WATER) return (tx + 1) * T; return lx + 500; })();
+  for (let ty = Math.floor((ly - 18) / T); ty <= Math.floor((ly + 18) / T); ty++) for (let tx = Math.floor((shore - 230) / T); tx < (shore + 40) / T; tx++) wsetG(tx, ty, G_DECK);
+  F.fish = [shore - 210, ly];
+  clearAt(lx, ly, 900);
+  // brzeg blokuje auta
+  for (let ty = Math.floor((ly - 600) / T); ty < (ly + 600) / T; ty++) for (let tx = Math.floor((lx - 800) / T); tx < (lx + 800) / T; tx++){
+    if (getGT(tx, ty) !== G_WATER) continue;
+    if ([getGT(tx + 1, ty), getGT(tx - 1, ty), getGT(tx, ty + 1), getGT(tx, ty - 1)].some(g => g !== G_WATER)) solids.push({ t: "r", x: tx * T + 4, y: ty * T + 4, w: T - 8, h: T - 8, lake: true });
+  }
+  // pętla rajdowa
+  const C = F.c, pts = [], N = 18;
+  for (let i = 0; i < N; i++){ const a = i / N * Math.PI * 2 - Math.PI / 2, r = 1 + (vnoise(i * 0.9, 3, 81) - 0.5) * 0.45; pts.push([C[0] + Math.cos(a) * 2000 * r, C[1] + Math.sin(a) * 1600 * r]); }
+  F.loopPts = pts.slice();
+  pts.push(pts[0]);
+  F.loop = addRoad(pts, 30, { smooth: 3, surf: G_DIRT, name: "Trasa Rajdu Leśnego", cruise: 150 }); F.loop.want = 0;
+  clearAt(C[0], C[1], 520);
+  clearAt(pts[0][0], pts[0][1], 280);
+  // leśna szosa: MOP → leśniczówka
+  const [hx, hy] = F.lodge;
+  F.szosa = addRoad([[RA - 6200 - 230, WCY - 300], [4900, WCY - 620], [3700, WCY - 950], [hx + 260, hy + 380]], 36, { smooth: 2, name: "Leśna szosa", cruise: 190 }); F.szosa.want = 1;
+  addRoad([[4750, WCY - 640], [4600, 17400], pts[0]], 26, { smooth: 2, surf: G_DIRT, name: "Dukt", cruise: 110 }).want = 0;
+  addRoad([[hx - 60, hy + 420], [2300, 17100], [lx + 520, ly - 420]], 24, { smooth: 2, surf: G_DIRT, name: "Dukt nad jezioro", cruise: 100 }).want = 0;
+  addRoad([pts[N / 4 | 0], [7300, 20300], [F.tower[0] - 120, F.tower[1] + 160]], 24, { smooth: 2, surf: G_DIRT, name: "Dukt pod wieżę", cruise: 100 }).want = 0;
+  // leśniczówka
+  for (let ty = Math.floor((hy - 300) / T); ty < (hy + 520) / T; ty++) for (let tx = Math.floor((hx - 420) / T); tx < (hx + 420) / T; tx++){ const x = (tx + 0.5) * T, y = (ty + 0.5) * T; if (((x - hx) / 420) ** 2 + ((y - hy - 110) / 410) ** 2 < 1 && getGT(tx, ty) !== G_ROAD) wsetG(tx, ty, G_GRASS); }
+  wfill(hx - 150, hy + 140, hx + 330, hy + 420, G_DIRT, c => c !== G_ROAD);
+  curB = [];
+  F.lodgeB = addB(hx - 160, hy - 120, 230, 150, { kind: "pitched", col: "#4e342e", wallCol: "#8d6e63", ht: 0.16, label: "LEŚNICZÓWKA", labelSize: 9, det: false, chim: true });
+  addB(hx + 120, hy - 100, 110, 80, { kind: "pitched", col: "#5d4037", wallCol: "#795548", ht: 0.1, det: false });
+  addParkedCar(hx + 220, hy + 260, Math.PI / 2, "#33691e", "pickup");
+  F.door = [hx - 45, hy + 50];
+  clearAt(hx, hy + 100, 520);
+  poi("🌲", "Leśniczówka", hx, hy); poi("🎣", "Leśne jezioro", F.fish[0], F.fish[1]); poi("🏁", "Rajd Leśny", pts[0][0], pts[0][1]);
+  // wieża przeciwpożarowa
+  const [wx, wy] = F.tower;
+  wfill(wx - 200, wy - 200, wx + 200, wy + 240, G_GRASS, softG);
+  addRound(wx, wy, 26, 0.85, "#8d6e63", "tower");
+  F.towerSpot = [wx, wy + 60];
+  clearAt(wx, wy, 330);
+  poi("🔭", "Wieża widokowa", wx, wy);
+  // tartak przy drodze na zachód
+  const [mx, my] = F.mill, hp = roadAt(WEST.road, roadNearestS(WEST.road, mx, my + 1200).s);
+  wfill(mx - 380, my - 300, mx + 380, my + 260, G_DIRT, c => c !== G_ROAD);
+  addRoad([[mx, hp[1] - 70], [mx, my + 240]], 28, { surf: G_DIRT, name: "Wjazd do tartaku", cruise: 90 }).want = 0;
+  F.millB = addB(mx - 360, my - 290, 300, 160, { kind: "hall", col: "#8d6e63", wallCol: "#a1887f", ht: 0.18, label: "TARTAK", labelSize: 12, det: false });
+  F.logs = [];
+  for (let i = 0; i < 5; i++){ const x = mx + 30 + (i % 3) * 110, y = my - 260 + ((i / 3) | 0) * 120; addB(x, y, 90, 50, { col: "#a0714f", wallCol: "#6d4c41", ht: 0.05, det: false }); F.logs.push([x, y]); }
+  F.drop = [mx - 60, my + 120];
+  clearAt(mx, my, 560);
+  poi("🪵", "Tartak", mx, my);
+})();
+// ---------- DĘBOWO: MIASTECZKO ----------
+const TOWN = { c: [WCX - 600, RB + 8700], wps: [], stalls: [] };
+const FARM = {};
+(function genTown(){
+  const [cx, cy] = TOWN.c;
+  wfill(cx - 1650, cy - 1700, cx + 1650, cy + 1650, G_GRASS, softG);
+  const inTown = (x, y) => Math.abs(x - cx) < 1650 && y > cy - 1650 && y < cy + 1650;
+  const st = (pts, hw, name, lamp) => { const R = addRoad(pts, hw, { name, lamp, cruise: 140, noEdge: true }); R.want = 1; R.town = true; return R; };
+  TOWN.main = st([[cx, RB + 6500 + 200], [cx, cy + 1550]], 44, "ul. Główna", true);
+  TOWN.kosc = st([[cx - 1550, cy], [cx + 1560, cy]], 40, "ul. Kościelna", true);
+  TOWN.szk = st([[cx - 1050, cy - 800], [cx + 1050, cy - 800]], 36, "ul. Szkolna", false);
+  TOWN.pol = st([[cx - 1050, cy + 800], [cx + 1050, cy + 800]], 36, "ul. Polna", false);
+  TOWN.main.want = 2;
+  for (const R of [TOWN.main, TOWN.kosc, TOWN.szk, TOWN.pol]){
+    bandAlong(R, R.hw + 26, G_WALK, inTown);
+    for (let s = 60; s < R.len; s += 130){ const p = roadAt(R, s); if (!inTown(p[0], p[1])) continue; for (const sd of [-1, 1]) TOWN.wps.push([p[0] - p[3] * sd * (R.hw + 13), p[1] + p[2] * sd * (R.hw + 13)]); }
+  }
+  // rynek
+  wfill(cx + 70, cy - 730, cx + 720, cy - 68, G_PAVE);
+  TOWN.rynek = [cx + 395, cy - 400];
+  for (let x = cx + 120; x < cx + 700; x += 110) for (let y = cy - 690; y < cy - 100; y += 110) TOWN.wps.push([x, y]);
+  curB = [];
+  addRound(TOWN.rynek[0], TOWN.rynek[1], 22, 0.05, "#8d8d8d", "well");
+  TOWN.stalls = [[cx + 160, cy - 640, "#c62828"], [cx + 270, cy - 640, "#2e7d32"], [cx + 380, cy - 640, "#f9a825"], [cx + 160, cy - 180, "#1565c0"], [cx + 270, cy - 180, "#6a1b9a"]];
+  TOWN.skup = [cx + 600, cy - 180];
+  // budynki
+  TOWN.church = addB(cx - 660, cy - 640, 230, 420, { kind: "pitched", col: "#8e3b28", wallCol: "#efe6d6", ht: 0.3, label: "KOŚCIÓŁ", labelSize: 11, det: false, ridge: "v" });
+  addRound(cx - 545, cy - 690, 44, 0.6, "#5d4037", "tower");
+  addB(cx - 380, cy - 600, 140, 110, { kind: "pitched", col: "#a5462e", wallCol: "#e8dcc5", ht: 0.12, label: "PLEBANIA", labelSize: 8, det: false });
+  addB(cx + 750, cy - 610, 230, 200, { kind: "pitched", col: "#a5462e", wallCol: "#f0e2c4", ht: 0.22, label: "URZĄD GMINY", labelSize: 9, det: false, chim: true });
+  addB(cx + 110, cy + 92, 250, 150, { kind: "shop", awn: "t", awnCol: "#2e9e4f", label: "SKLEP", labelSize: 12, ht: 0.12, col: "#8d6e63", det: false });
+  addB(cx + 410, cy + 92, 170, 130, { kind: "shop", awn: "t", awnCol: "#2e9e4f", label: "APTEKA", labelSize: 10, ht: 0.12, col: "#90a4ae", det: false });
+  TOWN.inn = addB(cx - 480, cy + 92, 300, 170, { kind: "shop", awn: "t", awnCol: "#6d4c41", label: "KARCZMA", labelSize: 12, ht: 0.14, col: "#5d4037", det: false });
+  addB(cx - 800, cy + 92, 200, 130, { kind: "shop", awn: "t", awnCol: "#f9a825", label: "POCZTA", labelSize: 10, ht: 0.12, col: "#78909c", det: false });
+  addB(cx + 180, cy + 868, 260, 170, { col: "#c62828", wallCol: "#eeeeee", ht: 0.14, label: "🚒 OSP", labelSize: 11, det: false });
+  addB(cx - 900, cy - 1130, 420, 250, { col: "#ef6c00", wallCol: "#ffe0b2", ht: 0.18, label: "SZKOŁA", labelSize: 12, det: false });
+  wfill(cx - 900, cy - 1450, cx - 480, cy - 1160, G_PAVE);
+  // stacja paliw na wjeździe
+  wfill(cx + 70, cy - 1620, cx + 520, cy - 1290, G_LOT, c => c !== G_ROAD);
+  addB(cx + 140, cy - 1520, 220, 110, { kind: "canopy", col: "#eef0f2", ht: 0.08, solid: false, label: "⛽ STACJA", labelCol: "#d63b2f", labelSize: 12, det: false });
+  addB(cx + 400, cy - 1600, 100, 90, { kind: "shop", awn: "b", awnCol: "#d63b2f", label: "KIOSK", labelSize: 9, ht: 0.1, col: "#eceff1", det: false });
+  TOWN.gas = [cx + 250, cy - 1465];
+  addParkedCar(cx + 470, cy - 1360, 0, null, null);
+  // domy
+  const roofs = TILE_ROOFS, walls = WALLS_HOUSE;
+  function houseRow(R, from, to, step){
+    for (const side of [-1, 1]) for (let s = from; s < to; s += step + wrnd() * 50){
+      const p = roadAt(R, s);
+      if (!inTown(p[0], p[1])) continue;
+      const nx = -p[3] * side, ny = p[2] * side, w = 96 + wrnd() * 40, h = 84 + wrnd() * 30, dep = Math.abs(nx) > 0.5 ? w : h;
+      const off = R.hw + 26 + 34 + dep / 2, x = p[0] + nx * off - w / 2, y = p[1] + ny * off - h / 2;
+      if (!rectFree(x - 14, y - 14, w + 28, h + 28)) continue;
+      addB(x, y, w, h, { kind: "pitched", col: roofs[(wrnd() * roofs.length) | 0], wallCol: walls[(wrnd() * walls.length) | 0], ht: 0.1 + wrnd() * 0.07, det: false, chim: wrnd() < 0.5 });
+      const gx = p[0] + nx * (off + dep / 2 + 60) + (wrnd() - 0.5) * 60, gy = p[1] + ny * (off + dep / 2 + 60) + (wrnd() - 0.5) * 60;
+      if (wrnd() < 0.7 && !hardNear(gx, gy, 20)) addTree(gx, gy, 11 + wrnd() * 8);
+      if (wrnd() < 0.3) addParkedCar(p[0] + nx * (R.hw + 26 + 10) + p[2] * 50, p[1] + ny * (R.hw + 26 + 10) + p[3] * 50, Math.atan2(p[3], p[2]), null, null);
+    }
+  }
+  for (const R of [TOWN.main, TOWN.kosc, TOWN.szk, TOWN.pol]) houseRow(R, 80, R.len - 60, 150);
+  clearAt(cx, cy, 1700);
+  poi("⛪", "Dębowo – kościół", cx - 545, cy - 500); poi("🛒", "Sklep Dębowo", cx + 235, cy + 160); poi("🍺", "Karczma", cx - 330, cy + 170); poi("⛽", "Stacja Dębowo", TOWN.gas[0], TOWN.gas[1]);
+  // ---------- wieś i gospodarstwo ----------
+  const F = FARM; F.c = [cx + 4750, cy];
+  const [fx, fy] = F.c;
+  TOWN.wies = addRoad([[cx + 1560, cy], [cx + 2600, cy + 110], [cx + 3700, cy - 70], [fx - 330, cy]], 34, { smooth: 2, name: "ul. Wiejska", cruise: 130, noEdge: true });
+  TOWN.wies.want = 2; TOWN.wies.types = ["tractor", "tractor", "pickup", "small", "van"];
+  for (const side of [-1, 1]) for (let s = 250; s < TOWN.wies.len - 300; s += 330 + wrnd() * 80){
+    const p = roadAt(TOWN.wies, s), nx = -p[3] * side, ny = p[2] * side, w = 110 + wrnd() * 30, h = 90;
+    const off = TOWN.wies.hw + 70 + h / 2, x = p[0] + nx * off - w / 2, y = p[1] + ny * off - h / 2;
+    if (!rectFree(x - 10, y - 10, w + 20, h + 20)) continue;
+    addB(x, y, w, h, { kind: "pitched", col: roofs[(wrnd() * roofs.length) | 0], wallCol: walls[(wrnd() * walls.length) | 0], ht: 0.11, det: false, chim: true });
+    const bx = x + (wrnd() - 0.5) * 40, by = y + ny * (h + 80);
+    if (rectFree(bx - 10, by - 10, 160, 110)) addB(bx, by, 140, 90, { kind: "pitched", col: "#6d4c41", wallCol: "#8d6e63", ht: 0.13, det: false });
+    wfill(x - 40, Math.min(y, p[1] + ny * (TOWN.wies.hw + 6)), x + w + 40, Math.max(y + h, p[1] + ny * (TOWN.wies.hw + 6)), G_DIRT, c => c === G_FIELD || c === G_GRASS);
+    if (wrnd() < 0.5) addTree(x + w + 50, y + h / 2, 13 + wrnd() * 6);
+  }
+  wfill(fx - 380, fy - 460, fx + 380, fy + 300, G_DIRT, c => c !== G_ROAD);
+  F.barn = addB(fx - 360, fy - 440, 330, 170, { kind: "pitched", col: "#7b2d26", wallCol: "#a1453a", ht: 0.2, label: "STODOŁA", labelSize: 10, det: false });
+  F.house = addB(fx + 70, fy - 430, 200, 130, { kind: "pitched", col: "#a5462e", wallCol: "#efe4cf", ht: 0.13, label: "AGROTURYSTYKA", labelSize: 8, det: false, chim: true });
+  addRound(fx + 330, fy - 380, 36, 0.42, "#b0bec5", "tower"); addRound(fx + 330, fy - 290, 30, 0.38, "#cfd8dc", "tower");
+  addParkedCar(fx - 150, fy + 110, 0, "#2e7d32", "tractor"); addParkedCar(fx - 60, fy + 110, 0, "#c62828", "tractor"); addParkedCar(fx + 200, fy + 60, Math.PI / 2, null, "pickup");
+  F.pens = [];
+  const pen = (x0, y0, x1, y1, kind) => {
+    wfill(x0, y0, x1, y1, G_GRASS);
+    const g0 = (x0 + x1) / 2 - 45, g1 = g0 + 90, th = 8;
+    solids.push({ t: "r", x: x0, y: y0, w: g0 - x0, h: th }, { t: "r", x: g1, y: y0, w: x1 - g1, h: th }, { t: "r", x: x0, y: y1 - th, w: x1 - x0, h: th }, { t: "r", x: x0, y: y0, w: th, h: y1 - y0 }, { t: "r", x: x1 - th, y: y0, w: th, h: y1 - y0 });
+    F.pens.push({ x0, y0, x1, y1, g0, g1, kind });
+  };
+  pen(fx - 380, fy + 330, fx - 40, fy + 760, "cow");
+  pen(fx + 20, fy + 330, fx + 420, fy + 760, "horse");
+  F.farmer = [fx - 20, fy - 200];
+  F.plow = { x0: fx + 640, y0: fy - 520, x1: fx + 1700, y1: fy + 560 };
+  wfill(F.plow.x0, F.plow.y0, F.plow.x1, F.plow.y1, G_FIELD);
+  wfill(fx + 380, fy - 70, F.plow.x0, fy + 70, G_DIRT, c => c !== G_ROAD);
+  clearAt(fx + 600, fy, 1300);
+  for (let i = 0; i < 7; i++) addRound(fx - 360 + i * 46, fy - 230 + (i % 2) * 18, 15, 0.03, "#d4b35a", "bale");
+  poi("🐄", "Gospodarstwo", fx, fy - 200); poi("🚜", "Pole do orki", (F.plow.x0 + F.plow.x1) / 2, fy);
+  // ---------- pola uprawne ----------
+  const town = (x, y, m) => Math.abs(x - cx) < 1750 + m && y > cy - 1750 - m && y < cy + 1750 + m;
+  const farmR = (x, y, m) => x > fx - 500 - m && x < F.plow.x1 + 100 + m && y > fy - 640 - m && y < fy + 860 + m;
+  for (let gy = cy - 2300; gy < WORLD - 300; gy += 760) for (let gx = cx - 6800; gx < cx + 7200; gx += 980){
+    const x0 = gx + 40 + wrnd() * 60, y0 = gy + 40 + wrnd() * 40, x1 = gx + 940 - wrnd() * 60, y1 = gy + 720 - wrnd() * 40;
+    const mxx = (x0 + x1) / 2, myy = (y0 + y1) / 2;
+    if (town(mxx, myy, 450) || farmR(mxx, myy, 450) || Math.abs(mxx - cx) < 900 && myy < cy) continue;
+    if (Math.abs(myy - cy) < 600 && mxx > cx && mxx < fx) continue;
+    const r = wrnd(), g = r < 0.35 ? G_CROP : r < 0.5 ? G_RAPE : r < 0.7 ? G_PLOW : G_FIELD;
+    wfill(x0, y0, x1, y1, g, c => c === G_FIELD || c === G_GRASS);
+    clearAt(mxx, myy, 520);
+    if (g === G_FIELD) for (let k = 0; k < 4 + wrnd() * 4; k++){ const bx = x0 + 60 + wrnd() * (x1 - x0 - 120), by = y0 + 60 + wrnd() * (y1 - y0 - 120); if (!hardNear(bx, by, 30)) addRound(bx, by, 15, 0.03, "#d4b35a", "bale"); }
+  }
+  // wiatrak i turbiny
+  TOWN.mill = [cx - 2350, cy - 1150];
+  wfill(TOWN.mill[0] - 160, TOWN.mill[1] - 160, TOWN.mill[0] + 160, TOWN.mill[1] + 160, G_GRASS);
+  addB(TOWN.mill[0] - 40, TOWN.mill[1] - 40, 80, 80, { kind: "pitched", col: "#5d4037", wallCol: "#795548", ht: 0.24, det: false });
+  clearAt(TOWN.mill[0], TOWN.mill[1], 300);
+  TOWN.turb = [];
+  for (let i = 0; i < 5; i++){ const x = cx - 5600 + i * 750, y = Math.min(WORLD - 400, cy + 2700) + (i % 2) * 160; TOWN.turb.push([x, y, i * 1.3]); solids.push({ t: "c", x, y, r: 14 }); }
+  poi("🌬️", "Wiatrak", TOWN.mill[0], TOWN.mill[1]);
+})();
+// ---------- droga powiatowa: Dębowo → Puszcza ----------
+(function genCounty(){
+  const [cx, cy] = TOWN.c, lp = FOREST.loopPts[9];
+  TOWN.county = addRoad([[cx - 1560, cy], [cx - 3500, cy - 650], [cx - 6200, cy - 2400], [9300, 24700], [6900, 22700], [lp[0] + 40, lp[1] + 60]], 38, { smooth: 3, name: "Droga powiatowa", cruise: 220, noEdge: false });
+  TOWN.county.want = 2;
+})();
+// ---------- sadzenie puszczy ----------
+(function plantForest(){
+  const F = FOREST;
+  for (let y = F.y0 - 700; y < F.y1 + 700; y += 66) for (let x = 120; x < F.x1 + 700; x += 66){
+    const px = x + (wrnd() - 0.5) * 48, py = y + (wrnd() - 0.5) * 48;
+    if (py < MOUNT.yb + 60) continue;
+    const g = getGW(px, py);
+    if (g !== G_FOREST) continue;
+    if (inClear(px, py) || hardNear(px, py, 42)) continue;
+    addTree(px, py, 19 + wrnd() * 15);
+  }
+  // pojedyncze drzewa na polanach
+  for (let i = 0; i < 900; i++){
+    const px = 200 + wrnd() * (F.x1 + 400), py = F.y0 + wrnd() * (F.y1 - F.y0);
+    if (getGW(px, py) !== G_GRASS || !inForest(px, py) || inClear(px, py) || hardNear(px, py, 42)) continue;
+    addTree(px, py, 14 + wrnd() * 12);
+  }
+})();
+// ---------- sprzątanie: drzewa na drogach, polach i w budynkach ----------
+(function cleanupTrees(){
+  const NB2 = buildings.slice(NEWB0), dead = new Set();
+  const bad = g => HARDG.has(g) || g === G_CROP || g === G_RAPE || g === G_PLOW;
+  let j = 0;
+  for (let i = 0; i < trees.length; i++){
+    const t = trees[i];
+    if (t.x > EXTP - 100 && t.x < WORLD - EXTP + 100 && t.y > EXTP - 100 && t.y < WORLD - EXTP + 100){ trees[j++] = t; continue; }
+    let rm = bad(getGW(t.x, t.y)) || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => { const g = getGW(t.x + a * t.r * 0.6, t.y + b * t.r * 0.6); return g === G_ROAD || g === G_LOT || g === G_PAVE || g === G_WALK || g === G_DIRT; });
+    if (!rm) for (const b of NB2){ const rr2 = b.round ? b.r + t.r * 0.5 : 0; if (b.round ? Math.hypot(t.x - b.cx, t.y - b.cy) < rr2 : (t.x > b.x - t.r * 0.5 && t.x < b.x + b.w + t.r * 0.5 && t.y > b.y - t.r * 0.5 && t.y < b.y + b.h + t.r * 0.5)){ rm = true; break; } }
+    if (rm) dead.add(t.x + "," + t.y); else trees[j++] = t;
+  }
+  trees.length = j;
+  if (dead.size){ let k = 0; for (const o of solids) if (!(o.t === "c" && dead.has(o.x + "," + o.y))) solids[k++] = o; solids.length = k; }
+})();
+
 buildings.sort((a, b) => a.ht - b.ht);
 
 // siatka kolizji statycznych
@@ -1184,7 +1458,7 @@ const mapCv = document.createElement("canvas");
 mapCv.width = mapCv.height = MW * MAPS;
 (function(){
   const m = mapCv.getContext("2d");
-  const cols = ["#5b5e64", "#8c8e8a", "#4a8a43", "#7a7c7e", "#4a4c51", "#8e7f6d", "#606368", "#2f6fa2", "#7c9848", "#8a8c90", "#eef3f8", "#dcc792", "#8a6a48", "#7d6a52"];
+  const cols = ["#5b5e64", "#8c8e8a", "#4a8a43", "#7a7c7e", "#4a4c51", "#8e7f6d", "#606368", "#2f6fa2", "#7c9848", "#8a8c90", "#eef3f8", "#dcc792", "#8a6a48", "#7d6a52", "#2f5a2a", "#cfae55", "#e3d23a", "#6e5238"];
   for (let y = 0; y < MW; y++) for (let x = 0; x < MW; x++){
     m.fillStyle = cols[ground[y * MW + x]];
     m.fillRect(x * MAPS, y * MAPS, MAPS, MAPS);
@@ -1230,7 +1504,8 @@ const VT = {
   police:   { len: 46, wid: 22, maxF: 610, acc: 490, mass: 1.25, grip: 8.3, name: "Radiowóz", price: 0 },
   swat:     { len: 58, wid: 26, maxF: 500, acc: 350, mass: 2.4, grip: 7.4, name: "Opancerzony van", price: 0, steerK: 0.9 },
   bicycle:  { len: 24, wid: 8, maxF: 155, acc: 170, mass: 0.22, grip: 8.6, name: "Rower", price: 400, bike: true, human: true, steerK: 1.2 },
-  skate:    { len: 16, wid: 7, maxF: 120, acc: 140, mass: 0.15, grip: 7.6, name: "Deskorolka", price: 150, bike: true, human: true, steerK: 1.35 }
+  skate:    { len: 16, wid: 7, maxF: 120, acc: 140, mass: 0.15, grip: 7.6, name: "Deskorolka", price: 150, bike: true, human: true, steerK: 1.35 },
+  tractor:  { len: 40, wid: 24, maxF: 215, acc: 270, mass: 2.2, grip: 8.4, name: "Traktor", price: 0, steerK: 1.05 }
 };
 for (const k in VT){
   const t = VT[k], r = t.wid / 2, n = Math.max(2, Math.ceil(t.len / t.wid));
@@ -3239,6 +3514,7 @@ function drawGroundStatic(x0, y0, x1, y1, inV, dyn, ctx = MAINCTX){
     const shd = SHADE[i]; if (shd){ ctx.fillStyle = shd > 0 ? "rgba(255,250,235," + (shd / 480).toFixed(3) + ")" : "rgba(10,20,45," + (-shd / 300).toFixed(3) + ")"; ctx.fillRect(x * T, y * T, T + 0.6, T + 0.6); }
     if (GFX.painting && variant[i] && g !== G_FIELD){ ctx.fillStyle = variant[i] === 1 ? "rgba(0,0,0,.035)" : "rgba(255,255,255,.03)"; ctx.fillRect(x * T, y * T, T, T); }
   }
+  if (GFX.painting) groundBlend(ctx, tx0, ty0, tx1, ty1);
   if (hasWater && dyn){
     ctx.strokeStyle = "rgba(255,255,255,.08)"; ctx.lineWidth = 2; ctx.beginPath();
     for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++){
@@ -3495,7 +3771,7 @@ function render(){
   }
   drawRailElevated(inV);
   // drzewa
-  if (GFX.on) drawTreesNew(inV); else for (const t of trees){
+  if (GFX.on) drawTreesNew(inV); else for (const t of treesView(inV)){
     if (!inV(t.x, t.y, 40)) continue;
     const X = camX + (t.x - camX) * 1.1, Y = camY + (t.y - camY) * 1.1;
     ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.arc(t.x + 5, t.y + 7, t.r, 0, Math.PI * 2); ctx.fill();
@@ -9944,7 +10220,7 @@ function outPoint(minD, maxD){
     const a = Math.random() * Math.PI * 2, d = minD + Math.random() * (maxD - minD), x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d;
     if (x < 80 || y < 80 || x > WORLD - 80 || y > WORLD - 80 || !isOut(x, y)) continue;
     const gg = getGW(x, y);
-    if ((gg !== G_FIELD && gg !== G_GRASS && gg !== G_ROCK && gg !== G_SNOW && gg !== G_SAND) || pointBlocked(x, y, 18) || Math.abs(ringDist(x, y)) < RHW + 40) continue;
+    if ((gg !== G_FIELD && gg !== G_GRASS && gg !== G_ROCK && gg !== G_SNOW && gg !== G_SAND && gg !== G_FOREST) || pointBlocked(x, y, 18) || Math.abs(ringDist(x, y)) < RHW + 40) continue;
     if (onScreen(x, y, 40)) continue;
     return { x, y };
   }
@@ -10069,6 +10345,8 @@ function wildSound(p, kind){
   else if (p.kind === "stag"){ tone(150, t, 1.1, "sawtooth", 0.07 * a, sfxBus, 70); }
   else if (p.kind === "moose"){ tone(110, t, 1.4, "sawtooth", 0.08 * a, sfxBus, 60); }
   else if (p.kind === "fox"){ tone(900, t, 0.15, "square", 0.03 * a, sfxBus, 600); }
+  else if (p.kind === "cow"){ tone(150, t, 0.4, "sawtooth", 0.05 * a, sfxBus, 110); tone(120, t + 0.35, 0.9, "sawtooth", 0.06 * a, sfxBus, 90); }
+  else if (p.kind === "horse"){ tone(520, t, 0.5, "sawtooth", 0.035 * a, sfxBus, 300); tone(380, t + 0.3, 0.4, "sawtooth", 0.03 * a, sfxBus, 250); }
   else if (p.kind === "deer" && kind === "alarm"){ tone(500, t, 0.18, "square", 0.03 * a, sfxBus, 300); }
 }
 const _drawAnimalBase = drawAnimal;
@@ -10100,9 +10378,11 @@ drawAnimal = function(p){
   if (p.kind === "deer" || p.kind === "stag"){ ctx.fillStyle = "#f3eadf"; ctx.beginPath(); ctx.arc(-L + 1.5, 0, 2.4, 0, Math.PI * 2); ctx.fill(); }
   if (p.kind === "boar"){ ctx.fillStyle = dk; ctx.fillRect(-L * 0.6, -1, L * 1.2, 2); if (p.young){ ctx.fillStyle = "rgba(255,230,180,.6)"; ctx.fillRect(-L * 0.6, -2.5, L * 1.2, 1); ctx.fillRect(-L * 0.6, 1.5, L * 1.2, 1); } }
   if (p.kind === "moose"){ ctx.fillStyle = dk; ctx.beginPath(); ctx.ellipse(L * 0.35, 0, L * 0.35, L * 0.36, 0, 0, Math.PI * 2); ctx.fill(); }
+  if (p.kind === "cow"){ ctx.fillStyle = "#2b2b2b"; for (const [a, b, r] of [[-0.45, -0.12, 0.3], [0.25, 0.18, 0.24], [-0.05, 0.02, 0.16]]){ ctx.beginPath(); ctx.ellipse(L * a, L * b, L * r, L * r * 0.7, 0.5, 0, Math.PI * 2); ctx.fill(); } ctx.fillStyle = "#2b2b2b"; ctx.fillRect(-L - 5, -0.8, 6, 1.6); }
+  if (p.kind === "horse"){ ctx.fillStyle = dk; ctx.fillRect(L * 0.15, -1.3, L * 0.8, 2.6); ctx.beginPath(); ctx.ellipse(-L - 4, Math.sin(p.t * 3) * 1.2, 6, 2.2, 0, 0, Math.PI * 2); ctx.fill(); }
   // głowa i szyja
   const hx = L + (p.graze ? L * 0.15 : L * 0.3), hr = p.kind === "moose" ? 4.6 : p.kind === "boar" ? 4.2 : p.kind === "fox" ? 3 : 3.4;
-  if (p.kind === "deer" || p.kind === "stag" || p.kind === "moose"){ ctx.strokeStyle = col; ctx.lineWidth = hr * 1.1; ctx.beginPath(); ctx.moveTo(L * 0.6, 0); ctx.lineTo(hx, 0); ctx.stroke(); }
+  if (p.kind === "deer" || p.kind === "stag" || p.kind === "moose" || p.kind === "horse"){ ctx.strokeStyle = col; ctx.lineWidth = hr * 1.1; ctx.beginPath(); ctx.moveTo(L * 0.6, 0); ctx.lineTo(hx, 0); ctx.stroke(); }
   ctx.fillStyle = p.kind === "moose" ? dk : col; ctx.beginPath(); ctx.ellipse(hx, 0, hr * (p.kind === "moose" || p.kind === "fox" ? 1.5 : 1.2), hr, 0, 0, Math.PI * 2); ctx.fill();
   if (p.kind === "boar"){ ctx.fillStyle = "#2b2018"; ctx.beginPath(); ctx.arc(hx + hr, 0, 2.2, 0, Math.PI * 2); ctx.fill(); if (!p.young){ ctx.fillStyle = "#f0e8d8"; ctx.fillRect(hx + hr - 1, -3, 2.5, 1.2); ctx.fillRect(hx + hr - 1, 1.8, 2.5, 1.2); } }
   if (p.kind === "fox"){ ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(hx + 2.5, 0, 1.6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(hx - 1, -2); ctx.lineTo(hx - 2, -5.5); ctx.lineTo(hx + 1.5, -2.5); ctx.moveTo(hx - 1, 2); ctx.lineTo(hx - 2, 5.5); ctx.lineTo(hx + 1.5, 2.5); ctx.fill(); }
@@ -10190,6 +10470,17 @@ function animalDialog(p){
       if (Math.random() < 0.4){ emote(p, "😌", 2); heal(15); addRep(2); showDialog(w, "Łoś pozwolił się pogłaskać! Nikt ci nie uwierzy. (+15 zdrowia)", [{ t: "🫎" }]); }
       else { player.foot.hp -= 20; p.calm = 0; p.fleeT = 1; const a = Math.atan2(player.foot.y - p.y, player.foot.x - p.x); player.foot.kvx = Math.cos(a) * 300; player.foot.kvy = Math.sin(a) * 300; thud(p.x, p.y); showDialog(w, "ŁUP! Łoś kopnął cię kopytem. Szacunek dla natury… (-20 zdrowia)", [{ t: "🤕" }]); if (player.foot.hp <= 0){ player.foot.hp = 0; closeDialog(); killPlayer("KOPNIĘTY PRZEZ ŁOSIA"); } }
     } });
+  } else if (p.kind === "cow"){
+    text = pick(["Krowa przeżuwa trawę i patrzy na ciebie z bezgranicznym spokojem.", "Muuu. Łaciata krowa macha ogonem, odganiając muchy.", "Krowa trąca cię mokrym nosem. Chyba liczy na smakołyk."]);
+    ch.push({ t: "🥛 Wydój krowę", fn: () => {
+      if (Math.random() < 0.65){ SAVE.milkN = (SAVE.milkN || 0) + 1; saveDirty = true; heal(10); addMoney(15, "ŚWIEŻE MLEKO"); emote(p, "😌", 2); wildSound(p, "idle"); showDialog(w, "Pełne wiadro świeżego mleka! Gospodarz Józef byłby dumny. (+10 zdrowia)", [{ t: "🥛" }]); }
+      else { player.foot.hp -= 8; const a = Math.atan2(player.foot.y - p.y, player.foot.x - p.x); player.foot.kvx = Math.cos(a) * 180; player.foot.kvy = Math.sin(a) * 180; wildSound(p, "idle"); showDialog(w, "Krowa kopnęła wiadro… i ciebie. MUUU! (-8 zdrowia)", [{ t: "🤕" }]); if (player.foot.hp <= 0){ player.foot.hp = 0; closeDialog(); killPlayer("KOPNIĘTY PRZEZ KROWĘ"); } }
+    } });
+    ch.push({ t: "🌿 Daj garść siana", fn: () => { emote(p, "😋", 2); p.follow = 15; wildSound(p, "idle"); showDialog(w, "Krowa chrupie siano i rusza za tobą krok w krok. Muuu!", [{ t: "🐄" }]); } });
+  } else if (p.kind === "horse"){
+    text = pick(["Koń parska i strzyże uszami.", "Piękny koń. Grzywa lśni w słońcu.", "Koń podchodzi do ogrodzenia i wyciąga szyję w twoją stronę."]);
+    ch.push({ t: "🥕 Daj marchewkę", fn: () => { emote(p, "🥰", 3); heal(5); addRep(1); p.follow = 12; wildSound(p, "idle"); showDialog(w, "Chrup, chrup! Koń zjada marchewkę i trąca cię chrapami. (+5 zdrowia)", [{ t: "🐎" }]); } });
+    ch.push({ t: "🤲 Pogłaszcz", fn: () => { emote(p, "😌", 2); showDialog(w, "Koń opiera łeb o twoje ramię. Ciepły i spokojny.", [{ t: "🥹" }]); } });
   } else if (p.kind === "fox"){
     text = "Rudy lis zatrzymał się i przechyla łebek. Bardzo sprytne spojrzenie.";
     ch.push({ t: "🍗 Rzuć coś do jedzenia", fn: () => { p.calm = 20; emote(p, "😋", 2); showDialog(w, "Lis łapie kąsek w locie i znika w zaroślach… po chwili wraca po więcej!", [{ t: "🦊" }]); p.follow = 20; } });
@@ -11078,7 +11369,7 @@ function drawSunShadows(x0, y0, x1, y1){
   ctx.beginPath();
   for (const b of buildings){
     if (b.kind === "canopy") continue;
-    const hgt = (b.round ? 0.35 : b.ht) * 260, dx = sv.x * hgt, dy = sv.y * hgt;
+    const hgt = (b.round ? Math.min(0.35, b.ht) : b.ht) * 260, dx = sv.x * hgt, dy = sv.y * hgt;
     if (b.round){
       if (b.cx + b.r + Math.abs(dx) < x0 || b.cx - b.r - Math.abs(dx) > x1 || b.cy + b.r + Math.abs(dy) < y0 || b.cy - b.r - Math.abs(dy) > y1) continue;
       const n = Math.hypot(dx, dy) || 1, nx = -dy / n * b.r, ny = dx / n * b.r;
@@ -11102,7 +11393,7 @@ const TREE_PAL = {
 function drawTreesNew(inV){
   const sv = GFX.sun, wind = (WX.type === "storm" ? 3 : WX.rain > 0.3 ? 1.6 : 0.8);
   const pal = TREE_PAL[SEASON];
-  for (const t of trees){
+  for (const t of treesView(inV)){
     if (!inV(t.x, t.y, 50)) continue;
     const X = camX + (t.x - camX) * 1.1, Y = camY + (t.y - camY) * 1.1;
     const hs = ghash(t.x, t.y), sw = Math.sin(gameTime * 1.3 + t.x * 0.013 + t.y * 0.007) * wind * t.r * 0.035;
@@ -12399,7 +12690,7 @@ function drawRoadDecal(d, c){
   const line = (P) => { c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.stroke(); };
   c.lineJoin = "round"; c.lineCap = "butt";
   c.strokeStyle = "rgba(240,240,230,.8)"; c.lineWidth = 3;
-  line(off(hw - 8)); line(off(-(hw - 8)));
+  if (!d.noEdge){ line(off(hw - 8)); line(off(-(hw - 8))); }
   if (d.lanes === 2){
     c.setLineDash([26, 30]); line(off(hw / 2 - 2)); line(off(-(hw / 2 - 2))); c.setLineDash([]);
     c.strokeStyle = "rgba(240,200,60,.85)"; c.lineWidth = 2.5; line(off(3)); line(off(-3));
@@ -12409,7 +12700,7 @@ const _drawDecalR = drawDecal;
 drawDecal = function(d, c){ if (d.type === "road") return drawRoadDecal(d, c || MAINCTX); return _drawDecalR(d, c); };
 // ---------- nawierzchnie ----------
 const SURF = { [G_SNOW]: [0.45, 0.72], [G_SAND]: [0.6, 0.68], [G_ROCK]: [0.85, 0.85], [G_DIRT]: [0.78, 0.88], [G_FIELD]: [0.85, 0.82], [G_GRASS]: [0.88, 0.85] };
-function surfK(v, i){ if (VT[v.type].boat) return 1; const s = SURF[getGW(v.x, v.y)]; return s ? s[i] : 1; }
+function surfK(v, i){ if (VT[v.type].boat || v.type === "tractor") return 1; const s = SURF[getGW(v.x, v.y)]; return s ? s[i] : 1; }
 // ---------- ruch na drogach w krainach ----------
 const roadTr = { t: 1 };
 function roadTrafficUpdate(dt){
@@ -12423,7 +12714,7 @@ function roadTrafficUpdate(dt){
     const near = roadNearestS(R, pp.x, pp.y);
     if (near.d > 1400) continue;
     let n = 0; for (const v of vehicles) if (v.ai && v.ai.road === R) n++;
-    const want = Math.round((R.lanes === 2 ? 8 : R.surf === G_DIRT ? 1 : 3) * mult);
+    const want = Math.round((R.want !== undefined ? R.want : R.lanes === 2 ? 8 : R.surf === G_DIRT ? 1 : 3) * mult);
     if (n >= want) continue;
     for (let k = 0; k < 4; k++){
       const s = near.s + (Math.random() < 0.5 ? -1 : 1) * (650 + Math.random() * 700);
@@ -12431,7 +12722,7 @@ function roadTrafficUpdate(dt){
       const dir = Math.random() < 0.5 ? 1 : -1, lane = R.lanes === 2 ? (Math.random() < 0.5 ? 18 : 50) : 16;
       const p = roadAt(R, s), nx = -p[3] * dir, ny = p[2] * dir, x = p[0] + nx * lane, y = p[1] + ny * lane;
       if (onScreen(x, y, 70) || vehicles.some(o => Math.abs(o.x - x) < 90 && Math.abs(o.y - y) < 90)) continue;
-      const tp = R.surf === G_DIRT ? pick(["pickup", "suv", "van"]) : Math.random() < 0.2 ? pick(["van", "bus", "pickup"]) : pickType(Math.random());
+      const tp = R.types ? pick(R.types) : R.surf === G_DIRT ? pick(["pickup", "suv", "van"]) : Math.random() < 0.2 ? pick(["van", "bus", "pickup"]) : pickType(Math.random());
       if (tp === "bus" && R.lanes !== 2) continue;
       const a = Math.atan2(p[3] * dir, p[2] * dir), v = makeVehicle(defaultCfg(tp), x, y, a);
       const cr = Math.min(VT[tp].maxF * 0.85, R.cruise * (0.85 + Math.random() * 0.3));
@@ -12673,7 +12964,7 @@ function xgStep(){
     const n = SAVE.xg.filter(Boolean).length;
     addMoney(200, "KRASNAL KRAINY");
     popup("🗿 Krasnal z krainy " + n + "/" + XGNOMES.length + "!", "#ffd700");
-    if (n === XGNOMES.length){ addMoney(3000, "WSZYSTKIE KRASNALE KRAIN"); toast("🏆 Wszystkie krasnale gór i jeziora!", 3500); }
+    if (n === XGNOMES.length){ addMoney(3000, "WSZYSTKIE KRASNALE KRAIN"); toast("🏆 Wszystkie krasnale wszystkich krain!", 3500); }
   });
 }
 // ---------- krainy: nazwy ----------
@@ -12834,6 +13125,567 @@ ACH.push(
 
 spawnDocked();
 DOORS.push({ kind: "food", name: "Schronisko", x: MOUNT.hut.x + MOUNT.hut.w / 2, y: MOUNT.hut.y + MOUNT.hut.h + 16 });
+
+// =====================================================================
+// PUSZCZA ZACHODNIA I DĘBOWO: GRZYBY, RAJD, WIEŻA, ZWÓZKA DREWNA,
+// MIASTECZKO Z MIESZKAŃCAMI, GOSPODARSTWO, ORKA, KROWY I KONIE
+// =====================================================================
+GCOL.push(["#3e5f33", "#3a5a30", "#436637"], ["#cfae55", "#c9a84f", "#d4b35b"], ["#e3d23a", "#ddcc35", "#e8d742"], ["#6e5238", "#6a4e35", "#73573c"]);
+TEX.forest = noiseTex(128, "#3f5e33", 24, 131, (g, n, r) => {
+  for (let i = 0; i < 70; i++){ g.fillStyle = r() < 0.5 ? "rgba(90,70,40,.35)" : "rgba(20,45,20,.35)"; g.beginPath(); g.ellipse(r() * n, r() * n, 2 + r() * 5, 1 + r() * 2, r() * 3, 0, 6.3); g.fill(); }
+  for (let i = 0; i < 18; i++){ g.fillStyle = "rgba(120,160,80,.25)"; g.beginPath(); g.arc(r() * n, r() * n, 3 + r() * 6, 0, 6.3); g.fill(); }
+});
+TEX.crop = noiseTex(64, "#cdac54", 14, 137, (g, n) => { for (let x = 0; x < n; x += 8){ g.fillStyle = "rgba(120,90,30,.28)"; g.fillRect(x, 0, 2, n); g.fillStyle = "rgba(255,240,170,.18)"; g.fillRect(x + 4, 0, 2, n); } });
+TEX.rape = noiseTex(64, "#e2d138", 18, 139, (g, n, r) => { for (let i = 0; i < 80; i++){ g.fillStyle = r() < 0.4 ? "rgba(90,130,40,.45)" : "rgba(255,250,150,.45)"; g.fillRect(r() * n, r() * n, 2, 2); } });
+TEX.plow = noiseTex(64, "#6c5137", 18, 141, (g, n) => { for (let y = 0; y < n; y += 8){ g.fillStyle = "rgba(40,25,10,.4)"; g.fillRect(0, y, n, 3); g.fillStyle = "rgba(160,120,80,.22)"; g.fillRect(0, y + 4, n, 2); } });
+const _patsW = pats;
+pats = function(){
+  const P2 = _patsW();
+  if (!P2.ext2){ const p = t => ctx.createPattern(TEX[t], "repeat"); P2.g[G_FOREST] = p("forest"); P2.g[G_CROP] = p("crop"); P2.g[G_RAPE] = p("rape"); P2.g[G_PLOW] = p("plow"); P2.ext2 = true; }
+  return P2;
+};
+SURF[G_FOREST] = [0.8, 0.84]; SURF[G_CROP] = [0.7, 0.74]; SURF[G_RAPE] = [0.7, 0.74]; SURF[G_PLOW] = [0.58, 0.68];
+// ---------- miękkie przejścia między naturalnymi nawierzchniami ----------
+const BLENDG = new Set([G_GRASS, G_FIELD, G_ROCK, G_SNOW, G_SAND, G_DIRT, G_FOREST]);
+function groundBlend(c, tx0, ty0, tx1, ty1){
+  const P2 = pats();
+  for (let y = Math.max(0, ty0 - 1); y <= ty1; y++) for (let x = Math.max(0, tx0 - 1); x <= tx1; x++){
+    const g = ground[y * MW + x];
+    if (!BLENDG.has(g)) continue;
+    for (let d = 0; d < 2; d++){
+      const X = x + (d === 0 ? 1 : 0), Y = y + (d === 1 ? 1 : 0);
+      if (X >= MW || Y >= MW) continue;
+      const n = ground[Y * MW + X];
+      if (n === g || !BLENDG.has(n)) continue;
+      for (const [src, sg] of [[g, 1], [n, -1]]){
+        c.fillStyle = P2.g[src]; c.beginPath();
+        for (let k = 0; k < 3; k++){
+          const t = (k + 0.5) / 3 + (vhash(x * 7 + k, y * 3 + d, 11 + sg) - 0.5) * 0.3, r = T * (0.16 + vhash(x + k * 5, y * 2 + d, 13 + sg) * 0.18);
+          if (vhash(x * 3 + k, y + d * 5, 17 + sg) < 0.35) continue;
+          let ex = d === 0 ? (x + 1) * T : (x + t) * T, ey = d === 1 ? (y + 1) * T : (y + t) * T;
+          if (d === 0) ex += sg * r * 0.45; else ey += sg * r * 0.45;
+          c.moveTo(ex + r, ey); c.arc(ex, ey, r, 0, 6.283);
+        }
+        c.fill();
+      }
+    }
+  }
+}
+// ---------- drzewa: siatka do szybkiego rysowania ----------
+const TGRID = { n: -1, cs: 640, gw: 0, cells: null, out: [] };
+function treesView(inV){
+  if (TGRID.n !== trees.length){
+    TGRID.n = trees.length; TGRID.gw = Math.ceil(WORLD / TGRID.cs);
+    TGRID.cells = Array.from({ length: TGRID.gw * TGRID.gw }, () => []);
+    for (const t of trees){ const cx = clamp((t.x / TGRID.cs) | 0, 0, TGRID.gw - 1), cy = clamp((t.y / TGRID.cs) | 0, 0, TGRID.gw - 1); TGRID.cells[cy * TGRID.gw + cx].push(t); }
+  }
+  const out = TGRID.out, cs = TGRID.cs, gw = TGRID.gw; out.length = 0;
+  for (let cy = 0; cy < gw; cy++) for (let cx = 0; cx < gw; cx++){
+    const a = TGRID.cells[cy * gw + cx];
+    if (!a.length || !inV((cx + 0.5) * cs, (cy + 0.5) * cs, cs * 0.5 + 60)) continue;
+    for (const t of a) out.push(t);
+  }
+  return out;
+}
+// ---------- traktor ----------
+BODY.tractor = Object.assign({}, BODY.pickup);
+function drawTractor(g, v){
+  const col = v.wreck ? "#3a3a3a" : v.cfg.col, hl = 20, hw = 12;
+  g.fillStyle = "rgba(0,0,0,.3)"; rrect(g, -hl + 3, -hw + 4, 40, 24, 4); g.fill();
+  const rot = (v.odo || 0) * 0.2;
+  for (const sg of [-1, 1]){
+    g.fillStyle = "#141414"; rrect(g, -hl, sg > 0 ? hw - 5 : -hw - 3, 17, 8, 2); g.fill();
+    g.fillStyle = "#2c2c2c"; for (let k = 0; k < 5; k++){ const x = -hl + 1 + ((k * 3.4 + rot) % 17); g.fillRect(x, sg > 0 ? hw - 5 : -hw - 3, 1.2, 8); }
+    g.save(); g.translate(hl - 6, sg * (hw - 3)); g.rotate(v.steer * 0.45); g.fillStyle = "#141414"; rrect(g, -4.5, -2.5, 9, 5, 1.5); g.fill(); g.restore();
+  }
+  g.fillStyle = col; rrect(g, -3, -6, 23, 12, 3); g.fill();
+  g.fillStyle = shade(col, 0.2); g.fillRect(-1, -4.5, 19, 2);
+  g.fillStyle = shade(col, -0.4); g.fillRect(hl - 1, -5, 1.5, 10);
+  g.fillStyle = "#222"; g.beginPath(); g.arc(8, -4, 1.8, 0, 6.3); g.fill();
+  g.fillStyle = shade(col, -0.18); rrect(g, -hl + 1, -9.5, 18, 19, 3); g.fill();
+  g.fillStyle = v.wreck ? "#555" : "#f2f2f2"; rrect(g, -hl + 2.5, -8, 15, 16, 2); g.fill();
+  g.fillStyle = "rgba(140,190,220,.8)"; g.fillRect(-hl + 15.5, -7, 2, 14);
+  if (!v.wreck && v.braking){ g.fillStyle = "#ff2a2a"; g.fillRect(-hl, -8, 1.5, 3); g.fillRect(-hl, 5, 1.5, 3); }
+  if (v.dents.length){ g.fillStyle = "rgba(0,0,0,.3)"; for (const d of v.dents){ g.beginPath(); g.ellipse(d[0] * 0.8, d[1] * 0.8, d[2], d[2] * 0.7, 0, 0, Math.PI * 2); g.fill(); } }
+}
+function drawLogsOn(g, v){
+  const hl = VT[v.type].len / 2;
+  for (const k of [-1, 0, 1]){
+    g.fillStyle = "#7b5536"; rrect(g, -hl * 0.92, k * 6 - 2.6, hl * 0.72, 5.2, 2.6); g.fill();
+    g.fillStyle = "#d7b98a"; g.beginPath(); g.ellipse(-hl * 0.2, k * 6, 1.4, 2.6, 0, 0, 6.3); g.fill();
+  }
+}
+const _drawCarBodyW = drawCarBody;
+drawCarBody = function(g, v, preview){
+  if (v.type === "tractor") return drawTractor(g, v);
+  _drawCarBodyW(g, v, preview);
+  if (v.logs) drawLogsOn(g, v);
+};
+// ---------- krowy i konie ----------
+WILD.cow = { name: "Krowa", icon: "🐄", L: 15, sp: 7, flee: 0, run: 50, mass: 1.6, col: "#f3efe6" };
+WILD.horse = { name: "Koń", icon: "🐎", L: 15, sp: 16, flee: 0, run: 110, mass: 1.2, col: "#8b5a2b" };
+ALBUM.push("cow", "horse"); ALBUM_N.cow = "Krowa"; ALBUM_N.horse = "Koń";
+const FARMST = { t: 0 };
+function farmAnimals(){
+  const pp = playerPos();
+  if (Math.hypot(pp.x - FARM.c[0], pp.y - FARM.c[1]) > 1500) return;
+  for (const P of FARM.pens){
+    const n = peds.filter(p => p.pen === P && p.state !== "dead").length, want = P.kind === "cow" ? 6 : 3;
+    for (let k = n; k < want; k++){
+      const x = P.x0 + 40 + Math.random() * (P.x1 - P.x0 - 80), y = P.y0 + 50 + Math.random() * (P.y1 - P.y0 - 90);
+      if (onScreen(x, y, 30) && n > 0) break;
+      const p = makeWild(P.kind, x, y, { pen: P, home: [(P.x0 + P.x1) / 2, (P.y0 + P.y1) / 2 + 20], rad: Math.min(P.x1 - P.x0, P.y1 - P.y0) / 2 - 40 });
+      if (P.kind === "horse") p.col = pick(["#8b5a2b", "#3e2723", "#d7ccc8", "#5d4037", "#212121"]);
+    }
+  }
+}
+// ---------- grzyby ----------
+const SHROOMS = [["Borowik", "#7b4a26", 14, 30], ["Kurki", "#f2a900", 7, 25], ["Kania", "#d8c3a0", 10, 15], ["Podgrzybek", "#4e3020", 9, 18], ["Muchomor", "#d32f2f", 0, 12]];
+if (typeof SAVE.shroomN !== "number") SAVE.shroomN = 0;
+if (typeof SAVE.basket !== "number") SAVE.basket = 0;
+const SHR = { list: [], t: 0 };
+function shroomStep(dt){
+  SHR.t -= dt;
+  const pp = playerPos();
+  if (SHR.t <= 0){
+    SHR.t = 1.5;
+    for (let i = SHR.list.length - 1; i >= 0; i--){ const m = SHR.list[i]; if (Math.hypot(m.x - pp.x, m.y - pp.y) > 1900) SHR.list.splice(i, 1); }
+    if (pp.y > MOUNT.yb && inForest(pp.x, pp.y) && SHR.list.length < 16){
+      for (let k = 0; k < 6; k++){
+        const a = Math.random() * 6.28, d = 220 + Math.random() * 800, x = pp.x + Math.cos(a) * d, y = pp.y + Math.sin(a) * d;
+        if (getGW(x, y) !== G_FOREST || hardNear(x, y, 30) || pointBlocked(x, y, 9) || onScreen(x, y, 20)) continue;
+        const tot = SHROOMS.reduce((s, q) => s + q[3], 0); let r = Math.random() * tot, kind = 0;
+        for (let q = 0; q < SHROOMS.length; q++){ r -= SHROOMS[q][3]; if (r <= 0){ kind = q; break; } }
+        SHR.list.push({ x, y, k: kind, s: 0.8 + Math.random() * 0.5 });
+        if (SHR.list.length >= 16) break;
+      }
+    }
+  }
+  if (player.mode !== "foot") return;
+  const f = player.foot;
+  for (let i = SHR.list.length - 1; i >= 0; i--){
+    const m = SHR.list[i];
+    if (Math.abs(m.x - f.x) > 18 || Math.abs(m.y - f.y) > 18) continue;
+    SHR.list.splice(i, 1);
+    const S = SHROOMS[m.k];
+    if (!S[2]){ popup("🍄 Muchomor! Trujący – lepiej go zostawić…", "#ff8a80"); player.foot.hp = Math.max(1, player.foot.hp - 3); continue; }
+    SAVE.shroomN++; SAVE.basket += S[2]; saveDirty = true;
+    popup("🍄 " + S[0] + "! Koszyk: " + fmt(SAVE.basket), "#ffd27a");
+    if (actx) tone(700 + m.k * 60, actx.currentTime, 0.08, "sine", 0.05);
+  }
+}
+function drawShrooms(inV){
+  for (const m of SHR.list){
+    if (!inV(m.x, m.y, 20)) continue;
+    const S = SHROOMS[m.k], s = m.s;
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(m.x + 2, m.y + 3, 6 * s, 3 * s, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = "#efe6d2"; ctx.fillRect(m.x - 1.5 * s, m.y - 1 * s, 3 * s, 5 * s);
+    ctx.fillStyle = S[1]; ctx.beginPath(); ctx.ellipse(m.x, m.y - 1.5 * s, (m.k === 2 ? 7 : 5.5) * s, (m.k === 1 ? 3 : 4) * s, 0, 0, 6.3); ctx.fill();
+    if (m.k === 4){ ctx.fillStyle = "#fff"; for (const [a, b] of [[-2.5, -2.5], [1.5, -3], [2.8, -0.5], [-1, 0], [0.5, -1.8]]){ ctx.beginPath(); ctx.arc(m.x + a * s, m.y + b * s, 0.8 * s, 0, 6.3); ctx.fill(); } }
+    else { ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.beginPath(); ctx.ellipse(m.x - 1.5 * s, m.y - 3 * s, 2 * s, 1 * s, -0.3, 0, 6.3); ctx.fill(); }
+  }
+}
+function sellBasket(who){
+  if (SAVE.basket <= 0) return false;
+  const n = SAVE.basket; SAVE.basket = 0; addMoney(n, "SKUP GRZYBÓW"); persist();
+  return n;
+}
+// ---------- rajd leśny ----------
+const RALLY = { R: FOREST.loop, run: null, cps: [] };
+RALLY.start = roadAt(RALLY.R, 170);
+for (let s = 850; s < RALLY.R.len - 250; s += 750) RALLY.cps.push(s);
+RALLY.cps.push(RALLY.R.len - 60);
+RALLY.par = Math.round((RALLY.R.len - 170) / 205);
+RALLY.rent = [RALLY.start[0] - RALLY.start[3] * 95, RALLY.start[1] + RALLY.start[2] * 95];
+function rallyCheckStart(){
+  if (RALLY.run || MTT.run || player.mode !== "car" || state !== "play") return;
+  const v = player.veh, p = RALLY.start;
+  if (Math.hypot(p[0] - v.x, p[1] - v.y) < 65 && Math.hypot(v.vx, v.vy) < 30 && !(RALLY.lockT > gameTime)){
+    RALLY.lockT = gameTime + 8;
+    showDialog({ name: "Rajd Leśny", item: "🏁" }, "Szutrowa pętla przez Puszczę Zachodnią: " + RALLY.cps.length + " punktów kontrolnych, ok. " + (RALLY.R.len / 10000).toFixed(1) + " km żwiru, błota i ostrych zakrętów. Wzorzec: " + RALLY.par + " s. Rekord: " + (SAVE.records.rally ? SAVE.records.rally.toFixed(1) + " s" : "brak") + ".", [
+      { t: "🏁 START!", pri: true, fn: () => { closeDialog(); RALLY.run = { t: 0, i: 0 }; popup("🏁 3… 2… 1… GAZ!", "#ffd27a"); } },
+      { t: "👋 Nie teraz", fn: closeDialog }]);
+  }
+}
+function rallyStep(dt){
+  const R = RALLY.run;
+  if (!R) return;
+  R.t += dt;
+  if (player.mode !== "car"){ RALLY.run = null; popup("❌ Rajd przerwany", "#ff4136"); return; }
+  const p = roadAt(RALLY.R, RALLY.cps[R.i]), v = player.veh;
+  if (Math.hypot(p[0] - v.x, p[1] - v.y) < 120){
+    R.i++;
+    if (actx) tone(880 + R.i * 40, actx.currentTime, 0.1, "sine", 0.07);
+    if (R.i >= RALLY.cps.length){
+      const t = R.t, rec = SAVE.records.rally;
+      addMoney(t <= RALLY.par ? 1200 : 600, "RAJD LEŚNY"); addXP(300);
+      if (!rec || t < rec){ SAVE.records.rally = t; persist(); popup("🏆 Rekord rajdu: " + t.toFixed(1) + " s!", "#ffd700"); }
+      else popup("🏁 Meta! " + t.toFixed(1) + " s", "#ffd27a");
+      RALLY.run = null;
+    }
+  }
+}
+function rentRallyCar(){
+  if (SAVE.money < 80){ toast("Auto rajdowe kosztuje $80", 1500); return; }
+  SAVE.money -= 80; saveDirty = true;
+  const cfg = defaultCfg("suv", "#1565c0"); cfg.stripes = "race"; cfg.stripeCol = "#ffffff"; cfg.tires = 3; cfg.susp = 3; cfg.eng = 2; cfg.rims = "black";
+  const a = Math.atan2(RALLY.start[3], RALLY.start[2]), x = RALLY.rent[0] + RALLY.start[3] * 30, y = RALLY.rent[1] - RALLY.start[2] * 30;
+  const v = makeVehicle(cfg, x, y, a); v.radio = -1;
+  popup("🚙 Rajdówka gotowa! Wsiadaj i stań przy fladze.", "#9fd4ff");
+}
+// ---------- wieża widokowa ----------
+function towerAction(){
+  if (!SAVE.ftower){ SAVE.ftower = 1; addMoney(300, "WIEŻA PRZECIWPOŻAROWA"); ROOF.viewT = 5; toast("🔭 Wspinasz się po 120 stopniach… Cała puszcza jak na dłoni!", 3500); persist(); return; }
+  ROOF.viewT = 4; camFlash = 0.5; popup("🔭 Zielone morze lasu aż po horyzont", "#9fe39f");
+}
+// ---------- zwózka drewna ----------
+if (typeof SAVE.logN !== "number") SAVE.logN = 0;
+const LOGJ = { run: null };
+function startLogJob(){
+  const [hx, hy] = FOREST.lodge;
+  const v = makeVehicle(defaultCfg("pickup", "#5d4037"), hx + 40, hy + 330, 0); v.logs = true; v.radio = -1;
+  LOGJ.run = { v, t: 0, lim: 240 };
+  toast("🪵 Pikap z drewnem stoi na podwórzu. Zawieź drewno do tartaku przy drodze na zachód – masz 4 minuty!", 3800);
+}
+function logStep(dt){
+  const R = LOGJ.run;
+  if (!R) return;
+  R.t += dt;
+  const v = R.v;
+  if (v.wreck || !vehicles.includes(v) || R.t > R.lim){ LOGJ.run = null; v.logs = false; popup("❌ Zwózka drewna nieudana", "#ff4136"); return; }
+  if (player.veh === v && player.mode === "car" && Math.hypot(v.x - FOREST.drop[0], v.y - FOREST.drop[1]) < 140 && Math.hypot(v.vx, v.vy) < 60){
+    const pay = Math.round((260 + Math.max(0, R.lim - R.t)) * (SAVE.biz.mill ? 2 : 1) * (v.hp > 70 ? 1 : 0.7));
+    addMoney(pay, "ZWÓZKA DREWNA"); addXP(120); SAVE.logN++; persist(); v.logs = false; LOGJ.run = null;
+    popup("🪵 Drewno w tartaku! Brygadzista kiwa głową.", "#9fe39f");
+  }
+}
+// ---------- gospodarstwo: orka ----------
+if (typeof SAVE.plowN !== "number") SAVE.plowN = 0;
+if (typeof SAVE.milkN !== "number") SAVE.milkN = 0;
+const PLOW = (() => { const P = FARM.plow, nx = Math.ceil((P.x1 - P.x0) / T), ny = Math.ceil((P.y1 - P.y0) / T); return { on: false, nx, ny, cells: new Uint8Array(nx * ny), n: 0, done: 0 }; })();
+function startPlow(){
+  PLOW.cells.fill(0); PLOW.n = 0; PLOW.on = true;
+  toast("🚜 Wsiądź do traktora z podwórza i zaoraj pole na wschód od gospodarstwa (85%).", 3800);
+}
+function plowStep(){
+  if (!PLOW.on || player.mode !== "car" || player.veh.type !== "tractor") return;
+  const v = player.veh, P = FARM.plow;
+  if (Math.hypot(v.vx, v.vy) < 15) return;
+  const bx = v.x - Math.cos(v.a) * 22, by = v.y - Math.sin(v.a) * 22;
+  for (const o of [-20, 0, 20]){
+    const x = bx - Math.sin(v.a) * o, y = by + Math.cos(v.a) * o, cx = Math.floor((x - P.x0) / T), cy = Math.floor((y - P.y0) / T);
+    if (cx < 0 || cy < 0 || cx >= PLOW.nx || cy >= PLOW.ny) continue;
+    const i = cy * PLOW.nx + cx;
+    if (!PLOW.cells[i]){ PLOW.cells[i] = 1; PLOW.n++; if (Math.random() < 0.3) addPart(x, y, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, 0.6, 3, 0); }
+  }
+  if (PLOW.n / PLOW.cells.length >= 0.85){
+    PLOW.on = false; SAVE.plowN++; persist();
+    addMoney(450 * (SAVE.biz.farm ? 2 : 1), "ORKA"); addXP(200);
+    toast("🚜 Pole zaorane! Gospodarz Józef: „No, z ciebie to jest chłop na schwał!”", 3500);
+  }
+}
+function drawPlowed(inV){
+  if (!PLOW.n) return;
+  const P = FARM.plow;
+  if (!inV((P.x0 + P.x1) / 2, (P.y0 + P.y1) / 2, (P.x1 - P.x0) / 2 + 60)) return;
+  ctx.fillStyle = GFX.on ? pats().g[G_PLOW] : "#6e5238";
+  for (let cy = 0; cy < PLOW.ny; cy++) for (let cx = 0; cx < PLOW.nx; cx++){
+    if (!PLOW.cells[cy * PLOW.nx + cx]) continue;
+    const x = P.x0 + cx * T, y = P.y0 + cy * T;
+    if (inV(x + T / 2, y + T / 2, T)) ctx.fillRect(x, y, T + 0.5, T + 0.5);
+  }
+}
+// ---------- mieszkańcy Dębowa ----------
+const TOWNTALK = ["Dzień dobry sąsiadko!", "W sklepie rzucili świeży chleb!", "Ksiądz dziś znowu długo mówił…", "Kowalski znowu traktorem po rynku jechał", "Na dożynki idziesz?", "Ale miastowy samochód…", "Wójt obiecał nowy chodnik. Od dziesięciu lat.", "Grzyby w puszczy wysypały!", "Krowa Józefa znowu uciekła", "Panie, tu autobus jeździ dwa razy dziennie", "Karczma ma dziś pierogi z jagodami!", "Kto tak pędzi przez wieś?!", "Ładna pogoda na sianokosy", "W OSP w sobotę zabawa!", "Mój wnuk w mieście robi w internetach", "A u nas to się wszyscy znają", "Koguty o czwartej rano, jak co dzień"];
+const TWN = { t: 0, bellH: -1, gasLock: 0 };
+function spawnTownPed(){
+  for (let i = 0; i < 8; i++){
+    const w = pick(TOWN.wps);
+    if (onScreen(w[0], w[1], 30) || pointBlocked(w[0], w[1], 6)) continue;
+    const p = makePed(0, 0, 0);
+    Object.assign(p, { x: w[0], y: w[1], town: true, state: "town", home: [w[0], w[1]], tx: w[0], ty: w[1], pauseT: Math.random() * 2 });
+    if (Math.random() < 0.35){ p.hair = pick(["#e0e0e0", "#bdbdbd", "#f5f5f5"]); p.spd = 20 + Math.random() * 8; p.col = pick(["#5d4037", "#37474f", "#6d4c41", "#455a64", "#8e244d"]); }
+    return p;
+  }
+  return null;
+}
+const _pedExtraW = pedExtraUpdate;
+pedExtraUpdate = function(p, dt){
+  if (p.town){
+    if (p.state === "walk" || (p.state === "stand" && !p.talkHold && !p.fixed)) p.state = "town";
+    if (p.state === "town"){
+      if (p.sayT > 0) p.sayT -= dt;
+      if (p.emoT > 0) p.emoT -= dt;
+      if (p.pauseT > 0){ p.pauseT -= dt; return false; }
+      if (moveTo(p, p.tx, p.ty, p.spd, dt)){
+        p.pauseT = Math.random() < 0.3 ? 1 + Math.random() * 4 : 0;
+        const opts = TOWN.wps.filter(w => { const d = Math.hypot(w[0] - p.x, w[1] - p.y); return d > 60 && d < 210; });
+        const w = opts.length ? pick(opts) : pick(TOWN.wps);
+        p.tx = w[0]; p.ty = w[1]; p.home = [w[0], w[1]];
+        if (Math.random() < 0.06 && onScreen(p.x, p.y, 0)) say(p, pick(TOWNTALK), 2.6);
+      }
+      pushCircle(p, 6);
+      return false;
+    }
+  }
+  return _pedExtraW(p, dt);
+};
+const _talkPedW = talkPed;
+talkPed = function(p){ if (p.town && p.state === "town") p.state = "walk"; return _talkPedW(p); };
+function townUpdate(dt){
+  TWN.t -= dt;
+  const pp = playerPos(), [cx, cy] = TOWN.c, d = Math.hypot(pp.x - cx, pp.y - cy);
+  // dzwony
+  const h = Math.floor(hourNow());
+  if (h !== TWN.bellH){
+    const first = TWN.bellH < 0; TWN.bellH = h;
+    if (!first && h >= 7 && h <= 21 && actx && d < 1800){ const t = actx.currentTime, a = clamp(1 - d / 1800, 0.15, 1); for (let i = 0; i < 4; i++){ tone(330, t + i * 1.1, 1.8, "sine", 0.07 * a); tone(495, t + i * 1.1, 1.2, "sine", 0.03 * a); } popup("🔔 Dzwony z wieży kościoła w Dębowie", "#ffd27a"); }
+  }
+  if (TWN.t > 0) return;
+  TWN.t = 1;
+  if (d < 2300){
+    if (!SAVE.visDeb && d < 1500){ SAVE.visDeb = 1; persist(); }
+    const hr = hourNow(), night = hr >= 22 || hr < 6;
+    const n = peds.filter(p => p.town && p.state !== "dead").length, want = Math.round(([0, 10, 16, 22][SET.peds] || 0) * (night ? 0.3 : 1));
+    for (let k = 0; k < 3 && n + k < want; k++) spawnTownPed();
+  }
+}
+// stacja paliw w Dębowie
+function gasCheck(){
+  if (player.mode !== "car" || state !== "play" || TWN.gasLock > gameTime) return;
+  const v = player.veh;
+  if (Math.hypot(v.x - TOWN.gas[0], v.y - TOWN.gas[1]) > 95 || Math.hypot(v.vx, v.vy) > 25) return;
+  TWN.gasLock = gameTime + 10;
+  const own = !!SAVE.biz.gas2, cost = own ? 0 : 60;
+  showDialog({ name: "Stacja „Dębowo”", item: "⛽" }, "Pan Zdzisio wyciera ręce w szmatę: „Tankujemy? Coś stuka w zawieszeniu? Wszystko się zrobi.”", [
+    { t: "🔧 Naprawa i mycie (" + (cost ? fmt(cost) : "gratis") + ")", pri: true, fn: () => { if (SAVE.money < cost){ showDialog({ name: "Stacja", item: "⛽" }, "Za mało gotówki.", [{ t: "😅" }]); return; } SAVE.money -= cost; v.hp = 100; v.dents.length = 0; v.flat = false; v.burning = false; v.poop = 0; closeDialog(); popup("🔧 Auto jak nowe!", "#9fd4ff"); } },
+    { t: "🌭 Hot-dog ze stacji ($5)", fn: () => { if (SAVE.money >= 5){ SAVE.money -= 5; heal(25); } closeDialog(); popup("🌭 Mniam! +25 zdrowia", "#ffd27a"); } },
+    { t: "👋 Jadę dalej", fn: closeDialog }]);
+}
+// ---------- leśniczy i gospodarz ----------
+const NPCS = { forester: null, farmer: null };
+function npcEnsure(){
+  const pp = playerPos();
+  const mk = (key, pos, o) => {
+    if (Math.hypot(pp.x - pos[0], pp.y - pos[1]) > 1400) return;
+    const p = NPCS[key];
+    if (p && peds.includes(p) && p.state !== "dead") return;
+    const q = makePed(0, 0, 0);
+    Object.assign(q, { x: pos[0], y: pos[1], fixed: true, state: "stand", home: [pos[0], pos[1]] }, o);
+    NPCS[key] = q;
+  };
+  mk("forester", [FOREST.door[0] + 34, FOREST.door[1] + 8], { col: "#33691e", hair: "#4e342e", name: "Leśniczy Bartek" });
+  mk("farmer", [FARM.farmer[0] + 30, FARM.farmer[1]], { col: "#1565c0", hair: "#9e9e9e", name: "Gospodarz Józef" });
+}
+const FOREST_TIPS = ["Najwięcej grzybów rośnie w gęstym lesie, z dala od dróg. Muchomorów nie zbieraj!", "O zmierzchu na polanach wychodzą jelenie i sarny. Łosia lepiej obejść szerokim łukiem.", "Z wieży przy wschodnim dukcie widać pół puszczy. Wejście za darmo, tylko schody strome.", "Rajd Leśny startuje z flagi na północnym dukcie. Auto rajdowe wypożyczysz tuż obok.", "W leśnym jeziorze biorą szczupaki. Pomost jest po wschodniej stronie.", "Ponoć gdzieś w puszczy siedzi złoty krasnal. Ja tam nic nie wiem…", "Tartak przy szosie zawsze potrzebuje drewna. Jak masz chwilę – pomóż."];
+function foresterDialog(){
+  const w = { name: "Leśniczy Bartek", item: "🌲" }, ch = [];
+  if (SAVE.basket > 0) ch.push({ t: "🍄 Sprzedaj grzyby (" + fmt(SAVE.basket) + ")", pri: true, fn: () => { const n = sellBasket(); showDialog(w, "„Piękne okazy! Proszę, " + fmt(n) + ". Borowiki pójdą do karczmy w Dębowie.”", [{ t: "🤝" }]); } });
+  if (!LOGJ.run) ch.push({ t: "🪵 Zwózka drewna do tartaku", fn: () => { closeDialog(); startLogJob(); } });
+  ch.push({ t: "🌲 Co słychać w puszczy?", fn: () => showDialog(w, "„" + pick(FOREST_TIPS) + "”", [{ t: "👍", fn: foresterDialog }]) });
+  ch.push({ t: "👋 Do widzenia", fn: closeDialog });
+  showDialog(w, SAVE.shroomN ? "„O, grzybiarz! Jak tam koszyk?”" : "„Witam w Puszczy Zachodniej! Śmieci nie zostawiamy, ogniska tylko w wyznaczonych miejscach.”", ch, "🍄 Zebrane grzyby: " + SAVE.shroomN);
+}
+function farmerDialog(){
+  const w = { name: "Gospodarz Józef", item: "👨‍🌾" }, ch = [];
+  if (!PLOW.on) ch.push({ t: "🚜 Zaorzę pole (" + fmt(450 * (SAVE.biz.farm ? 2 : 1)) + ")", pri: true, fn: () => { closeDialog(); startPlow(); } });
+  else ch.push({ t: "🚜 Orka: " + Math.round(PLOW.n / PLOW.cells.length * 100) + "% – wracam do roboty", fn: closeDialog });
+  ch.push({ t: "🥛 Kubek mleka ($3)", fn: () => { if (SAVE.money >= 3){ SAVE.money -= 3; heal(25); } showDialog(w, "„Prosto od krowy! Zdrowie samo.” (+25 zdrowia)", [{ t: "🥛", fn: farmerDialog }]); } });
+  ch.push({ t: "🐄 Jak tu się żyje?", fn: () => showDialog(w, "„" + pick(["Krowy dają mleko, traktor daje w kość, a wnuki dzwonią tylko jak trzeba pieniędzy.", "Ziemia tu dobra. Rzepak w maju kwitnie tak, że oczy bolą.", "Konie mam trzy. Najmądrzejsza jest Kasztanka – ucieka tylko jak trzeba.", "Do miasta jeżdżę raz w miesiącu. Za głośno tam."]) + "”", [{ t: "🙂", fn: farmerDialog }]) });
+  ch.push({ t: "👋 Do widzenia", fn: closeDialog });
+  showDialog(w, "„Dzień dobry! Robota zawsze się znajdzie – pole samo się nie zaorze.”", ch);
+}
+// ---------- przyciski akcji ----------
+const nearF = (p, d) => { const f = player.foot; return Math.hypot(p[0] - f.x, p[1] - f.y) < d; };
+const _regionLabelW = regionLabel;
+regionLabel = function(){
+  const r = _regionLabelW();
+  if (r) return r;
+  if (player.mode !== "foot" || onRoofNow()) return "";
+  if (nearF(FOREST.door, 50)) return "🌲 LEŚNICZY";
+  if (nearF(FOREST.towerSpot, 45)) return "🔭 WIEŻA";
+  if (nearF(RALLY.rent, 45)) return "🚙 RAJDÓWKA $80";
+  if (nearF(FARM.farmer, 50)) return "👨‍🌾 GOSPODARZ";
+  if (nearF(TOWN.skup, 45)) return SAVE.basket > 0 ? "🍄 SPRZEDAJ" : "🍄 SKUP";
+  return "";
+};
+const _regionActionW = regionAction;
+regionAction = function(){
+  if (_regionActionW()) return true;
+  if (player.mode !== "foot" || onRoofNow()) return false;
+  if (nearF(FOREST.door, 50)){ foresterDialog(); return true; }
+  if (nearF(FOREST.towerSpot, 45)){ towerAction(); return true; }
+  if (nearF(RALLY.rent, 45)){ rentRallyCar(); return true; }
+  if (nearF(FARM.farmer, 50)){ farmerDialog(); return true; }
+  if (nearF(TOWN.skup, 45)){
+    const n = sellBasket();
+    showDialog({ name: "Skup grzybów", item: "🍄" }, n ? "Pani Halinka waży grzyby: „Ładne! " + fmt(n) + " się należy.”" : "„Skupujemy grzyby! Borowiki, kurki, kanie. Muchomorów nie bierzemy, haha.”", [{ t: "👋", fn: closeDialog }]);
+    return true;
+  }
+  return false;
+};
+// ---------- firmy ----------
+(function(){
+  const add = (id, name, icon, price, rate, desc, perk, x, y) => { BIZ.push({ id, name, icon, price, rate, desc, perk, x, y }); pois.push({ icon: "💼", name, x, y }); };
+  add("mill", "Tartak „Słoje”", "🪵", 35000, 120, "Tartak przy drodze na zachód. Drewno z Puszczy Zachodniej idzie na meble do miasta.", "Zwózka drewna płatna podwójnie", FOREST.drop[0] + 220, FOREST.drop[1] + 40);
+  add("inn", "Karczma „Pod Dębem”", "🍺", 22000, 85, "Karczma w Dębowie: żurek, pierogi i najświeższe plotki z okolicy.", "Darmowy obiad: pełne zdrowie (podejdź)", TOWN.inn.x - 60, TOWN.inn.y + 85);
+  add("farm", "Agroturystyka „Pod Lipą”", "🐄", 40000, 140, "Gospodarstwo z pokojami dla gości z miasta. Krowy, konie i cisza.", "Orka płatna podwójnie + darmowe mleko", FARM.house.x + FARM.house.w / 2, FARM.house.y + FARM.house.h + 55);
+  add("gas2", "Stacja „Dębowo”", "⛽", 26000, 100, "Jedyna stacja paliw w promieniu 10 km. Hot-dogi legendarne.", "Darmowe naprawy na stacji", TOWN.gas[0] + 90, TOWN.gas[1] + 150);
+})();
+const _bizPerkW = bizPerk;
+bizPerk = function(b){
+  const ok = SAVE.biz[b.id] && (bizState.perkT[b.id] || 0) <= gameTime;
+  _bizPerkW(b);
+  if (!ok) return;
+  if (b.id === "inn"){ heal(100); popup("🍲 Żurek i pierogi na koszt firmy – pełne zdrowie", "#ffd27a"); }
+  if (b.id === "farm"){ heal(30); popup("🥛 Świeże mleko od własnych krów – +30 zdrowia", "#ffd27a"); }
+};
+DOORS.push({ kind: "food", name: "Karczma", x: TOWN.inn.x + TOWN.inn.w / 2, y: TOWN.inn.y - 16 });
+LAKE.fish.push(FOREST.fish);
+// ---------- krasnale ----------
+(function(){
+  const F = FOREST, [cx, cy] = TOWN.c;
+  const cand = [[F.lodge[0] - 230, F.lodge[1] + 40], [F.fish[0] - 40, F.fish[1] + 70], [F.tower[0] + 60, F.tower[1] + 70], [F.c[0] + 80, F.c[1] - 60], [F.logs[4][0] + 120, F.logs[4][1] + 20],
+    [cx - 640, cy - 200], [FARM.barn.x - 30, FARM.barn.y + 60], [TOWN.mill[0] + 70, TOWN.mill[1] + 60]];
+  for (const [x, y] of cand){
+    let px = x, py = y;
+    for (let k = 0; k < 40 && (pointBlocked(px, py, 8) || getGW(px, py) === G_WATER); k++){ px += 24; py += 12; }
+    XGNOMES.push({ x: px, y: py });
+  }
+})();
+// ---------- nazwy krain ----------
+const _regionOfW = regionOf;
+regionOf = function(x, y){
+  if (Math.hypot(x - TOWN.c[0], y - TOWN.c[1]) < 1900) return "🏡 Dębowo";
+  if (x > FARM.c[0] - 700 && x < FARM.plow.x1 + 300 && Math.abs(y - FARM.c[1]) < 1100) return "🐄 Gospodarstwo „Pod Lipą”";
+  if (y > MOUNT.yb && x < RA - RHW - 200 && inForest(x, y)) return "🌲 Puszcza Zachodnia";
+  if (y > TOWN.c[1] - 3200) return "🌾 Pola Dębowa";
+  return _regionOfW(x, y);
+};
+// ---------- rysowanie ----------
+function drawFence(x0, y0, x1, y1, g0, g1){
+  ctx.strokeStyle = "#8d6e63"; ctx.lineWidth = 3; ctx.beginPath();
+  ctx.moveTo(x0, y0 + 4); ctx.lineTo(g0, y0 + 4); ctx.moveTo(g1, y0 + 4); ctx.lineTo(x1, y0 + 4);
+  ctx.moveTo(x1 - 4, y0); ctx.lineTo(x1 - 4, y1); ctx.moveTo(x1, y1 - 4); ctx.lineTo(x0, y1 - 4); ctx.moveTo(x0 + 4, y1); ctx.lineTo(x0 + 4, y0);
+  ctx.stroke();
+  ctx.fillStyle = "#5d4037";
+  for (let x = x0; x <= x1; x += 34){ if (x < g0 || x > g1) ctx.fillRect(x, y0 + 1, 5, 6); ctx.fillRect(x, y1 - 7, 5, 6); }
+  for (let y = y0; y <= y1; y += 34){ ctx.fillRect(x0 + 1, y, 6, 5); ctx.fillRect(x1 - 7, y, 6, 5); }
+}
+function marker(x, y, icon, col){
+  ctx.fillStyle = "rgba(0,0,0,.42)"; ctx.beginPath(); ctx.arc(x, y - 16, 12, 0, 6.3); ctx.fill();
+  if (col){ ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke(); }
+  ctx.font = "15px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText(icon, x, y - 15 - Math.abs(Math.sin(gameTime * 3)) * 2);
+}
+const _drawRegionsWorldW = drawRegionsWorld;
+drawRegionsWorld = function(inV){
+  drawPlowed(inV);
+  _drawRegionsWorldW(inV);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const P of FARM.pens) if (inV((P.x0 + P.x1) / 2, (P.y0 + P.y1) / 2, 300)) drawFence(P.x0, P.y0, P.x1, P.y1, P.g0, P.g1);
+  drawShrooms(inV);
+  // stragany na rynku
+  for (const [x, y, c] of TOWN.stalls){
+    if (!inV(x, y, 60)) continue;
+    ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.fillRect(x - 40, y - 26, 88, 58);
+    for (let k = 0; k < 6; k++){ ctx.fillStyle = k % 2 ? "#fafafa" : c; ctx.fillRect(x - 44 + k * 14.6, y - 30, 14.6, 56); }
+    ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.fillRect(x - 44, y + 18, 88, 8);
+  }
+  if (inV(TOWN.skup[0], TOWN.skup[1], 60)){ const [x, y] = TOWN.skup; ctx.fillStyle = "#6d4c41"; ctx.fillRect(x - 30, y - 18, 60, 36); ctx.fillStyle = "#a1887f"; ctx.fillRect(x - 26, y - 14, 52, 28); ctx.font = "16px system-ui"; ctx.fillText("🍄🧺", x, y); }
+  // znaczniki
+  if (inV(FOREST.door[0], FOREST.door[1], 40)) marker(FOREST.door[0], FOREST.door[1], "🌲");
+  if (inV(FOREST.towerSpot[0], FOREST.towerSpot[1], 40)) marker(FOREST.towerSpot[0], FOREST.towerSpot[1], "🔭", SAVE.ftower ? "#5cd65c" : "#ffd27a");
+  if (inV(FARM.farmer[0], FARM.farmer[1], 40)) marker(FARM.farmer[0], FARM.farmer[1], "🚜");
+  if (inV(RALLY.rent[0], RALLY.rent[1], 40)) marker(RALLY.rent[0], RALLY.rent[1], "🚙");
+  const st = RALLY.start;
+  if (inV(st[0], st[1], 60) && !RALLY.run){ ctx.font = "18px system-ui"; ctx.fillText("🏁", st[0] + st[3] * 48, st[1] - st[2] * 48 - Math.abs(Math.sin(gameTime * 3)) * 4); }
+  if (RALLY.run){ const p = roadAt(RALLY.R, RALLY.cps[RALLY.run.i]); if (inV(p[0], p[1], 80)){ ctx.strokeStyle = "rgba(255,179,0,.9)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(p[0], p[1], 52 + Math.sin(gameTime * 6) * 4, 0, 6.3); ctx.stroke(); } }
+  if (LOGJ.run && inV(FOREST.drop[0], FOREST.drop[1], 90)){ ctx.strokeStyle = "rgba(160,110,60,.9)"; ctx.lineWidth = 4; ctx.setLineDash([10, 8]); ctx.beginPath(); ctx.arc(FOREST.drop[0], FOREST.drop[1], 70, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); ctx.font = "20px system-ui"; ctx.fillText("🪵", FOREST.drop[0], FOREST.drop[1]); }
+};
+function drawTurbine(x, y, ph, inV){
+  if (!inV(x, y, 260)) return;
+  const k = 1.9, q = projK(x, y, k), a0 = gameTime * 1.3 + ph;
+  ctx.strokeStyle = "rgba(0,0,0,.18)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 70, y + 90); ctx.stroke();
+  ctx.strokeStyle = "#dfe3e6"; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  ctx.strokeStyle = "#b0b6ba"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + 2, y); ctx.lineTo(q[0] + 2, q[1]); ctx.stroke();
+  ctx.fillStyle = "#f5f7f8";
+  for (let i = 0; i < 3; i++){
+    const a = a0 + i * 2.094, ca = Math.cos(a), sa = Math.sin(a), L = 62 * k;
+    ctx.beginPath(); ctx.moveTo(q[0] - sa * 4, q[1] + ca * 4); ctx.lineTo(q[0] + ca * L, q[1] + sa * L); ctx.lineTo(q[0] + sa * 3, q[1] - ca * 3); ctx.fill();
+  }
+  ctx.fillStyle = "#cfd4d7"; ctx.beginPath(); ctx.arc(q[0], q[1], 7, 0, 6.3); ctx.fill();
+  const h = hourNow();
+  if ((h >= 19 || h < 6) && Math.sin(gameTime * 3) > 0.3){ ctx.fillStyle = "#ff1744"; ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 6.3); ctx.fill(); }
+}
+function drawWindmill(inV){
+  const [x, y] = TOWN.mill;
+  if (!inV(x, y, 200)) return;
+  const k = 1.3, q = projK(x, y, k), a0 = gameTime * 0.6;
+  for (let i = 0; i < 4; i++){
+    const a = a0 + i * Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a), L = 58 * k;
+    ctx.strokeStyle = "#4e342e"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(q[0] + ca * L, q[1] + sa * L); ctx.stroke();
+    ctx.fillStyle = "rgba(236,228,210,.85)";
+    ctx.beginPath(); ctx.moveTo(q[0] + ca * 12 - sa * 2, q[1] + sa * 12 + ca * 2); ctx.lineTo(q[0] + ca * L - sa * 2, q[1] + sa * L + ca * 2); ctx.lineTo(q[0] + ca * L - sa * 12, q[1] + sa * L + ca * 12); ctx.lineTo(q[0] + ca * 12 - sa * 12, q[1] + sa * 12 + ca * 12); ctx.fill();
+  }
+  ctx.fillStyle = "#3e2723"; ctx.beginPath(); ctx.arc(q[0], q[1], 5, 0, 6.3); ctx.fill();
+}
+const _drawRegionsSkyW = drawRegionsSky;
+drawRegionsSky = function(inV){
+  _drawRegionsSkyW(inV);
+  for (const [x, y, ph] of TOWN.turb) drawTurbine(x, y, ph, inV);
+  drawWindmill(inV);
+};
+const _drawRegionsHUDW = drawRegionsHUD;
+drawRegionsHUD = function(){
+  _drawRegionsHUDW();
+  if (state !== "play" || MTT.run) return;
+  let t = null, tgt = null;
+  if (RALLY.run){ const R = RALLY.run; tgt = roadAt(RALLY.R, RALLY.cps[R.i]); t = "🏁 Rajd Leśny · " + R.i + "/" + RALLY.cps.length + " · " + R.t.toFixed(1) + " s (wzorzec " + RALLY.par + " s)"; }
+  else if (LOGJ.run){ tgt = FOREST.drop; t = "🪵 Zwózka drewna do tartaku · " + Math.max(0, Math.ceil(LOGJ.run.lim - LOGJ.run.t)) + " s" + (player.veh === LOGJ.run.v ? "" : " · wsiądź do pikapa!"); if (player.veh !== LOGJ.run.v) tgt = [LOGJ.run.v.x, LOGJ.run.v.y]; }
+  else if (PLOW.on){ t = "🚜 Orka: " + Math.round(PLOW.n / PLOW.cells.length * 100) + "% / 85%" + (player.mode === "car" && player.veh.type === "tractor" ? "" : " · wsiądź do traktora"); const P = FARM.plow; if (!(player.mode === "car" && player.veh.type === "tractor")) tgt = [FARM.c[0] - 100, FARM.c[1] + 110]; else tgt = [(P.x0 + P.x1) / 2, (P.y0 + P.y1) / 2]; }
+  else if (SAVE.basket > 0 && regSt.cur === "🌲 Puszcza Zachodnia") t = "🧺 Koszyk grzybów: " + fmt(SAVE.basket) + " · sprzedaj u leśniczego";
+  if (tgt) drawEdgeArrow(tgt[0], tgt[1], "#ffb300");
+  if (t){
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "800 12px system-ui, sans-serif";
+    const tw = ctx.measureText(t).width; ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, 10, 186, tw + 18, 21, 8); ctx.fill(); ctx.fillStyle = "#ffd27a"; ctx.fillText(t, 19, 201);
+    ctx.textAlign = "center";
+  }
+};
+// ---------- dodatkowa zwierzyna w puszczy ----------
+const FWILD = { t: 3 };
+function forestWild(dt){
+  FWILD.t -= dt;
+  if (FWILD.t > 0) return;
+  FWILD.t = 3;
+  const pp = playerPos();
+  if (pp.y < MOUNT.yb || !inForest(pp.x, pp.y)) return;
+  const near = {};
+  for (const p of peds) if (p.wild && p.state !== "dead" && Math.hypot(p.x - pp.x, p.y - pp.y) < 1500) near[p.kind] = (near[p.kind] || 0) + 1;
+  const h = hourNow(), dusk = (h >= 17 && h < 21) || (h >= 5 && h < 9);
+  const tryS = (kind, max, ch, grp) => { if ((near[kind] || 0) >= max || Math.random() > ch) return; const c = outPoint(450, 1100); if (!c) return; const n = grp ? 1 + ((Math.random() * grp) | 0) : 1; for (let i = 0; i < n; i++) makeWild(kind, c.x + (Math.random() - 0.5) * 60, c.y + (Math.random() - 0.5) * 60, kind === "boar" && i > 0 ? { young: true } : null); };
+  tryS("deer", 6, dusk ? 0.7 : 0.4, 3); tryS("boar", 4, 0.35, 4); tryS("fox", 2, 0.3); tryS("stag", 2, dusk ? 0.5 : 0.2); tryS("moose", 1, 0.12);
+}
+// ---------- aktualizacja ----------
+const _regionsUpdateW = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdateW(dt);
+  shroomStep(dt); rallyStep(dt); rallyCheckStart(); logStep(dt); plowStep(); townUpdate(dt); gasCheck(); forestWild(dt);
+  FARMST.t -= dt;
+  if (FARMST.t <= 0){ FARMST.t = 2; farmAnimals(); npcEnsure(); }
+  if (player.mode === "car" && player.veh.type === "tractor"){ const v = player.veh; v.odo = (v.odo || 0) + Math.hypot(v.vx, v.vy) * dt * 0.1; }
+};
+// ---------- osiągnięcia ----------
+ACH.push(
+  ["shroom10", "🍄", "Grzybiarz", "Zbierz 10 grzybów", 300, () => SAVE.shroomN >= 10],
+  ["shroom100", "🧺", "Król grzybiarzy", "Zbierz 100 grzybów", 1500, () => SAVE.shroomN >= 100],
+  ["rally", "🏁", "Rajdowiec", "Ukończ Rajd Leśny", 800, () => !!SAVE.records.rally],
+  ["ftower", "🔭", "Strażnik puszczy", "Wejdź na wieżę w puszczy", 400, () => !!SAVE.ftower],
+  ["logs5", "🪵", "Drwal", "Zwieź drewno do tartaku 5 razy", 900, () => SAVE.logN >= 5],
+  ["plow", "🚜", "Rolnik", "Zaorz pole u gospodarza", 600, () => SAVE.plowN >= 1],
+  ["milk", "🥛", "Dojarka", "Wydój krowę", 250, () => SAVE.milkN >= 1],
+  ["debowo", "⛪", "Turysta", "Odwiedź Dębowo", 150, () => !!SAVE.visDeb]
+);
+for (const a of ACH) if (a[0] === "xgAll"){ a[3] = "Znajdź wszystkie krasnale krain (" + XGNOMES.length + ")"; }
 
 // START
 // =====================================================================
