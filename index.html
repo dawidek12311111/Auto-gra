@@ -12614,7 +12614,7 @@ function bizUpdate(dt){
   // wejście na znacznik firmy
   const pp = playerPos(), slow = player.mode === "foot" || (player.mode === "car" && Math.hypot(player.veh.vx, player.veh.vy) < 80);
   let near = null;
-  if ((player.mode === "foot" || player.mode === "car") && slow && !onRoofNow()) for (const b of BIZ) if (Math.hypot(b.x - pp.x, b.y - pp.y) < 30) near = b;
+  if ((player.mode === "foot" || player.mode === "car") && slow && !onRoofNow()) for (const b of BIZ) if (!b.manual && Math.hypot(b.x - pp.x, b.y - pp.y) < 30) near = b;
   if (!near){ if (bizState.lock && Math.hypot(bizState.lock.x - pp.x, bizState.lock.y - pp.y) > 60) bizState.lock = null; return; }
   if (bizState.lock === near) return;
   bizState.lock = near;
@@ -12662,6 +12662,7 @@ function drawBizWorld(inV){
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const b of BIZ){
     if (!inV(b.x, b.y, 80)) continue;
+    if (b.manual){ if (Math.hypot(b.x - camX, b.y - camY) < 520) drawSmallBiz(b, SAVE.biz[b.id]); continue; }
     const s = SAVE.biz[b.id], pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
     if (b.id === "food"){
       ctx.save(); ctx.translate(b.x, b.y - 34);
@@ -15636,6 +15637,236 @@ ACH.push(
   ["carhaggle", "🚗", "Okazja z ogłoszenia", "Kup auto od przechodnia", 500, () => SAVE.soc2.cars >= 1],
   ["biwak", "🔥", "Noc przy ognisku", "Zrób biwak z ekipą", 700, () => SAVE.soc2.biwak >= 1],
   ["famous", "🌟", "Celebryta", "Zdobądź 40 reputacji", 1500, () => (SAVE.rep || 0) >= 40]
+);
+
+// =====================================================================
+// IMPERIUM: KAŻDY SKLEP Z SZYLDEM NA SPRZEDAŻ, WIELKIE INWESTYCJE,
+// SIECI FIRM, ZBIERANIE UTARGU, ZDARZENIA BIZNESOWE
+// =====================================================================
+const BCAT = {
+  PIEKARNIA: ["bakery", "🥖", 12000, 55, ["Złoty Kłos", "U Bogdana", "Chrupiąca Skórka", "Bułeczka", "Pod Kłosem", "Mąka i Sól"], "Świeża drożdżówka: +20 zdrowia"],
+  KWIACIARNIA: ["flowers", "💐", 9000, 40, ["Stokrotka", "Róża", "Bukiecik", "Tulipan", "Zielony Zakątek"], "Bukiet dla przechodnia: +1 reputacji"],
+  "MIĘSNY": ["butcher", "🥩", 13000, 56, ["U Rzeźnika", "Kabanos", "Swojskie Wędliny", "Szynka i Spółka", "Masarnia Kowalski"], "Kiełbasa na ząb: +20 zdrowia"],
+  KIOSK: ["kiosk", "📰", 6000, 28, ["Ruch", "Kiosk u Zosi", "Prasa i Tytoń", "Gazetka", "Zdrapka"], "Gazeta z plotkami miasta"],
+  KAWIARNIA: ["cafe", "☕", 14000, 60, ["Ziarno", "Espresso Bar", "Kawa i Książka", "Filiżanka", "Latte Art", "Cafe Nero"], "Darmowa kawa: buff szybkości"],
+  PIZZA: ["pizza", "🍕", 17000, 72, ["Napoli", "Da Mario", "Pizza Express", "Bella Italia", "Margherita"], "Kawałek pizzy: +30 zdrowia"],
+  FRYZJER: ["hair", "💇", 11000, 48, ["Nożyczki", "Studio Włosów", "Barber Shop", "Loki", "Grzywka"], "Nowa fryzura: +1 reputacji"],
+  WARZYWNIAK: ["greens", "🥕", 9000, 40, ["Zielony Rynek", "Warzywko", "Od Rolnika", "Rzodkiewka", "Pomidor"], "Świeże owoce: +15 zdrowia"],
+  BAR: ["bar", "🍺", 16000, 70, ["Pod Kuflem", "Zielona Budka", "Bar Mleczny", "Pub Kotwica", "Pod Lipą", "Stary Kufel"], "Obiad w barze: +30 zdrowia"],
+  KEBAB: ["kebab", "🥙", 15000, 66, ["Ali Baba", "Sułtan", "Kebab King", "Istanbul", "Bosfor"], "Kebab na koszt firmy: +30 zdrowia"],
+  SKLEP: ["shop", "🏪", 14000, 60, ["Żabka", "Groszek", "Społem", "Lewiatan", "Delikatesy", "Sklep u Krysi"], "Napój energetyczny: buff szybkości"],
+  "SKLEP 24h": ["shop", "🏪", 18000, 78, ["Nocny Market", "24/7", "Całodobowy"], "Napój energetyczny: buff szybkości"],
+  OPTYK: ["optic", "👓", 20000, 80, ["Okular", "Vision", "Szkiełko i Oko", "Optyk Plus"], "Stały dochód"],
+  LODY: ["ice", "🍦", 10000, 48, ["Lodziarnia Polarna", "Gałka", "Rożek", "Bambino 2"], "Lody: buff szybkości · w dzień ×1,5"],
+  BUTY: ["shoes", "👟", 18000, 75, ["But-Pol", "Obcas", "Sneakers", "Krok"], "Nowe buty: buff szybkości"],
+  APTEKA: ["pharm", "💊", 30000, 120, ["Pod Orłem", "Zdrowie", "Apteka Rodzinna", "Cefarm", "Słoneczna"], "Leki dla właściciela: +50 zdrowia"],
+  "SURF SHOP": ["surf", "🏄", 16000, 68, ["Fala"], "Dochód ×1,5 w dzień"],
+  "PAMIĄTKI": ["gifts", "🎁", 9000, 42, ["Pamiątki z Jeziorek"], "Stały dochód"],
+  OSCYPKI: ["cheese", "🧀", 8000, 38, ["Baca"], "Oscypek: +20 zdrowia"],
+  SPORT: ["sport", "🎽", 22000, 88, ["Sport Podgórze"], "Odżywka: buff szybkości"],
+  MARKET: ["market", "🛒", 60000, 220, ["Galeria Miejska", "Hipermarket Max"], "Duży, stały dochód"],
+  PIZZERIA: ["pizza", "🍕", 20000, 82, ["Pizzeria Centrum"], "Kawałek pizzy: +30 zdrowia"]
+};
+const CATN = { bakery: "piekarni", flowers: "kwiaciarni", butcher: "mięsnych", kiosk: "kiosków", cafe: "kawiarni", pizza: "pizzerii", hair: "fryzjerów", greens: "warzywniaków", bar: "barów", kebab: "kebabów", shop: "sklepów", optic: "optyków", ice: "lodziarni", shoes: "sklepów z butami", pharm: "aptek", surf: "surf shopów", gifts: "sklepów z pamiątkami", cheese: "sklepów z oscypkami", sport: "sklepów sportowych", market: "marketów", estate: "kamienic", big: "wielkich inwestycji" };
+const inCity2 = (x, y) => x > EXTP && x < WORLD - EXTP && y > EXTP && y < WORLD - EXTP;
+(function genericBiz(){
+  const taken = (x, y) => BIZ.some(b => Math.hypot(b.x - x, b.y - y) < 85);
+  let n = 0;
+  const h01 = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return (h % 1000) / 1000; };
+  for (const b of buildings){
+    if (!b.label || !BCAT[b.label]) continue;
+    const C = BCAT[b.label], id = "g_" + Math.round(b.x) + "_" + Math.round(b.y);
+    if (BIZ.some(q => q.id === id)) continue;
+    const top = b.awn === "t", y = top ? b.y - 20 : b.y + b.h + 20;
+    let x = b.x + b.w + 8;
+    for (let k = 0; k < 4 && DOORS.some(d => Math.abs(d.x - x) < 34 && Math.abs(d.y - y) < 34); k++) x += 18;
+    if (taken(x, y) || DOORS.some(d => Math.abs(d.x - x) < 30 && Math.abs(d.y - y) < 30)) continue;
+    const spots = [SPOTS.bowl, SPOTS.darts, SPOTS.karaoke, SPOTS.slots, SPOTS.cinema, SPOTS.gym].concat(SPOTS.ball, SPOTS.busk).filter(Boolean);
+    if (spots.some(q => Math.hypot(q[0] - x, q[1] - y) < 70) || SIGHTS.some(q => Math.hypot(q.x - x, q.y - y) < 80)) continue;
+    const city = inCity2(b.x, b.y), core = city && Math.hypot(b.x - WCX, b.y - WCY) < 2600;
+    const k = core ? 1.35 : city ? 1 : 0.8, hv = h01(id);
+    const price = Math.round(C[2] * k * (0.85 + hv * 0.3) / 500) * 500, rate = Math.round(C[3] * k * (0.85 + hv * 0.3));
+    const nm = C[4][(hv * C[4].length) | 0], title = b.label.charAt(0) + b.label.slice(1).toLowerCase().replace("24h", "24h");
+    BIZ.push({ id, name: title + " „" + nm + "”", icon: C[1], price, rate, cat: C[0], manual: true, desc: title + " " + (city ? (core ? "w samym centrum miasta – najlepsza lokalizacja." : "w mieście.") : "w miasteczku – mniejszy ruch, ale niższa cena.") + " Kupując więcej firm tej samej branży, budujesz sieć (+8% za każdą).", perk: C[5], x, y });
+    n++;
+  }
+  // wielkie inwestycje
+  const add = (id, name, icon, price, rate, desc, perk, at, cat) => { if (!at) return; const p = freeNear(at[0], at[1]); BIZ.push({ id, name, icon, price, rate, desc, perk, x: p[0], y: p[1], cat: cat || "big" }); pois.push({ icon: "💼", name, x: p[0], y: p[1] }); };
+  const towers = buildings.filter(q => q.kind === "tower" && !q.round && inCity2(q.x, q.y)).sort((a, c) => c.ht - a.ht);
+  const halls = buildings.filter(q => q.kind === "hall" && inCity2(q.x, q.y));
+  const flats = buildings.filter(q => q.kind === "flat" && !q.label && q.w * q.h > 9000 && inCity2(q.x, q.y));
+  const front = q => [q.x + q.w / 2, q.y + q.h + 30];
+  if (towers[0]){ towers[0].label = "SKYLINE"; towers[0].labelSize = 12; add("sky", "Biurowiec „Skyline”", "🏢", 250000, 900, "Najwyższy biurowiec w mieście. Firmy płacą za każdy metr.", "Prestiż: +5 reputacji przy wizycie", front(towers[0])); }
+  if (towers[1]){ towers[1].label = "📻 NEON FM"; towers[1].labelSize = 11; add("radio", "Radio „Neon FM”", "📻", 180000, 640, "Najpopularniejsze radio w mieście – grają je w każdym aucie!", "Twoje radio: +50 XP przy wizycie", front(towers[1])); }
+  if (towers[2]) add("hotel2", "Hotel „Grand Plaza”", "🏨", 160000, 580, "Pięciogwiazdkowy hotel w centrum.", "Darmowy apartament: pełne zdrowie", front(towers[2]));
+  if (towers[3]) add("bank2", "Dom maklerski „Hossa”", "📈", 220000, 800, "Giełda, akcje i obligacje. Dochód waha się z rynkiem (×0,5–×1,8).", "Zmienny, wysoki dochód", front(towers[3]));
+  if (halls[0]) add("factory", "Fabryka „Metalpol”", "🏭", 180000, 650, "Huta i walcownia w strefie przemysłowej. Trzy zmiany, zero przestojów.", "Duży stały dochód", front(halls[0]));
+  if (halls[1]) add("warehouse", "Hurtownia „Max”", "📦", 120000, 450, "Hurtownia spożywcza – zaopatruje wszystkie sklepy w mieście.", "+10% dochodu wszystkich twoich sklepów", front(halls[1]));
+  if (halls[2]) add("logistics", "Firma kurierska „Paczka”", "🚚", 95000, 360, "Kurierzy rozwożą paczki po całej okolicy.", "Stały dochód", front(halls[2]));
+  if (halls[3]) add("brewery", "Browar „Złoty Chmiel”", "🍻", 140000, 520, "Lokalny browar. Piwo trafia do wszystkich barów w mieście.", "+10% dochodu wszystkich twoich barów", front(halls[3]));
+  flats.sort((a, c) => Math.hypot(a.x - WCX, a.y - WCY) - Math.hypot(c.x - WCX, c.y - WCY));
+  ["Kamienica przy Rynku", "Kamienica Pod Atlantami", "Apartamentowiec „Słoneczny”", "Kamienica Secesyjna", "Blok „Mrówkowiec”", "Kamienica Narożna"].forEach((nm, k) => { const q = flats[k * 3]; if (q) add("estate" + k, nm, "🏘️", 55000 + k * 8000, 200 + k * 28, "Mieszkania na wynajem – lokatorzy płacą czynsz co miesiąc.", "Stały dochód z czynszu", front(q), "estate"); });
+  const st = pois.find(o => o.icon === "🏟️");
+  if (st) add("club_fc", "Klub piłkarski „Miasto FC”", "⚽", 500000, 1700, "Stadion, kibice, transfery. Największy biznes w okolicy.", "Mecze: wieczorem dochód ×2", [st.x + 120, st.y + 120]);
+  add("windfarm", "Farma wiatrowa „Dębowy Wiatr”", "🌬️", 300000, 1000, "Pięć turbin pod Dębowem. Prąd dla całego miasta.", "Wiatr: dochód ×1,5 w czasie burzy i deszczu", [TOWN.turb[2][0], TOWN.turb[2][1] - 140]);
+  add("marina", "Port jachtowy „Wielkie Jezioro”", "⚓", 200000, 720, "Przystań dla jachtów i motorówek bogaczy z miasta.", "Dochód ×1,5 w dzień", [LAKE.shoreX - 260, LAKE.c[1] - 330]);
+  add("orchard", "Sad jabłoniowy „Rajska Jabłoń”", "🍎", 35000, 135, "Sad przy gospodarstwie – jabłka, sok i cydr.", "Jabłko: +15 zdrowia", [FARM.plow.x1 + 80, FARM.c[1] - 300]);
+  add("gravel", "Żwirownia „Kamyk”", "⛏️", 70000, 260, "Kopalnia żwiru u podnóża gór. Ciężarówki jeżdżą od świtu.", "Stały dochód", [WCX + 1600, MOUNT.yb - 500]);
+  const jz = TOWNS2.find(t => t.name === "Jeziorki"); if (jz) add("laguna", "Hotel „Laguna”", "🏝️", 150000, 560, "Hotel ze spa nad Wielkim Jeziorem.", "Spa: pełne zdrowie", [jz.x1 - 260, jz.y0 + 300]);
+  add("casino", "Kasyno „Złota Siódemka”", "🎰", 350000, 1200, "Kasyno w mieście. Nocą pełne graczy.", "Nocą dochód ×2 · automaty wypłacają więcej", CLUB ? [CLUB.x + 160, CLUB.y + 60] : null);
+})();
+for (const b of BIZ) if (b.manual && SAVE.biz[b.id]) pois.push({ icon: "💼", name: b.name, x: b.x, y: b.y });
+// ---------- mnożniki: sieci, synergie, rynek ----------
+const MKT = { k: 1, t: 0 };
+function catCount(cat){ let n = 0; for (const b of BIZ) if (b.cat === cat && SAVE.biz[b.id]) n++; return n; }
+const _bizRateE = bizRate;
+bizRate = function(b){
+  let r = _bizRateE(b);
+  const s = SAVE.biz[b.id];
+  if (!s) return 0;
+  if (s.broken) return 0;
+  if (b.cat && b.cat !== "big"){ const n = catCount(b.cat); if (n > 1) r *= Math.min(1.8, 1 + 0.08 * (n - 1)); }
+  if (SAVE.biz.warehouse && ["shop", "market", "greens", "bakery", "butcher", "kiosk"].includes(b.cat)) r *= 1.1;
+  if (SAVE.biz.brewery && b.cat === "bar") r *= 1.1;
+  const h = hourNow();
+  if (b.cat === "ice" || b.cat === "surf" || b.id === "marina") r *= (h >= 9 && h < 20) ? 1.5 : 0.5;
+  if (b.id === "bank2") r *= MKT.k;
+  if (b.id === "club_fc" && h >= 18 && h < 22) r *= 2;
+  if (b.id === "casino") r *= (h >= 20 || h < 4) ? 2 : 0.6;
+  if (b.id === "windfarm") r *= WX.rain > 0.3 ? 1.5 : 1;
+  return r;
+};
+const _bizPerkE = bizPerk;
+bizPerk = function(b){
+  const ok = SAVE.biz[b.id] && (bizState.perkT[b.id] || 0) <= gameTime;
+  _bizPerkE(b);
+  if (!ok || !b.cat) return;
+  const c = b.cat;
+  if (["bakery", "butcher", "cheese"].includes(c)){ heal(20); popup(b.icon + " Na koszt firmy – +20 zdrowia", "#ffd27a"); }
+  if (["pizza", "bar", "kebab"].includes(c)){ heal(30); popup(b.icon + " Posiłek na koszt firmy – +30 zdrowia", "#ffd27a"); }
+  if (["cafe", "shop", "ice", "shoes", "sport"].includes(c)){ buffCoffee(); popup(b.icon + " Buff szybkości od twojej firmy!", "#ffd27a"); }
+  if (c === "greens" || b.id === "orchard"){ heal(15); popup("🍎 Świeże owoce – +15 zdrowia", "#ffd27a"); }
+  if (c === "pharm"){ heal(50); popup("💊 Apteczka dla szefa – +50 zdrowia", "#9fe39f"); }
+  if (c === "flowers" || c === "hair"){ addRep(1); popup(b.icon + " +1 reputacji", "#ffd27a"); }
+  if (c === "kiosk") popup("📰 Gazeta: " + makeRumor(), "#ffd27a");
+  if (b.id === "sky"){ addRep(5); popup("🏢 Prestiż! +5 reputacji", "#ffd700"); }
+  if (b.id === "radio"){ addXP(50); popup("📻 „A teraz hit dla naszego szefa!”", "#ffd27a"); }
+  if (b.id === "hotel2" || b.id === "laguna"){ heal(100); popup("🛎️ Apartament dla właściciela – pełne zdrowie", "#ffd27a"); }
+};
+// ---------- firmy bez automatycznego okna: znacznik + przycisk akcji ----------
+function nearManualBiz(){
+  if (player.mode !== "foot" || onRoofNow()) return null;
+  const f = player.foot; let best = null, bd = 34;
+  for (const b of BIZ) if (b.manual){ const d = Math.hypot(b.x - f.x, b.y - f.y); if (d < bd){ bd = d; best = b; } }
+  return best;
+}
+const _regionLabelB = regionLabel;
+regionLabel = function(){ const r = _regionLabelB(); if (r) return r; const b = nearManualBiz(); return b ? (SAVE.biz[b.id] ? "💼 MOJA FIRMA" : "💼 KUP " + fmt(b.price)) : ""; };
+const _regionActionB = regionAction;
+regionAction = function(){
+  if (_regionActionB()) return true;
+  const b = nearManualBiz(); if (!b) return false;
+  const was = !!SAVE.biz[b.id];
+  bizPerk(b); bizDialog(b);
+  if (!was) BIZW.watch = b;
+  return true;
+};
+const BIZW = { watch: null };
+// ---------- zbieranie utargu i firmy w pobliżu (telefon) ----------
+function collectAll(){
+  let tot = 0, n = 0;
+  for (const b of BIZ){ const s = SAVE.biz[b.id]; if (s && !s.mgr && s.cash >= 1){ tot += Math.floor(s.cash * 0.9); s.cash = 0; n++; } }
+  if (tot > 0){ addMoney(tot, "UTARG Z " + n + " FIRM"); persist(); if (actx) cashSound(); }
+  return [tot, n];
+}
+function bizNearby(){
+  const pp = playerPos();
+  const list = BIZ.filter(b => !SAVE.biz[b.id]).map(b => [b, Math.hypot(b.x - pp.x, b.y - pp.y)]).sort((a, c) => a[1] - c[1]).slice(0, 5);
+  showDialog(PW, "🏷️ Firmy na sprzedaż najbliżej ciebie (dochód / min · cena):", list.map(([b, d]) => ({ t: b.icon + " " + b.name + " · " + fmt(b.rate) + "/min · " + fmt(b.price), fn: () => { NAV = { x: b.x, y: b.y, name: b.name }; GPS.tgt = null; closeDialog(); popup("🧭 GPS: " + b.name, "#5bc0de"); } })).concat([{ t: "↩ Wróć", fn: phoneBiz }]));
+}
+const _phoneBizE = phoneBiz;
+phoneBiz = function(){
+  const owned = BIZ.filter(b => SAVE.biz[b.id]);
+  const total = owned.reduce((s, b) => s + bizRate(b), 0), cash = owned.reduce((s, b) => s + (SAVE.biz[b.id].mgr ? 0 : SAVE.biz[b.id].cash), 0);
+  const ch = [
+    { t: "💰 Zbierz utarg ze wszystkich (" + fmt(cash * 0.9) + ")", pri: true, fn: () => { const [t, n] = collectAll(); showDialog(PW, t ? "Przelew z " + n + " firm: " + fmt(t) + " (prowizja banku 10%)." : "Kasy w firmach są puste.", [{ t: "↩", fn: phoneBiz }]); } },
+    { t: "🏷️ Firmy na sprzedaż w pobliżu", fn: bizNearby },
+    { t: "📞 Zadzwoń do konkretnej firmy", fn: () => _phoneBizE() },
+    { t: "↩ Wróć", fn: openPhone }];
+  const nets = {}; for (const b of owned) if (b.cat && b.cat !== "big") nets[b.cat] = (nets[b.cat] || 0) + 1;
+  const best = Object.entries(nets).filter(e => e[1] > 1).sort((a, c) => c[1] - a[1]).slice(0, 3).map(([c, n]) => n + " " + (CATN[c] || c) + " (+" + Math.min(80, (n - 1) * 8) + "%)").join(", ");
+  showDialog(PW, "💼 Twoje imperium: " + owned.length + " / " + BIZ.length + " firm\n📈 Dochód: ok. " + fmt(total) + " / min\n💵 W kasach firm: " + fmt(cash) + (best ? "\n🔗 Sieci: " + best : ""), ch);
+};
+// ---------- zdarzenia biznesowe ----------
+const BEV = { t: 200 + Math.random() * 120 };
+function bizEvents(dt){
+  MKT.t -= dt; if (MKT.t <= 0){ MKT.t = 60; MKT.k = clamp(MKT.k + (Math.random() - 0.48) * 0.35, 0.5, 1.8); }
+  BEV.t -= dt;
+  if (BEV.t > 0) return;
+  BEV.t = 30;
+  const owned = BIZ.filter(b => SAVE.biz[b.id]);
+  if (owned.length < 2 || state !== "play" || mission || race || PARTY.on) return;
+  BEV.t = 260 + Math.random() * 220;
+  const b = pick(owned), s = SAVE.biz[b.id], w = { name: "📞 " + b.name, item: b.icon }, r = Math.random();
+  if (r < 0.4){
+    const far = pois.filter(o => { const d = Math.hypot(o.x - b.x, o.y - b.y); return d > 1500 && d < 4500; }), o = far.length ? pick(far) : pick(pois);
+    const dest = nearRoadSpot(o.x, o.y, 30) || [o.x, o.y], A = nearRoadSpot(b.x, b.y, 40) || [b.x + 60, b.y + 60], rew = Math.round(Math.max(150, bizRate(b) * 5));
+    showDialog(w, "Szefie! Wielkie zamówienie dla klienta: " + o.name + "! Jeśli zawieziesz towar osobiście w 4 minuty, zarobimy " + fmt(rew) + ".", [
+      { t: "🚚 Biorę to!", pri: true, fn: () => { closeDialog(); startMission({ title: "Zamówienie: " + b.name, reward: rew, time: 240, moneyLabel: "ZAMÓWIENIE " + b.name.toUpperCase(),
+        steps: [{ t: "getcar", at: () => A, cfg: { type: "van", col: "#ffffff" }, text: "Wsiądź do firmowego vana przy " + b.name }, { t: "goto", at: () => dest, mcar: true, text: "Dostarcz towar: " + o.name, r: 95 }],
+        fragile: 70, outro: "Klient zachwycony! Złożył kolejne zamówienie na przyszły miesiąc.", who: { name: b.name } }, null, null); } },
+      { t: "❌ Nie mam czasu", fn: closeDialog }], "Zdarzenie w firmie");
+  } else if (r < 0.65){
+    s.broken = true; persist();
+    showDialog(w, pick(["Szefie, awaria! Zepsuła się lodówka i musieliśmy zamknąć lokal!", "Zalało nam zaplecze! Nie możemy pracować!", "Kasa fiskalna padła, nic nie sprzedajemy!"]) + " Dopóki nie przyjedziesz i nie zapłacisz za naprawę, firma nie zarabia.", [
+      { t: "🧭 Jadę!", pri: true, fn: () => { NAV = { x: b.x, y: b.y, name: "Awaria: " + b.name }; GPS.tgt = null; closeDialog(); } }, { t: "👌 Później", fn: closeDialog }], "⚠️ Firma stoi");
+  } else if (r < 0.85){
+    const fine = Math.round(b.price * 0.02 / 50) * 50 + 100;
+    showDialog(w, "Szefie, przyszła kontrola z sanepidu! Inspektor mówi, że znalazł „nieprawidłowości”… Co robimy?", [
+      { t: "💵 Zapłać mandat (" + fmt(fine) + ")", fn: () => { SAVE.money = Math.max(0, SAVE.money - fine); persist(); showDialog(w, "Zapłacone. Inspektor wyszedł.", [{ t: "😒" }]); } },
+      { t: "🧹 Postaw na porządek (ryzyko)", fn: () => { if (Math.random() < 0.6){ addRep(1); showDialog(w, "Wszystko lśni! Inspektor nic nie znalazł i pochwalił lokal.", [{ t: "😎" }]); } else { SAVE.money = Math.max(0, SAVE.money - fine * 3); persist(); showDialog(w, "Znaleźli brudną mysz pod lodówką… Kara: " + fmt(fine * 3) + ".", [{ t: "😱" }]); } } },
+      { t: "🤝 „Załatw” sprawę ($" + Math.round(fine / 2) + ")", fn: () => { SAVE.money = Math.max(0, SAVE.money - Math.round(fine / 2)); if (Math.random() < 0.3){ crime(1, b.x, b.y); showDialog(w, "Inspektor okazał się uczciwy… i zadzwonił na policję!", [{ t: "🚔" }]); } else showDialog(w, "Inspektor schował kopertę i „nic nie widział”.", [{ t: "🤫" }]); } }], "Kontrola");
+  } else {
+    const bonus = Math.round(bizRate(b) * 8);
+    addMoney(bonus, "REKORDOWY DZIEŃ: " + b.name.toUpperCase());
+    toast("📈 " + b.name + ": rekordowy dzień! Kolejka klientów aż za róg.", 3500);
+  }
+}
+const _bizDialogE = bizDialog;
+bizDialog = function(b){
+  const s = SAVE.biz[b.id];
+  if (s && s.broken){
+    const cost = Math.round(b.price * 0.03 / 50) * 50 + 50, w = { name: b.name, item: "🔧" };
+    showDialog(w, "Firma stoi przez awarię! Naprawa kosztuje " + fmt(cost) + ".", [
+      { t: "🔧 Napraw (" + fmt(cost) + ")", pri: true, fn: () => { if (SAVE.money < cost){ showDialog(w, "Za mało pieniędzy.", [{ t: "😬" }]); return; } SAVE.money -= cost; s.broken = false; persist(); if (NAV && NAV.name && NAV.name.startsWith("Awaria")) NAV = null; showDialog(w, "Naprawione! Firma znowu zarabia.", [{ t: "👍", fn: () => _bizDialogE(b) }]); } },
+      { t: "👋 Później", fn: closeDialog }], "⚠️ Awaria");
+    return;
+  }
+  _bizDialogE(b);
+};
+// automaty płacą więcej z kasynem
+const _slotsPlayE = slotsPlay;
+slotsPlay = function(){ const m0 = SAVE.money; _slotsPlayE(); if (SAVE.biz.casino && SAVE.money > m0) addMoney(Math.round((SAVE.money - m0) * 0.3), "PREMIA KASYNA"); };
+// ---------- rysowanie małych znaczników firm ----------
+function drawSmallBiz(b, s){
+  const pulse = 0.5 + 0.5 * Math.sin(gameTime * 3 + b.x);
+  ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.beginPath(); ctx.arc(b.x, b.y, 13, 0, 6.3); ctx.fill();
+  ctx.strokeStyle = s ? (s.broken ? "rgba(255,80,80,.9)" : "rgba(255,215,0," + (0.5 + pulse * 0.4).toFixed(2) + ")") : "rgba(120,220,160,.55)"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.font = "12px system-ui"; ctx.fillText(s && s.broken ? "🔧" : b.icon, b.x, b.y + 1);
+  if (s && s.cash >= 50 && !s.mgr){ ctx.font = "800 9px system-ui"; ctx.fillStyle = "#ffd700"; ctx.fillText(fmt(s.cash), b.x, b.y + 20); }
+}
+// ---------- aktualizacja i osiągnięcia ----------
+const _regionsUpdateB = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdateB(dt); bizEvents(dt);
+  if (BIZW.watch && SAVE.biz[BIZW.watch.id]){ const b = BIZW.watch; BIZW.watch = null; pois.push({ icon: "💼", name: b.name, x: b.x, y: b.y }); }
+};
+ACH.push(
+  ["biz25", "🏬", "Sieć handlowa", "Miej 25 firm", 25000, () => Object.keys(SAVE.biz).length >= 25],
+  ["biz50", "🏙️", "Właściciel miasta", "Miej 50 firm", 75000, () => Object.keys(SAVE.biz).length >= 50],
+  ["chain5", "🔗", "Franczyza", "Miej 5 firm tej samej branży", 5000, () => { const c = {}; for (const b of BIZ) if (b.cat && b.cat !== "big" && SAVE.biz[b.id]) c[b.cat] = (c[b.cat] || 0) + 1; return Object.values(c).some(n => n >= 5); }],
+  ["tycoon", "🏢", "Magnat nieruchomości", "Kup Biurowiec „Skyline”", 20000, () => !!SAVE.biz.sky],
+  ["mil", "💎", "Milioner", "Zgromadź $1 000 000 (gotówka + bank)", 50000, () => SAVE.money + (SAVE.bank || 0) >= 1000000]
 );
 
 // START
