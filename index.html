@@ -15207,7 +15207,14 @@ function partyMenu(){
   showDialog({ name: "🎉 Domówka", item: "🎉" }, "Muzyka gra, " + PARTY.guests.length + " gości bawi się w najlepsze. Co robimy?", ch);
 }
 // ---------- zaproszenia ----------
-if (!SAVE.inv) SAVE.inv = null;
+if (!SAVE.invite) SAVE.invite = null;
+// naprawa zapisów z v27/v28: plecak (SAVE.inv) mógł zostać nadpisany zaproszeniem
+if (!SAVE.inv || typeof SAVE.inv !== "object" || SAVE.inv.fi !== undefined || SAVE.inv.left !== undefined){
+  const old = SAVE.inv;
+  SAVE.inv = { kit: 0, nitro: 0, med: 0 };
+  if (old && old.fi !== undefined && old.k) SAVE.invite = old;
+  saveDirty = true;
+}
 const INVT = { t: 220 + Math.random() * 200 };
 const INVTYPES = {
   bday: { n: "🎂 Urodziny", place: f => placeOf(f, "fav"), h0: 18 },
@@ -15217,24 +15224,24 @@ const INVTYPES = {
 };
 function inviteUpdate(dt){
   INVT.t -= dt;
-  if (SAVE.inv){
-    const I = SAVE.inv; I.left -= dt;
-    if (I.left <= 0){ const f = SAVE.friends[I.fi]; SAVE.inv = null; if (f && !I.done){ relAdd(f, -1.5, 0, true); toast("📱 SMS od " + f.name + ": „Szkoda, że cię nie było… 😔”", 3000); } }
+  if (SAVE.invite){
+    const I = SAVE.invite; I.left -= dt;
+    if (I.left <= 0){ const f = SAVE.friends[I.fi]; SAVE.invite = null; if (f && !I.done){ relAdd(f, -1.5, 0, true); toast("📱 SMS od " + f.name + ": „Szkoda, że cię nie było… 😔”", 3000); } }
     else if (!I.done){ const pp = playerPos(); if (Math.hypot(pp.x - I.x, pp.y - I.y) < 160) inviteArrive(); }
   }
-  if (INVT.t > 0 || SAVE.inv || SAVE.wed) return;
+  if (INVT.t > 0 || SAVE.invite || SAVE.wed) return;
   INVT.t = 300 + Math.random() * 300;
   const cand = SAVE.friends.filter(f => (f.rep || 0) >= 4);
   if (!cand.length) return;
   const f = pick(cand), keys = ["bday", "bday", "grill", "club"];
   if ((f.rep || 0) >= 8 && !isPartner(f)) keys.push("wedding");
   const k = pick(keys), T2 = INVTYPES[k], pl = T2.place(f); if (!pl) return;
-  SAVE.inv = { fi: fIdx(f), k, x: pl[0], y: pl[1], left: 420, done: false };
+  SAVE.invite = { fi: fIdx(f), k, x: pl[0], y: pl[1], left: 420, done: false };
   toast("💌 Zaproszenie od " + f.name + ": " + T2.n + (k === "wedding" ? " (bierze ślub!)" : "") + ". Szczegóły w telefonie 📱 → Zaproszenia", 4500);
   if (actx){ const t = actx.currentTime; tone(1200, t, 0.08, "sine", 0.05); tone(1500, t + 0.1, 0.1, "sine", 0.05); }
 }
 function inviteArrive(){
-  const I = SAVE.inv, f = SAVE.friends[I.fi]; if (!f) return;
+  const I = SAVE.invite, f = SAVE.friends[I.fi]; if (!f) return;
   I.done = true;
   const T2 = INVTYPES[I.k], i = I.fi;
   const host = favorPed(f, i, I.x + 20, I.y + 10, null); host.fixed = true;
@@ -15561,7 +15568,7 @@ function callExtras(i){
 }
 function phoneExtras(){
   const out = [];
-  if (SAVE.inv && !SAVE.inv.done){ const I = SAVE.inv, f = SAVE.friends[I.fi]; if (f) out.push({ t: "💌 Zaproszenie: " + INVTYPES[I.k].n + " (" + f.name + ")", pri: true, fn: () => { NAV = { x: I.x, y: I.y, name: INVTYPES[I.k].n + " – " + f.name }; GPS.tgt = null; closeDialog(); popup("🧭 Jedziesz na: " + INVTYPES[I.k].n, "#5bc0de"); } }); }
+  if (SAVE.invite && !SAVE.invite.done){ const I = SAVE.invite, f = SAVE.friends[I.fi]; if (f) out.push({ t: "💌 Zaproszenie: " + INVTYPES[I.k].n + " (" + f.name + ")", pri: true, fn: () => { NAV = { x: I.x, y: I.y, name: INVTYPES[I.k].n + " – " + f.name }; GPS.tgt = null; closeDialog(); popup("🧭 Jedziesz na: " + INVTYPES[I.k].n, "#5bc0de"); } }); }
   if (SAVE.wed && !SAVE.wed.done) out.push({ t: "💒 Twój ślub – Dębowo", pri: true, fn: () => { NAV = { x: SAVE.wed.x, y: SAVE.wed.y, name: "Twój ślub" }; GPS.tgt = null; closeDialog(); } });
   out.push({ t: PARTY.on ? "🎉 Domówka trwa – zakończ" : "🎉 Zrób domówkę", fn: () => PARTY.on ? (closeDialog(), endParty(false)) : startParty() });
   out.push({ t: CREW.list.length ? "👥 Rozwiąż ekipę" : "👥 Zbierz ekipę", fn: () => CREW.list.length ? (closeDialog(), endCrew(false)) : startCrew() });
@@ -15600,7 +15607,7 @@ drawRegionsWorld = function(inV){
     for (let k = 0; k < 14; k++){ const x = PARTY.x - 130 + k * 20, y = PARTY.y - 30 + Math.sin(k * 0.9) * 8; ctx.fillStyle = ["#ff5252", "#ffd740", "#69f0ae", "#40c4ff", "#e040fb"][k % 5]; ctx.globalAlpha = 0.6 + 0.4 * Math.sin(gameTime * 6 + k); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 6.3); ctx.fill(); }
     ctx.globalAlpha = 1; ctx.textAlign = "center"; ctx.textBaseline = "middle"; marker(PARTY.x, PARTY.y, "🎉");
   }
-  if (SAVE.inv && !SAVE.inv.done && inV(SAVE.inv.x, SAVE.inv.y, 40)) marker(SAVE.inv.x, SAVE.inv.y, "💌");
+  if (SAVE.invite && !SAVE.invite.done && inV(SAVE.invite.x, SAVE.invite.y, 40)) marker(SAVE.invite.x, SAVE.invite.y, "💌");
   if (SAVE.wed && !SAVE.wed.done && inV(SAVE.wed.x, SAVE.wed.y, 40)) marker(SAVE.wed.x, SAVE.wed.y, "💒");
   for (const c of CREW.list) if (peds.includes(c.p) && inV(c.p.x, c.p.y, 30)){ ctx.font = "11px system-ui"; ctx.fillText("👥", c.p.x + 9, c.p.y - 15); }
   for (const v of vehicles) if (v.sale && !v.driver && inV(v.x, v.y, 40)){ ctx.font = "800 10px system-ui"; ctx.fillStyle = "rgba(0,0,0,.6)"; rrect(ctx, v.x - 30, v.y - 34, 60, 14, 4); ctx.fill(); ctx.fillStyle = "#ffd27a"; ctx.fillText("NA SPRZEDAŻ", v.x, v.y - 27); }
@@ -15612,7 +15619,7 @@ drawRegionsHUD = function(){
   let t = null;
   if (CREW.list.length) t = "👥 Ekipa: " + CREW.list.map(c => c.f.name).join(", ") + (CREW.inCar ? " · 🚗" : "");
   else if (PARTY.on) t = "🎉 Domówka · goście: " + PARTY.guests.length + "/" + PARTY.inv.length;
-  else if (SAVE.inv && !SAVE.inv.done){ const f = SAVE.friends[SAVE.inv.fi]; if (f) t = "💌 " + INVTYPES[SAVE.inv.k].n + " u " + f.name + " · " + Math.ceil(SAVE.inv.left / 60) + " min"; }
+  else if (SAVE.invite && !SAVE.invite.done){ const f = SAVE.friends[SAVE.invite.fi]; if (f) t = "💌 " + INVTYPES[SAVE.invite.k].n + " u " + f.name + " · " + Math.ceil(SAVE.invite.left / 60) + " min"; }
   if (t){ ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "800 12px system-ui, sans-serif"; const tw = ctx.measureText(t).width; ctx.fillStyle = "rgba(40,20,60,.6)"; rrect(ctx, 10, 258, tw + 18, 21, 8); ctx.fill(); ctx.fillStyle = "#e1c4ff"; ctx.fillText(t, 19, 273); ctx.textAlign = "center"; }
 };
 // ---------- aktualizacja ----------
@@ -15718,7 +15725,11 @@ const inCity2 = (x, y) => x > EXTP && x < WORLD - EXTP && y > EXTP && y < WORLD 
 for (const b of BIZ) if (b.manual && SAVE.biz[b.id]) pois.push({ icon: "💼", name: b.name, x: b.x, y: b.y });
 // ---------- mnożniki: sieci, synergie, rynek ----------
 const MKT = { k: 1, t: 0 };
-function catCount(cat){ let n = 0; for (const b of BIZ) if (b.cat === cat && SAVE.biz[b.id]) n++; return n; }
+const CATC = { t: -1, m: {} };
+function catCount(cat){
+  if (CATC.t !== Math.floor(gameTime)){ CATC.t = Math.floor(gameTime); CATC.m = {}; for (const b of BIZ) if (b.cat && SAVE.biz[b.id]) CATC.m[b.cat] = (CATC.m[b.cat] || 0) + 1; }
+  return CATC.m[cat] || 0;
+}
 const _bizRateE = bizRate;
 bizRate = function(b){
   let r = _bizRateE(b);
@@ -15877,6 +15888,9 @@ layoutControls();
 
 let last = performance.now();
 function frame(t){
+  try { frameInner(t); } catch (e) { if (!window._errN || window._errN < 3){ window._errN = (window._errN || 0) + 1; console.error(e); try { toast("⚠️ Błąd gry (" + e.message + ") – gra działa dalej", 3000); } catch (e2) {} } requestAnimationFrame(frame); }
+}
+function frameInner(t){
   const dt = Math.min(0.033, Math.max(0, (t - last) / 1000));
   last = t;
   readInput();
