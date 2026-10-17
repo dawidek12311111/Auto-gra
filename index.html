@@ -153,7 +153,7 @@
   @media (max-aspect-ratio:1/1){ .gpanel{flex-direction:column} .gleft{flex:0 0 36%} }
   #mapHit{position:fixed;top:6px;right:6px;width:150px;height:160px;z-index:5;display:none}
   #top.show ~ #mapHit{display:block}
-  #mapWrap{padding:0;background:#0d0f12;z-index:18}
+  #mapWrap{padding:0;background:#0d0f12;z-index:18;touch-action:none}
   #mapView{position:absolute;inset:0;width:100%;height:100%;display:block}
   #talk{background:rgba(80,160,255,.3);border-color:rgba(140,190,255,.8);display:none}
   #dlg{position:fixed;left:0;right:0;bottom:0;z-index:16;display:none;
@@ -4929,7 +4929,7 @@ function closeMap(){
   state = "play"; last = performance.now();
 }
 $("mapHit").addEventListener("pointerdown", e => { e.preventDefault(); openMap(); });
-$("mapWrap").addEventListener("pointerdown", e => { e.preventDefault(); if (!mapTap(e.clientX, e.clientY)) closeMap(); });
+
 function drawMapView(){
   const cvm = $("mapView"), dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = innerWidth, h = innerHeight;
@@ -4937,10 +4937,14 @@ function drawMapView(){
   const g = cvm.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.fillStyle = "#0d0f12"; g.fillRect(0, 0, w, h);
-  const size = Math.min(w, h) - 24, ox = (w - size) / 2, oy = (h - size) / 2, sc = size / WORLD;
+  const MG = mapGeom(w, h), size = MG.size, ox = MG.ox, oy = MG.oy, sc = size / MG.vw, mk = mapCv.width / WORLD;
+  g.save(); g.beginPath(); g.rect(ox, oy, size, size); g.clip();
+  g.fillStyle = "#33461f"; g.fillRect(ox, oy, size, size);
+  g.imageSmoothingEnabled = MG.z < 3;
+  g.drawImage(mapCv, MG.vx * mk, MG.vy * mk, MG.vw * mk, MG.vw * mk, ox, oy, size, size);
   g.imageSmoothingEnabled = true;
-  g.drawImage(mapCv, ox, oy, size, size);
-  const toM = (x, y) => [ox + x * sc, oy + y * sc];
+  const toM = (x, y) => [ox + (x - MG.vx) * sc, oy + (y - MG.vy) * sc];
+  mapRoads(g, toM, sc, MG);
   g.textAlign = "center"; g.textBaseline = "middle";
   g.font = "900 " + Math.max(9, size * 0.022).toFixed(0) + "px system-ui, sans-serif";
   for (const [name, bx, by] of ZLABELS){
@@ -4981,14 +4985,16 @@ function drawMapView(){
   g.fillStyle = "#ffb300"; g.strokeStyle = "#000"; g.lineWidth = 1.5;
   g.beginPath(); g.moveTo(9, 0); g.lineTo(-6, -6); g.lineTo(-6, 6); g.closePath(); g.fill(); g.stroke();
   g.restore();
+  g.restore();
+  mapButtons(g, MG);
   g.textAlign = "left"; g.font = "900 15px system-ui, sans-serif"; g.fillStyle = "#fff";
-  g.fillText("MAPA MIASTA", 16, 22);
+  g.fillText("MAPA", 16, 22);
   g.font = "600 12px system-ui, sans-serif"; g.fillStyle = "rgba(255,255,255,.65)";
   const leg = ["🚉 kolej", "🏠 mieszkanie", "🏁 wyścig", "⚓ przystań", "🔑 wypożyczalnia", "🍕 pizzeria", "♻️ MPO", "🚌 zajezdnia", "❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
   const lsp = Math.min(20, (h - 60) / leg.length);
   g.font = "600 " + Math.min(12, lsp * 0.75).toFixed(0) + "px system-ui, sans-serif";
   if (w - size > 260) leg.forEach((t, i) => g.fillText(t, 16, 48 + i * lsp));
-  g.textAlign = "center"; g.fillText("dotknij mapy: cel GPS 📍 · dotknij obok mapy: powrót do gry", w / 2, h - 12);
+  g.textAlign = "center"; g.fillText("dotknij: cel GPS 📍 · przesuń palcem / rozszczyp: przybliżenie · ✕ powrót", w / 2, h - 12);
 }
 // =====================================================================
 // ŻYCIE W MIEŚCIE: ROZMOWY, POSTACIE ZE ZLECENIAMI, ZDARZENIA
@@ -13088,8 +13094,8 @@ function regionAction(){
   if (FSH.on){ fishPull(); return true; }
   const f = player.foot;
   if (Math.hypot(CABLE.a[0] - f.x, CABLE.a[1] - f.y) < 90){
-    if (SAVE.money < 10){ toast("Bilet kosztuje $10", 1500); return true; }
-    SAVE.money -= 10; saveDirty = true; CABLE.ride = { up: true, t: 0 }; popup("🚡 Wsiadasz do gondoli…", "#9fd4ff"); if (actx) tone(660, actx.currentTime, 0.2, "sine", 0.06); return true;
+    if (!SAVE.biz.ski && SAVE.money < 10){ toast("Bilet kosztuje $10", 1500); return true; }
+    if (!SAVE.biz.ski) SAVE.money -= 10; saveDirty = true; CABLE.ride = { up: true, t: 0 }; popup("🚡 Wsiadasz do gondoli…", "#9fd4ff"); if (actx) tone(660, actx.currentTime, 0.2, "sine", 0.06); return true;
   }
   if (Math.hypot(CABLE.b[0] - f.x, CABLE.b[1] - f.y) < 90){ CABLE.ride = { up: false, t: 0 }; popup("🚡 Zjazd w dół…", "#9fd4ff"); return true; }
   if (Math.hypot(SUMMIT.x - f.x, SUMMIT.y - f.y) < 40){ summitAction(); return true; }
@@ -13954,14 +13960,14 @@ function gpsMapDraw(g, toM){
   if (NAV && !NAV.track){ const q = toM(NAV.x, NAV.y); g.font = "20px system-ui"; g.textAlign = "center"; g.textBaseline = "alphabetic"; g.fillText("📍", q[0], q[1]); g.textBaseline = "middle"; }
 }
 function mapTap(cx, cy){
-  const w = innerWidth, h = innerHeight, size = Math.min(w, h) - 24, ox = (w - size) / 2, oy = (h - size) / 2;
+  const MG = mapGeom(innerWidth, innerHeight), size = MG.size, ox = MG.ox, oy = MG.oy, k = MG.vw / size;
   if (cx < ox || cy < oy || cx > ox + size || cy > oy + size) return false;
-  const x = (cx - ox) / size * WORLD, y = (cy - oy) / size * WORLD;
-  if (NAV && !NAV.track && Math.hypot(NAV.x - x, NAV.y - y) < WORLD / size * 16){ NAV = null; GPS.pts = null; GPS.tgt = null; uiClick(); return true; }
+  const x = MG.vx + (cx - ox) * k, y = MG.vy + (cy - oy) * k;
+  if (NAV && !NAV.track && Math.hypot(NAV.x - x, NAV.y - y) < k * 18){ NAV = null; GPS.pts = null; GPS.tgt = null; uiClick(); return true; }
   const near = pois.map(o => [o, Math.hypot(o.x - x, o.y - y)]).sort((p, q) => p[1] - q[1])[0];
-  const snap = near && near[1] < WORLD / size * 12 ? near[0] : null;
+  const snap = near && near[1] < k * 12 ? near[0] : null;
   NAV = { x: snap ? snap.x : x, y: snap ? snap.y : y, name: snap ? snap.name : "Cel na mapie" };
-  GPS.tgt = null; gpsUpdate(0.01); uiClick();
+  gpsRoute([NAV.x, NAV.y]); uiClick();
   return true;
 }
 // ---------- telefon ----------
@@ -14257,6 +14263,141 @@ regionsUpdate = function(dt){
   if (regSt.cur){ for (const T2 of TOWNS2) if (regSt.cur === T2.icon + " " + T2.name && !SAVE.towns.includes(T2.name)){ SAVE.towns.push(T2.name); persist(); } }
 };
 ACH.push(["towns", "🗺️", "Obieżyświat", "Odwiedź Borowo, Jeziorki i Podgórze", 900, () => TOWNS2.every(T2 => SAVE.towns.includes(T2.name))]);
+
+// =====================================================================
+// MAPA Z PRZYBLIŻANIEM (SZCZYPANIE, PRZESUWANIE, PRZYCISKI) + KOLEJNE BIZNESY
+// =====================================================================
+const MAPV = { z: 1, cx: WORLD / 2, cy: WORLD / 2 };
+function mapGeom(w, h){
+  const size = Math.min(w, h) - 24, ox = (w - size) / 2, oy = (h - size) / 2;
+  MAPV.z = clamp(MAPV.z, 1, 14);
+  const vw = WORLD / MAPV.z;
+  MAPV.cx = clamp(MAPV.cx, vw / 2, WORLD - vw / 2); MAPV.cy = clamp(MAPV.cy, vw / 2, WORLD - vw / 2);
+  return { size, ox, oy, z: MAPV.z, vw, vx: MAPV.cx - vw / 2, vy: MAPV.cy - vw / 2 };
+}
+function mapRoads(g, toM, sc, MG){
+  if (MG.z < 2.2) return;
+  g.lineJoin = "round"; g.lineCap = "round";
+  for (const R of ROADS){
+    g.strokeStyle = R.surf === G_DIRT ? "#9a7b55" : "#5f6268"; g.lineWidth = Math.max(1.5, R.hw * 2 * sc);
+    g.beginPath(); let first = true;
+    for (let i = 0; i < R.pts.length; i += 3){ const q = toM(R.pts[i][0], R.pts[i][1]); if (first){ g.moveTo(q[0], q[1]); first = false; } else g.lineTo(q[0], q[1]); }
+    const L = R.pts[R.pts.length - 1], q = toM(L[0], L[1]); g.lineTo(q[0], q[1]);
+    g.stroke();
+  }
+  if (MG.z >= 5){
+    g.font = "700 " + Math.min(13, 4 + MG.z * 0.7).toFixed(0) + "px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    for (const R of ROADS){ if (!R.name || R.len < 500) continue; const p = roadAt(R, R.len / 2), q = toM(p[0], p[1]); if (q[0] < MG.ox || q[0] > MG.ox + MG.size || q[1] < MG.oy || q[1] > MG.oy + MG.size) continue; g.fillStyle = "rgba(0,0,0,.6)"; g.fillText(R.name, q[0] + 1, q[1] - 9); g.fillStyle = "#fff"; g.fillText(R.name, q[0], q[1] - 10); }
+  }
+}
+function mapBtns(MG){
+  const w = innerWidth, side = w - (MG.ox + MG.size) > 64, bx = side ? MG.ox + MG.size + 34 : MG.ox + MG.size - 30, r = 21;
+  return [["+", bx, MG.oy + 30, r], ["−", bx, MG.oy + 82, r], ["⌖", bx, MG.oy + 134, r], ["✕", bx, MG.oy + MG.size - 30, r]];
+}
+function mapButtons(g, MG){
+  g.textAlign = "center"; g.textBaseline = "middle";
+  for (const [t, x, y, r] of mapBtns(MG)){
+    g.fillStyle = "rgba(20,22,26,.88)"; g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); g.stroke();
+    g.fillStyle = "#fff"; g.font = "900 " + (t === "⌖" ? 20 : 22) + "px system-ui, sans-serif"; g.fillText(t, x, y + 1);
+  }
+  g.font = "800 11px system-ui, sans-serif"; g.fillStyle = "#ffd27a";
+  const b = mapBtns(MG)[1]; g.fillText("×" + (MG.z < 10 ? MG.z.toFixed(1) : Math.round(MG.z)), b[1], b[2] + 34);
+}
+function mapZoomAt(f, sx, sy){
+  const MG = mapGeom(innerWidth, innerHeight);
+  const wx = sx === undefined ? MAPV.cx : MG.vx + (sx - MG.ox) / MG.size * MG.vw, wy = sy === undefined ? MAPV.cy : MG.vy + (sy - MG.oy) / MG.size * MG.vw;
+  const z0 = MAPV.z; MAPV.z = clamp(z0 * f, 1, 14);
+  if (sx !== undefined){ const k = z0 / MAPV.z; MAPV.cx = wx + (MAPV.cx - wx) * k; MAPV.cy = wy + (MAPV.cy - wy) * k; }
+}
+const MP = { pts: new Map(), moved: false, start: null, pinch: null };
+(function mapInput(){
+  const el = $("mapWrap");
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    MP.pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (MP.pts.size === 1){ MP.moved = false; MP.start = [e.clientX, e.clientY, MAPV.cx, MAPV.cy]; }
+    else if (MP.pts.size === 2){ const [a, b] = [...MP.pts.values()]; MP.pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, z: MAPV.z, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 }; MP.moved = true; }
+  });
+  el.addEventListener("pointermove", e => {
+    if (!MP.pts.has(e.pointerId)) return;
+    MP.pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (MP.pts.size >= 2 && MP.pinch){
+      const [a, b] = [...MP.pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]) || 1;
+      mapZoomAt(MP.pinch.z * d / MP.pinch.d / MAPV.z, MP.pinch.mx, MP.pinch.my);
+    } else if (MP.pts.size === 1 && MP.start){
+      const dx = e.clientX - MP.start[0], dy = e.clientY - MP.start[1];
+      if (Math.hypot(dx, dy) > 9) MP.moved = true;
+      if (MP.moved && !MP.pinch){ const MG = mapGeom(innerWidth, innerHeight); MAPV.cx = MP.start[2] - dx * MG.vw / MG.size; MAPV.cy = MP.start[3] - dy * MG.vw / MG.size; }
+    }
+  });
+  const up = e => {
+    if (!MP.pts.has(e.pointerId)) return;
+    const tap = MP.pts.size === 1 && !MP.moved;
+    MP.pts.delete(e.pointerId);
+    if (!MP.pts.size){ MP.pinch = null; MP.start = null; }
+    if (!tap) return;
+    const MG = mapGeom(innerWidth, innerHeight);
+    for (const [t, x, y, r] of mapBtns(MG)) if (Math.hypot(e.clientX - x, e.clientY - y) < r + 6){
+      uiClick();
+      if (t === "+") mapZoomAt(2); else if (t === "−") mapZoomAt(0.5);
+      else if (t === "⌖"){ const pp = playerPos(); MAPV.cx = pp.x; MAPV.cy = pp.y; MAPV.z = Math.max(MAPV.z, 5); }
+      else closeMap();
+      return;
+    }
+    if (!mapTap(e.clientX, e.clientY)) closeMap();
+  };
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", e => { MP.pts.delete(e.pointerId); if (!MP.pts.size){ MP.pinch = null; MP.start = null; } });
+  el.addEventListener("wheel", e => { e.preventDefault(); mapZoomAt(e.deltaY < 0 ? 1.25 : 0.8, e.clientX, e.clientY); }, { passive: false });
+})();
+const _openMapZ = openMap;
+openMap = function(){ if (MAPV.z > 1){ const pp = playerPos(); MAPV.cx = pp.x; MAPV.cy = pp.y; } MP.pts.clear(); MP.pinch = null; MP.start = null; _openMapZ(); };
+// ---------- kolejne biznesy ----------
+(function(){
+  const add = (id, name, icon, price, rate, desc, perk, at) => { if (!at) return; const p = freeNear(at[0], at[1]); BIZ.push({ id, name, icon, price, rate, desc, perk, x: p[0], y: p[1] }); pois.push({ icon: "💼", name, x: p[0], y: p[1] }); };
+  const by = (ic, dx, dy) => { const o = pois.find(q => q.icon === ic); return o ? [o.x + (dx || 80), o.y + (dy || 70)] : null; };
+  const T = n => TOWNS2.find(t => t.name === n), sq = (n, dx, dy) => { const t = T(n); return t && t.square ? [t.square[0] + dx, t.square[1] + dy] : null; };
+  add("bakery", "Piekarnia „Złoty Kłos”", "🥖", 15000, 65, "Piekarnia w Borowie – chleb na zakwasie wozi się aż do miasta.", "Świeża drożdżówka: +30 zdrowia (podejdź)", sq("Borowo", -110, -95));
+  add("paint", "Paintball „Leśna Bitwa”", "🎯", 28000, 105, "Pole paintballowe na polanie w środku Puszczy. Firmy z miasta jeżdżą tu na integracje.", "+60 XP przy każdej wizycie", [FOREST.c[0] + 160, FOREST.c[1] + 120]);
+  add("mewa", "Pensjonat „Mewa”", "🏨", 52000, 170, "Pensjonat w Jeziorkach z widokiem na jezioro. W sezonie pełne obłożenie.", "Darmowy nocleg: pełne zdrowie", sq("Jeziorki", -115, -95));
+  add("lody", "Lodziarnia „Bambino”", "🍦", 13000, 55, "Lody włoskie i gofry w Jeziorkach. Kolejka aż na ulicę.", "Darmowe lody: buff szybkości · dochód ×1,5 w dzień", sq("Jeziorki", 115, 95));
+  add("rowery", "Wypożyczalnia rowerów „Szprycha”", "🚲", 11000, 45, "Rowery i tandemy dla turystów z Jeziorek.", "Darmowy rower pod ręką (podejdź)", sq("Jeziorki", 115, -95));
+  add("ski", "Wyciąg „Orli Stok”", "⛷️", 60000, 190, "Wyciąg i kolejka linowa na Szczyt Orli. Zarabia na każdym bilecie.", "Darmowe przejazdy kolejką linową", [MOUNT.cableBot[0] + 180, MOUNT.cableBot[1] + 40]);
+  add("smrek", "Pensjonat „Pod Smrekiem”", "🏡", 34000, 120, "Góralski pensjonat w Podgórzu: oscypki, kominek i widok na szczyt.", "Darmowy nocleg: pełne zdrowie", sq("Podgórze", -110, -95));
+  add("stud", "Stadnina „Kasztanka”", "🐎", 26000, 90, "Jazda konna przy gospodarstwie „Pod Lipą”. Dzieci z miasta uwielbiają kucyki.", "Przejażdżka: +20 zdrowia i reputacja", [FARM.pens[1].x1 + 70, FARM.pens[1].y0 + 60]);
+  add("mopW", "MOP „Zachód”", "⛽", 30000, 110, "Miejsce obsługi podróżnych na drodze na zachód. Kawa, hot-dogi, paliwo.", "Darmowa pełna naprawa auta (wjedź)", [RA - 6200 + 150, WCY - 300 + 150]);
+  add("mopS", "MOP „Południe”", "⛽", 30000, 110, "Miejsce obsługi podróżnych na drodze do Dębowa.", "Darmowa pełna naprawa auta (wjedź)", [WCX - 600 + 150, RB + 6500 + 150]);
+  add("tattoo", "Salon tatuażu „Igła”", "🖋️", 21000, 75, "Salon tatuażu w mieście. Najwięcej klientów po zmroku.", "Dochód ×2 nocą (20–4)", by("💊", -90, 80));
+  add("kwiaty", "Kwiaciarnia „Stokrotka”", "💐", 10000, 42, "Kwiaty na śluby, pogrzeby i przeprosiny. Biznes, który nigdy nie umiera.", "Bukiet dla przechodnia: +2 reputacji", by("⛪", 90, 80));
+  add("kebab", "Kebab „Sułtan”", "🥙", 16000, 68, "Kebab przy dworcu, otwarty do rana. Najlepszy po imprezie.", "Darmowy kebab: +35 zdrowia · nocą ×1,5", by("🚉", 90, 70));
+  add("volt", "Stacja ładowania „Volt”", "🔌", 42000, 135, "Ładowarki dla aut elektrycznych przy markecie. Przyszłość, panie!", "Stały dochód przez całą dobę", by("🛒", 90, 80));
+})();
+const _bizRateM = bizRate;
+bizRate = function(b){
+  let r = _bizRateM(b);
+  const h = hourNow(), night = h >= 20 || h < 4;
+  if (b.id === "tattoo") r *= night ? 2 : 0.7;
+  if (b.id === "kebab") r *= night ? 1.5 : 1;
+  if (b.id === "lody" || b.id === "rowery") r *= (h >= 9 && h < 20) ? 1.5 : 0.4;
+  return r;
+};
+const _bizPerkM = bizPerk;
+bizPerk = function(b){
+  const ok = SAVE.biz[b.id] && (bizState.perkT[b.id] || 0) <= gameTime;
+  _bizPerkM(b);
+  if (!ok) return;
+  if (b.id === "bakery"){ heal(30); popup("🥖 Ciepła drożdżówka – +30 zdrowia", "#ffd27a"); }
+  if (b.id === "kebab"){ heal(35); popup("🥙 Kebab na koszt firmy – +35 zdrowia", "#ffd27a"); }
+  if (b.id === "paint") addXP(60);
+  if (b.id === "mewa" || b.id === "smrek"){ heal(100); popup("🛏️ Nocleg na koszt firmy – pełne zdrowie", "#ffd27a"); }
+  if (b.id === "lody"){ buffCoffee(); popup("🍦 Lody pistacjowe – buff szybkości!", "#ffd27a"); }
+  if (b.id === "stud"){ heal(20); addRep(1); popup("🐎 Przejażdżka na Kasztance – +20 zdrowia", "#ffd27a"); }
+  if (b.id === "kwiaty"){ addRep(2); popup("💐 Rozdajesz kwiaty przechodniom – +2 reputacji", "#ffd27a"); }
+  if ((b.id === "mopW" || b.id === "mopS") && player.mode === "car"){ const v = player.veh; v.hp = 100; v.dents.length = 0; v.flat = false; v.burning = false; popup("🔧 Pełna naprawa na MOP-ie – gratis!", "#9fd4ff"); }
+  if (b.id === "rowery" && player.mode === "foot"){ const p = freeNear(b.x + 40, b.y + 30); makeVehicle(defaultCfg("bicycle", pick(["#e53935", "#1e88e5", "#43a047", "#fdd835"])), p[0], p[1], 0); popup("🚲 Rower czeka obok – wskakuj!", "#9fd4ff"); }
+};
+ACH.push(["biz15", "👑", "Król biznesu", "Miej 15 firm", 15000, () => Object.keys(SAVE.biz).length >= 15]);
 
 // START
 // =====================================================================
