@@ -17752,6 +17752,281 @@ render = function(){
   if (G2.roof.size > max && G2.frame % 30 === 0){ const arr = [...G2.roof.entries()].sort((a, b) => a[1].last - b[1].last); for (let i = 0; i < arr.length - max; i++) G2.roof.delete(arr[i][0]); }
 };
 
+// =====================================================================
+// v32: GRAFIKA 3.0 – AUTA W NAJWYŻSZEJ JAKOŚCI, DRZEWA, OZNAKOWANIE
+// SKRZYŻOWAŃ, MAŁA ARCHITEKTURA, MOKRY ASFALT NOCĄ
+// =====================================================================
+const CAR2 = new Set(["small", "sedan", "taxi", "van", "pickup", "suv", "muscle", "limo", "sport", "police"]);
+const SPR2 = new Map();
+const SPR2_SC = 4;
+function carPath2(g, hl, hw, b, cfg){
+  const fw = hw * (1 - b.nose * 0.3), bw = hw * (1 - b.tail * 0.25), r = b.r;
+  const wf = hl * 0.62, wr = -hl * 0.62, ar = Math.min(7, hl * 0.2), waist = hw * (cfg.type === "van" || cfg.type === "suv" ? 0.985 : 0.955);
+  g.beginPath(); g.moveTo(hl, 0);
+  for (const sg of [1, -1]){
+    if (sg === 1){
+      g.lineTo(hl, fw - r * 0.6); g.quadraticCurveTo(hl, hw * 0.97, hl - r * 1.7, hw * 0.98);
+      g.lineTo(wf + ar, hw); g.lineTo(wf - ar, hw); g.quadraticCurveTo(wf - ar * 1.6, waist, wf - ar * 2.4, waist);
+      g.lineTo(wr + ar * 2.4, waist); g.quadraticCurveTo(wr + ar * 1.6, waist, wr + ar, hw); g.lineTo(wr - ar, hw);
+      g.lineTo(-hl + r * 1.5, hw * 0.98); g.quadraticCurveTo(-hl, hw * 0.97, -hl, bw - r * 0.4); g.lineTo(-hl, 0);
+    } else {
+      g.lineTo(-hl, -bw + r * 0.4); g.quadraticCurveTo(-hl, -hw * 0.97, -hl + r * 1.5, -hw * 0.98); g.lineTo(wr - ar, -hw); g.lineTo(wr + ar, -hw);
+      g.quadraticCurveTo(wr + ar * 1.6, -waist, wr + ar * 2.4, -waist); g.lineTo(wf - ar * 2.4, -waist); g.quadraticCurveTo(wf - ar * 1.6, -waist, wf - ar, -hw);
+      g.lineTo(wf + ar, -hw); g.lineTo(hl - r * 1.7, -hw * 0.98); g.quadraticCurveTo(hl, -hw * 0.97, hl, -fw + r * 0.6);
+    }
+  }
+  g.closePath();
+}
+function spec(g, x, y, rx, ry, a){ g.save(); g.translate(x, y); g.scale(1, ry / rx); const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx); gr.addColorStop(0, "rgba(255,255,255," + a + ")"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(-rx, -rx, rx * 2, rx * 2); g.restore(); }
+function paintCar2(g, cfg){
+  const t = VT[cfg.type], b = BODY[cfg.type], hl = t.len / 2, hw = t.wid / 2, col = cfg.col, fin = cfg.finish;
+  const X = f => f * hl, cw = hw - 2.6, P = () => carPath2(g, hl, hw, b, cfg), hiA = fin === "matte" ? 0.06 : fin === "metal" ? 0.34 : 0.24;
+  const hs = ghash(col.length * 3.1 + (cfg.type.charCodeAt(0) || 0), (parseInt(col.slice(1), 16) || 7) % 997);
+  const fw = hw * (1 - b.nose * 0.3), bw = hw * (1 - b.tail * 0.25);
+  // nadwozie
+  P(); g.fillStyle = col; g.fill();
+  g.save(); P(); g.clip();
+  let gr = g.createLinearGradient(0, -hw, 0, hw);
+  gr.addColorStop(0, "rgba(0,0,0,.45)"); gr.addColorStop(0.09, "rgba(0,0,0,.12)"); gr.addColorStop(0.2, "rgba(255,255,255," + hiA + ")"); gr.addColorStop(0.38, "rgba(255,255,255,.05)");
+  gr.addColorStop(0.62, "rgba(0,0,0,0)"); gr.addColorStop(0.86, "rgba(0,0,0,.2)"); gr.addColorStop(1, "rgba(0,0,0,.55)");
+  g.fillStyle = gr; g.fillRect(-hl - 2, -hw - 2, t.len + 4, t.wid + 4);
+  gr = g.createLinearGradient(-hl, 0, hl, 0); gr.addColorStop(0, "rgba(0,0,0,.25)"); gr.addColorStop(0.12, "rgba(0,0,0,0)"); gr.addColorStop(0.88, "rgba(0,0,0,0)"); gr.addColorStop(1, "rgba(0,0,0,.2)");
+  g.fillStyle = gr; g.fillRect(-hl - 2, -hw - 2, t.len + 4, t.wid + 4);
+  if (fin === "pearl"){ gr = g.createLinearGradient(-hl, -hw, hl, hw); gr.addColorStop(0, "rgba(170,120,255,.3)"); gr.addColorStop(0.5, "rgba(255,255,255,.05)"); gr.addColorStop(1, "rgba(80,255,220,.26)"); g.fillStyle = gr; g.fillRect(-hl, -hw, t.len, t.wid); }
+  if (fin === "metal"){ g.fillStyle = "rgba(255,255,255,.1)"; for (let i = 0; i < 260; i++) g.fillRect(-hl + ghash(i, 1) * t.len, -hw + ghash(1, i) * t.wid, 0.3, 0.3); }
+  // odbicia nieba na masce i bagażniku
+  const hx0 = X(b.ws[0]), tx1 = b.rw ? X(b.rw[1]) : X(b.roof[1]);
+  if (fin !== "matte"){ spec(g, hx0 + (hl - hx0) * 0.45, -hw * 0.28, (hl - hx0) * 0.5, hw * 0.35, hiA * 1.5); spec(g, tx1 - (tx1 + hl) * 0.45, -hw * 0.3, (tx1 + hl) * 0.45, hw * 0.3, hiA); }
+  // pasy
+  if (cfg.stripes !== "none"){
+    g.globalAlpha = 0.94; g.fillStyle = cfg.stripeCol;
+    if (cfg.stripes === "center" || cfg.stripes === "race"){ const sw = cfg.stripes === "race" ? 2.6 : 1.6, gap = cfg.stripes === "race" ? 0.8 : 1.4; g.fillRect(-hl, -gap - sw, t.len, sw); g.fillRect(-hl, gap, t.len, sw); }
+    if (cfg.stripes === "side"){ g.fillRect(-hl * 0.85, -hw + 0.9, t.len * 0.8, 1.1); g.fillRect(-hl * 0.85, hw - 2, t.len * 0.8, 1.1); }
+    g.globalAlpha = 1;
+  }
+  // zderzaki z czarnego tworzywa
+  g.fillStyle = "rgba(18,19,22,.85)"; g.fillRect(hl - 1.3, -fw, 1.3, fw * 2); g.fillRect(-hl, -bw, 1.1, bw * 2);
+  g.fillStyle = "rgba(0,0,0,.35)"; for (const x of [hl * 0.62, -hl * 0.62]) for (const sg of [-1, 1]){ g.beginPath(); g.ellipse(x, sg * hw, Math.min(7, hl * 0.2) * 1.05, 1.6, 0, 0, Math.PI * 2); g.fill(); }
+  // krawędziowy połysk
+  g.strokeStyle = "rgba(255,255,255," + (fin === "matte" ? 0.06 : 0.2) + ")"; g.lineWidth = 1.4; P(); g.stroke();
+  g.restore();
+  P(); g.strokeStyle = "rgba(0,0,0,.65)"; g.lineWidth = 0.6; g.stroke();
+  // linie maski i przetłoczenia
+  g.strokeStyle = "rgba(0,0,0,.22)"; g.lineWidth = 0.45; g.beginPath();
+  g.moveTo(hx0 + 0.6, -cw * 0.62); g.lineTo(hl - 1.8, -fw * 0.5); g.moveTo(hx0 + 0.6, cw * 0.62); g.lineTo(hl - 1.8, fw * 0.5);
+  if (cfg.type === "muscle" || cfg.type === "sport"){ g.moveTo(hx0 + 1, -1.6); g.lineTo(hl - 3, -1.2); g.moveTo(hx0 + 1, 1.6); g.lineTo(hl - 3, 1.2); }
+  g.stroke();
+  g.strokeStyle = "rgba(255,255,255,.12)"; g.beginPath(); g.moveTo(hx0 + 0.6, -cw * 0.62 - 0.5); g.lineTo(hl - 1.8, -fw * 0.5 - 0.5); g.stroke();
+  // drzwi, klamki, wlew paliwa
+  const rx0 = X(b.roof[1]), rlen = X(b.roof[0]) - rx0;
+  g.strokeStyle = "rgba(0,0,0,.4)"; g.lineWidth = 0.4; g.beginPath();
+  const seams = cfg.type === "van" ? [X(b.ws[1]) - 1, X(b.ws[1]) - 10] : cfg.type === "sport" || cfg.type === "muscle" ? [X(b.ws[1]) - 0.5, rx0 + rlen * 0.1] : [X(b.ws[1]) - 0.5, rx0 + rlen * 0.5, rx0 + 0.5];
+  for (const x of seams) for (const sg of [-1, 1]){ g.moveTo(x, sg * (hw - 0.2)); g.lineTo(x, sg * cw); }
+  g.stroke();
+  g.fillStyle = "rgba(230,232,235,.7)"; for (const x of seams.slice(0, -1)) for (const sg of [-1, 1]) g.fillRect(x - 3.2, sg > 0 ? hw - 1.1 : -hw + 0.4, 1.8, 0.7);
+  g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = 0.35; g.beginPath(); g.arc(rx0 - 2, hw - 1.3, 0.9, 0, Math.PI * 2); g.stroke();
+  // przednie światła, grill
+  g.fillStyle = "#121417"; rrect(g, hl - 2.8, -fw * 0.36, 1.6, fw * 0.72, 0.5); g.fill();
+  g.strokeStyle = "rgba(200,205,210,.55)"; g.lineWidth = 0.3; g.beginPath(); for (let y = -fw * 0.3; y <= fw * 0.3; y += 1.1){ g.moveTo(hl - 2.6, y); g.lineTo(hl - 1.4, y); } g.stroke();
+  const lc = LIGHTCOL[cfg.lights] || LIGHTCOL.white;
+  for (const sg of [-1, 1]){
+    g.beginPath(); g.moveTo(hl - 0.6, sg * (fw - 1.1)); g.lineTo(hl - 4.4, sg * (fw - 0.9)); g.lineTo(hl - 4.4, sg * (fw - 3.6)); g.lineTo(hl - 0.8, sg * (fw - 5.2)); g.closePath();
+    const lg = g.createLinearGradient(hl - 4.4, 0, hl, 0); lg.addColorStop(0, "#8d969f"); lg.addColorStop(1, "#eef3f7"); g.fillStyle = lg; g.fill();
+    g.fillStyle = lc; g.beginPath(); g.moveTo(hl - 1.2, sg * (fw - 1.6)); g.lineTo(hl - 3.6, sg * (fw - 1.5)); g.lineTo(hl - 3.6, sg * (fw - 3.2)); g.lineTo(hl - 1.3, sg * (fw - 4.4)); g.closePath(); g.fill();
+    g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = 0.4; g.beginPath(); g.moveTo(hl - 4, sg * (fw - 3.7)); g.lineTo(hl - 1.1, sg * (fw - 5)); g.stroke();
+    // tylne lampy LED
+    g.beginPath(); g.moveTo(-hl + 0.2, sg * (bw - 1)); g.lineTo(-hl + 3, sg * (bw - 0.8)); g.lineTo(-hl + 3, sg * (bw - 3.4)); g.lineTo(-hl + 0.3, sg * (bw - 4.8)); g.closePath();
+    const tg = g.createLinearGradient(-hl, 0, -hl + 3, 0); tg.addColorStop(0, "#7d0c0c"); tg.addColorStop(1, "#c4181b"); g.fillStyle = tg; g.fill();
+    g.strokeStyle = "rgba(255,120,110,.8)"; g.lineWidth = 0.35; g.beginPath(); g.moveTo(-hl + 2.6, sg * (bw - 1.2)); g.lineTo(-hl + 2.6, sg * (bw - 3.2)); g.stroke();
+  }
+  if (cfg.type === "sport" || cfg.type === "suv" || cfg.type === "muscle"){ g.fillStyle = "rgba(200,20,25,.75)"; g.fillRect(-hl + 0.3, -bw + 4.8, 0.7, (bw - 4.8) * 2); }
+  g.fillStyle = "#f2f2ee"; g.fillRect(-hl - 0.1, -2.6, 0.7, 5.2); g.fillRect(hl - 0.5, -2.4, 0.5, 4.8);
+  // lusterka
+  const mx = X(b.ws[0]) - 2.6;
+  for (const sg of [-1, 1]){ g.fillStyle = shade(col.charAt(0) === "#" ? col : "#555555", -0.15); rrect(g, mx, sg > 0 ? hw - 0.6 : -hw - 1.7, 3, 2.3, 0.9); g.fill(); g.fillStyle = "rgba(160,190,220,.55)"; g.fillRect(mx + 0.3, sg > 0 ? hw + 0.9 : -hw - 1.5, 2.2, 0.5); }
+  // szyby
+  const gA = cfg.tint ? "#07090d" : "#16202d", gB = cfg.tint ? "#151a22" : "#4a6688";
+  const glass = (x0, x1, w0, w1, refl) => {
+    g.save(); g.beginPath(); g.moveTo(x0, -w0); g.quadraticCurveTo(x0 + (x0 > 0 ? 0.9 : -0.9), 0, x0, w0); g.lineTo(x1, w1); g.lineTo(x1, -w1); g.closePath();
+    const gg = g.createLinearGradient(x0, -w0, x1, w0); gg.addColorStop(0, gB); gg.addColorStop(0.55, gA); gg.addColorStop(1, shade(gA, 0.06)); g.fillStyle = gg; g.fill(); g.clip();
+    if (refl){ g.fillStyle = "rgba(255,255,255,.22)"; g.beginPath(); g.moveTo(Math.max(x0, x1) + 1, -w0); g.lineTo(Math.max(x0, x1) - 1, -w0); g.lineTo(Math.min(x0, x1) - 1, w0 * 0.2); g.lineTo(Math.min(x0, x1) + 1.5, w0 * 0.2); g.fill(); g.fillStyle = "rgba(255,255,255,.1)"; g.beginPath(); g.moveTo(Math.max(x0, x1) + 1, w0 * 0.1); g.lineTo(Math.max(x0, x1) - 0.4, w0 * 0.1); g.lineTo(Math.min(x0, x1) - 0.4, w0 * 0.7); g.lineTo(Math.min(x0, x1) + 1, w0 * 0.7); g.fill(); }
+    g.restore();
+  };
+  glass(X(b.ws[0]), X(b.ws[1]), cw * 0.92, cw * 0.8, true);
+  g.strokeStyle = "rgba(10,10,10,.85)"; g.lineWidth = 0.35; g.beginPath(); g.moveTo(X(b.ws[0]) - 0.6, -cw * 0.7); g.lineTo(X(b.ws[0]) - 2.2, -cw * 0.05); g.moveTo(X(b.ws[0]) - 0.6, cw * 0.05); g.lineTo(X(b.ws[0]) - 2.2, cw * 0.65); g.stroke();
+  // szyby boczne z słupkami
+  for (const sg of [-1, 1]){
+    const y0 = sg * cw, y1 = sg * cw * 0.74, x0 = rx0, x1 = X(b.ws[1]);
+    const sgG = g.createLinearGradient(0, y0, 0, y1); sgG.addColorStop(0, gB); sgG.addColorStop(1, gA); g.fillStyle = sgG; g.fillRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0));
+    g.fillStyle = col; g.fillRect(rx0 + rlen * 0.48, Math.min(y0, y1), 1.4, Math.abs(y1 - y0));
+    g.fillStyle = "rgba(255,255,255,.18)"; g.fillRect(x0 + 1, sg > 0 ? y1 : y0, x1 - x0 - 2, 0.35);
+  }
+  if (b.rw){ glass(X(b.rw[0]), X(b.rw[1]), cw * 0.8, cw * 0.7, false); g.strokeStyle = "rgba(170,90,60,.3)"; g.lineWidth = 0.25; g.beginPath(); for (let k = 1; k < 4; k++){ const x = X(b.rw[0]) + (X(b.rw[1]) - X(b.rw[0])) * k / 4; g.moveTo(x, -cw * 0.65); g.lineTo(x, cw * 0.65); } g.stroke(); }
+  // dach
+  rrect(g, rx0, -cw * 0.8, rlen, cw * 1.6, 2.2); g.fillStyle = cfg.roof || col; g.fill();
+  gr = g.createLinearGradient(0, -cw, 0, cw); gr.addColorStop(0, "rgba(255,255,255," + (hiA * 0.9) + ")"); gr.addColorStop(0.45, "rgba(255,255,255,0)"); gr.addColorStop(1, "rgba(0,0,0,.3)");
+  rrect(g, rx0, -cw * 0.8, rlen, cw * 1.6, 2.2); g.fillStyle = gr; g.fill();
+  if (fin !== "matte") spec(g, rx0 + rlen * 0.55, -cw * 0.3, rlen * 0.45, cw * 0.4, hiA * 1.2);
+  g.strokeStyle = "rgba(0,0,0,.3)"; g.lineWidth = 0.4; rrect(g, rx0, -cw * 0.8, rlen, cw * 1.6, 2.2); g.stroke();
+  if (cfg.stripes === "center" || cfg.stripes === "race"){ g.globalAlpha = 0.94; g.fillStyle = cfg.stripeCol; const sw = cfg.stripes === "race" ? 2.6 : 1.6, gap = cfg.stripes === "race" ? 0.8 : 1.4; g.fillRect(rx0, -gap - sw, rlen, sw); g.fillRect(rx0, gap, rlen, sw); g.globalAlpha = 1; }
+  if (cfg.stripes === "race"){ const cx = rx0 + rlen / 2; g.fillStyle = "#fff"; g.beginPath(); g.arc(cx, 0, 3.4, 0, Math.PI * 2); g.fill(); g.fillStyle = "#111"; g.font = "bold 5px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.save(); g.translate(cx, 0); g.rotate(Math.PI / 2); g.fillText("7", 0, 0.3); g.restore(); }
+  // szyberdach i antena
+  if ((cfg.type === "sedan" || cfg.type === "suv" || cfg.type === "limo") && hs < 0.45 && cfg.stripes === "none" && cfg.type !== "taxi"){
+    const sx = rx0 + rlen * 0.5, sl = rlen * 0.26; const sg2 = g.createLinearGradient(sx, -cw * 0.4, sx + sl, cw * 0.4); sg2.addColorStop(0, "rgba(90,120,150,.75)"); sg2.addColorStop(1, "rgba(20,30,42,.75)"); g.fillStyle = sg2; rrect(g, sx, -cw * 0.36, sl, cw * 0.72, 0.8); g.fill(); g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = 0.3; g.stroke();
+  }
+  if (cfg.type !== "taxi" && cfg.type !== "police"){ g.fillStyle = "#15171a"; g.beginPath(); g.ellipse(rx0 + 2.4, 0, 1.6, 0.7, 0, 0, Math.PI * 2); g.fill(); }
+  // dodatki typów
+  if (cfg.type === "taxi"){ g.fillStyle = "#222"; rrect(g, -4.5, -4, 9, 8, 1); g.fill(); g.fillStyle = "#fff3a0"; g.fillRect(-3.5, -3, 7, 6); g.fillStyle = "#222"; g.font = "bold 2.6px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.save(); g.rotate(Math.PI / 2); g.fillText("TAXI", 0, 0.2); g.restore(); g.fillStyle = "#111"; for (let k = 0; k < 6; k++) g.fillRect(-hl * 0.5 + k * 2.2, -hw + 0.4, 1.1, 0.8), g.fillRect(-hl * 0.5 + k * 2.2 + 1.1, hw - 1.2, 1.1, 0.8); }
+  if (cfg.type === "van"){ g.strokeStyle = "rgba(0,0,0,.14)"; g.lineWidth = 0.6; for (let x = rx0 + 5; x < rx0 + rlen - 3; x += 6){ g.beginPath(); g.moveTo(x, -cw * 0.7); g.lineTo(x, cw * 0.7); g.stroke(); } }
+  if (b.rails){ g.strokeStyle = "rgba(25,25,25,.8)"; g.lineWidth = 0.9; g.beginPath(); g.moveTo(rx0 + 2, -cw * 0.66); g.lineTo(rx0 + rlen - 2, -cw * 0.66); g.moveTo(rx0 + 2, cw * 0.66); g.lineTo(rx0 + rlen - 2, cw * 0.66); g.stroke(); g.strokeStyle = "rgba(200,200,200,.4)"; g.lineWidth = 0.3; g.stroke(); }
+  if (b.bed){ const bx0 = X(b.bed[1]), bl = X(b.bed[0]) - bx0; g.fillStyle = "#26282c"; rrect(g, bx0, -cw * 0.88, bl, cw * 1.76, 1.2); g.fill(); g.strokeStyle = "rgba(255,255,255,.1)"; g.lineWidth = 0.6; for (let y = -cw * 0.6; y <= cw * 0.6; y += cw * 0.4){ g.beginPath(); g.moveTo(bx0 + 1.5, y); g.lineTo(bx0 + bl - 1.5, y); g.stroke(); } }
+  if (b.scoop){ g.fillStyle = "rgba(0,0,0,.65)"; rrect(g, X(0.42), -2.2, X(0.28), 4.4, 1); g.fill(); g.fillStyle = "rgba(255,255,255,.14)"; g.fillRect(X(0.42), -2.2, X(0.28), 0.6); }
+  if (cfg.type === "limo"){ g.fillStyle = col; for (const f of [0.05, -0.25]){ g.fillRect(X(f) - 0.8, -cw, 1.6, cw * 0.26); g.fillRect(X(f) - 0.8, cw * 0.74, 1.6, cw * 0.26); } }
+  if (cfg.type === "police"){ g.fillStyle = "#f5f5f5"; g.fillRect(X(0.12), -hw + 0.6, X(-0.5) - X(0.12), 1.2); g.fillRect(X(0.12), hw - 1.8, X(-0.5) - X(0.12), 1.2); }
+  // spojler
+  if (cfg.spoiler){
+    g.fillStyle = cfg.spoiler === 3 ? "#1d1f22" : shade(col.charAt(0) === "#" ? col : "#555555", -0.25);
+    if (cfg.spoiler === 1){ rrect(g, -hl + 1.2, -cw * 0.85, 1.6, cw * 1.7, 0.6); g.fill(); }
+    else if (cfg.spoiler === 2){ rrect(g, -hl - 0.6, -hw + 0.5, 2.8, t.wid - 1, 0.8); g.fill(); }
+    else { g.fillRect(-hl + 1.5, -hw * 0.5, 1.4, 1); g.fillRect(-hl + 1.5, hw * 0.5 - 1, 1.4, 1); rrect(g, -hl - 2.4, -hw - 1.5, 3.4, t.wid + 3, 1); g.fill(); g.fillStyle = "rgba(255,255,255,.18)"; g.fillRect(-hl - 1.8, -hw - 1, 0.6, t.wid + 2); }
+  }
+}
+const _paintCar36 = paintCar;
+paintCar = function(g, cfg, wreck){
+  if (wreck || !CAR2.has(cfg.type) || !GFX.on) return _paintCar36(g, cfg, wreck);
+  try { paintCar2(g, cfg); } catch (e) { _paintCar36(g, cfg, wreck); }
+};
+const _carSprite36 = carSprite;
+carSprite = function(cfg, wreck){
+  if (wreck || !CAR2.has(cfg.type) || !GFX.on) return _carSprite36(cfg, wreck);
+  const key = cfg.type + cfg.col + cfg.roof + cfg.finish + cfg.stripes + cfg.stripeCol + cfg.tint + cfg.spoiler + cfg.lights;
+  let s = SPR2.get(key); if (s) return s;
+  if (SPR2.size > 260) SPR2.clear();
+  const t = VT[cfg.type], M = 6, c = document.createElement("canvas");
+  c.width = Math.ceil((t.len + M * 2) * SPR2_SC); c.height = Math.ceil((t.wid + M * 2) * SPR2_SC);
+  const g = c.getContext("2d"); g.scale(SPR2_SC, SPR2_SC); g.translate(t.len / 2 + M, t.wid / 2 + M);
+  paintCar(g, cfg, false);
+  s = { c, w: t.len + M * 2, h: t.wid + M * 2 }; SPR2.set(key, s);
+  return s;
+};
+// ---------- drzewa jako bufory ----------
+const TREE2 = new Map();
+function treeSprite(r, c, v){
+  const key = (r | 0) + "|" + c.join() + "|" + v;
+  let s = TREE2.get(key); if (s) return s;
+  if (TREE2.size > 400) TREE2.clear();
+  const S = 2, n = Math.ceil(r * 2.4), cv2 = mkCanvas(n * S, n * S), g = cv2.getContext("2d"); g.scale(S, S);
+  const cx = n / 2, cy = n / 2, h = k => ghash(v * 17.3 + k * 3.1, r * 1.7 + k);
+  g.fillStyle = c[0]; g.beginPath(); g.arc(cx, cy, r * 0.82, 0, Math.PI * 2); g.fill();
+  for (let k = 0; k < 10; k++){
+    const a = k / 10 * Math.PI * 2 + h(k) * 0.8, d = r * (0.38 + h(k + 20) * 0.25), rr2 = r * (0.36 + h(k + 40) * 0.2), x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+    const gg = g.createRadialGradient(x - rr2 * 0.4, y - rr2 * 0.4, rr2 * 0.1, x, y, rr2); gg.addColorStop(0, c[2]); gg.addColorStop(0.6, c[1]); gg.addColorStop(1, c[0]);
+    g.fillStyle = gg; g.beginPath(); g.arc(x, y, rr2, 0, Math.PI * 2); g.fill();
+  }
+  for (let k = 0; k < 4; k++){ const x = cx + (h(k + 60) - 0.6) * r * 0.7, y = cy + (h(k + 70) - 0.6) * r * 0.7, rr2 = r * (0.28 + h(k + 80) * 0.12); const gg = g.createRadialGradient(x - rr2 * 0.4, y - rr2 * 0.4, 1, x, y, rr2); gg.addColorStop(0, shade(c[2], 0.15)); gg.addColorStop(1, c[1]); g.fillStyle = gg; g.beginPath(); g.arc(x, y, rr2, 0, Math.PI * 2); g.fill(); }
+  for (let k = 0; k < r * 3; k++){ const a = h(k + 100) * 6.283, d = Math.sqrt(h(k + 200)) * r * 0.95; g.fillStyle = h(k + 300) < 0.5 ? "rgba(255,255,220,.16)" : "rgba(0,25,10,.2)"; g.beginPath(); g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 0.8 + h(k + 400) * 1.4, 0, Math.PI * 2); g.fill(); }
+  const og = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.2, cx, cy, r * 1.05); og.addColorStop(0, "rgba(255,255,255,0)"); og.addColorStop(0.75, "rgba(0,0,0,0)"); og.addColorStop(1, "rgba(0,15,5,.35)");
+  g.globalCompositeOperation = "source-atop"; g.fillStyle = og; g.fillRect(0, 0, n, n); g.globalCompositeOperation = "source-over";
+  s = { c: cv2, n }; TREE2.set(key, s); return s;
+}
+drawTreesNew = function(inV){
+  const sv = GFX.sun, wind = (WX.type === "storm" ? 3 : WX.rain > 0.3 ? 1.6 : 0.8), pal = TREE_PAL[SEASON];
+  for (const t of trees){
+    if (!inV(t.x, t.y, 50)) continue;
+    const X = camX + (t.x - camX) * 1.1, Y = camY + (t.y - camY) * 1.1, hs = ghash(t.x, t.y), sw = Math.sin(gameTime * 1.3 + t.x * 0.013 + t.y * 0.007) * wind * t.r * 0.035;
+    if (sv && sv.a > 0.02){ ctx.fillStyle = "rgba(10,15,30," + (sv.a * 1.2).toFixed(3) + ")"; ctx.beginPath(); ctx.ellipse(t.x + sv.x * t.r * 1.1, t.y + sv.y * t.r * 1.1, t.r * 1.05, t.r * 0.95, 0, 0, Math.PI * 2); ctx.fill(); }
+    else { ctx.fillStyle = "rgba(0,0,0,.22)"; ctx.beginPath(); ctx.arc(t.x + 5, t.y + 7, t.r, 0, Math.PI * 2); ctx.fill(); }
+    const c = pal[(hs * pal.length) | 0], s = treeSprite(Math.max(6, Math.round(t.r)), c, ((hs * 1000) | 0) % 4);
+    ctx.drawImage(s.c, X + sw - s.n / 2, Y + sw * 0.4 - s.n / 2, s.n, s.n);
+  }
+};
+// ---------- oznakowanie skrzyżowań i mała architektura (w kaflach) ----------
+let FURNG = null;
+function furnBlocked(x, y){
+  if (!FURNG){ FURNG = new Map(); const add = (px, py, r) => { for (let gx = Math.floor((px - r) / 64); gx <= Math.floor((px + r) / 64); gx++) for (let gy = Math.floor((py - r) / 64); gy <= Math.floor((py + r) / 64); gy++){ const k = gx * 10000 + gy; let a = FURNG.get(k); if (!a) FURNG.set(k, a = []); a.push([px, py, r]); } };
+    for (const l of lamps) add(l[0], l[1], 26); for (const d of DOORS) add(d.x, d.y, 40); for (const b of BUS_STOPS) add(b.x, b.y, 70); }
+  const a = FURNG.get(Math.floor(x / 64) * 10000 + Math.floor(y / 64)); if (!a) return false;
+  for (const [px, py, r] of a) if (Math.abs(px - x) < r && Math.abs(py - y) < r) return true;
+  return false;
+}
+const _paintGroundExtras36 = paintGroundExtras;
+paintGroundExtras = function(X0, Y0, X1, Y1, inV, cx2){
+  _paintGroundExtras36(X0, Y0, X1, Y1, inV, cx2);
+  const c = cx2 || ctx, inC = (x, y, m) => x > X0 - m && x < X1 + m && y > Y0 - m && y < Y1 + m;
+  const paint = "rgba(242,242,232,.86)";
+  const arrow = (x, y, a) => { if (!inC(x, y, 30)) return; c.save(); c.translate(x, y); c.rotate(a); c.fillStyle = paint; c.fillRect(-20, -2.2, 28, 4.4); c.beginPath(); c.moveTo(7, -8.5); c.lineTo(21, 0); c.lineTo(7, 8.5); c.closePath(); c.fill(); c.restore(); };
+  // linie zatrzymania i strzałki w mieście
+  for (let r = 0; r <= NB; r++){
+    const rs = GT(r * P), cc = rs + 1.5 * T;
+    for (let k = 0; k < NB; k++){
+      const s = GT(k * P + 3), e = GT((k + 1) * P);
+      if (e - s < 300) continue;
+      if (k !== RIVER_BX && rs < Y1 + 10 && rs + 3 * T > Y0 - 10){
+        c.fillStyle = paint;
+        if (inC(s + 40, cc, 80)){ c.fillRect(s + 37, rs + 8, 4, cc - rs - 11); arrow(s + 92, cc - 36, Math.PI); }
+        if (inC(e - 40, cc, 80)){ c.fillRect(e - 41, cc + 3, 4, rs + 3 * T - cc - 11); arrow(e - 92, cc + 36, 0); }
+      }
+      if (r !== RIVER_BX && r !== RIVER_BX + 1 && rs < X1 + 10 && rs + 3 * T > X0 - 10){
+        c.fillStyle = paint;
+        if (inC(cc, s + 40, 80)){ c.fillRect(cc + 3, s + 37, rs + 3 * T - cc - 11, 4); arrow(cc + 36, s + 92, -Math.PI / 2); }
+        if (inC(cc, e - 40, 80)){ c.fillRect(rs + 8, e - 41, cc - rs - 11, 4); arrow(cc - 36, e - 92, Math.PI / 2); }
+      }
+    }
+  }
+  // wyposażenie chodników
+  const okAt = (x, y) => getGW(x, y) === G_WALK && !furnBlocked(x, y);
+  const bin = (x, y) => { c.fillStyle = "rgba(0,0,0,.3)"; c.beginPath(); c.arc(x + 2, y + 2.5, 5.5, 0, 7); c.fill(); c.fillStyle = "#2e7d32"; c.beginPath(); c.arc(x, y, 5.5, 0, 7); c.fill(); c.fillStyle = "#1b4d1e"; c.beginPath(); c.arc(x, y, 3.6, 0, 7); c.fill(); c.fillStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.arc(x - 2, y - 2, 1.3, 0, 7); c.fill(); };
+  const hydrant = (x, y) => { c.fillStyle = "rgba(0,0,0,.3)"; c.beginPath(); c.arc(x + 2, y + 2, 4, 0, 7); c.fill(); c.fillStyle = "#c62828"; c.fillRect(x - 6, y - 1.3, 12, 2.6); c.fillStyle = "#e53935"; c.beginPath(); c.arc(x, y, 4, 0, 7); c.fill(); c.fillStyle = "#ffcdd2"; c.beginPath(); c.arc(x - 1.2, y - 1.2, 1.4, 0, 7); c.fill(); };
+  const bench = (x, y, a) => { c.save(); c.translate(x, y); c.rotate(a); c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(-13, -3, 30, 12); c.fillStyle = "#3a3d42"; c.fillRect(-15, -5, 2, 11); c.fillRect(13, -5, 2, 11); c.fillStyle = "#9c6b3f"; for (let i = 0; i < 4; i++) c.fillRect(-15, -5 + i * 2.8, 30, 2); c.restore(); };
+  const bollard = (x, y) => { c.fillStyle = "rgba(0,0,0,.3)"; c.beginPath(); c.arc(x + 1.5, y + 1.5, 2.6, 0, 7); c.fill(); c.fillStyle = "#4a4f55"; c.beginPath(); c.arc(x, y, 2.6, 0, 7); c.fill(); c.fillStyle = "#cfd3d7"; c.beginPath(); c.arc(x - 0.6, y - 0.6, 1, 0, 7); c.fill(); };
+  const sign = (x, y, stop) => { c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(x + 2, y, 2, 12); c.fillStyle = "#8a8f95"; c.fillRect(x - 1, y - 1, 2, 2);
+    if (stop){ c.fillStyle = "#c62828"; c.beginPath(); for (let i = 0; i < 8; i++){ const a = i / 8 * 6.283 + 0.39; c.lineTo(x + Math.cos(a) * 7, y - 8 + Math.sin(a) * 7); } c.closePath(); c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1; c.stroke(); c.fillStyle = "#fff"; c.font = "800 4px system-ui"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("STOP", x, y - 7.8); }
+    else { c.fillStyle = "#1565c0"; rrect(c, x - 7, y - 15, 14, 14, 2); c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 0.9; c.stroke(); c.fillStyle = "#fff"; c.font = "900 10px system-ui"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("P", x, y - 7.6); } };
+  for (let by = 0; by < NB; by++) for (let bx = 0; bx < NB; bx++){
+    if (bx === RIVER_BX) continue;
+    const X = GT(bx * P + 3), Y = GT(by * P + 3), Sz = 11 * T;
+    if (X > X1 + 40 || Y > Y1 + 40 || X + Sz < X0 - 40 || Y + Sz < Y0 - 40) continue;
+    const edges = [[X, Y, 1, 0, 0, 1], [X + Sz, Y, 0, 1, -1, 0], [X + Sz, Y + Sz, -1, 0, 0, -1], [X, Y + Sz, 0, -1, 1, 0]];
+    edges.forEach(([ex, ey, dx, dy, nx, ny], ei) => {
+      const h = ghash(bx * 7 + ei, by * 13 + ei);
+      const at = (u, v) => [ex + dx * u + nx * v, ey + dy * u + ny * v];
+      let p = at(46, 12); if (h < 0.55 && okAt(p[0], p[1])) hydrant(p[0], p[1]);
+      p = at(90, 12); if (okAt(p[0], p[1])) bin(p[0], p[1]);
+      p = at(Sz - 92, 12); if (h > 0.4 && okAt(p[0], p[1])) bin(p[0], p[1]);
+      p = at(Sz / 2 + 60, 16); if (h > 0.6 && okAt(p[0], p[1])) bench(p[0], p[1], Math.atan2(dy, dx));
+      p = at(Sz - 30, 10); if (ei % 2 === 0 && h < 0.5 && okAt(p[0], p[1])) sign(p[0], p[1], true);
+      p = at(Sz / 2 - 40, 10); if (h > 0.82 && okAt(p[0], p[1])) sign(p[0], p[1], false);
+      if (h > 0.7) for (let u = Sz / 2 - 120; u < Sz / 2 - 60; u += 20){ p = at(u, 7); if (okAt(p[0], p[1])) bollard(p[0], p[1]); }
+    });
+  }
+};
+// ---------- mokry asfalt nocą: odbicia świateł ----------
+const _drawWetNew36 = drawWetNew;
+drawWetNew = function(inV, dark){
+  _drawWetNew36(inV, dark);
+  const wet = Math.max(WX.wet || 0, WX.rain || 0);
+  if (dark < 0.25 || wet < 0.08 || SET.quality === "low") return;
+  const a = Math.min(1, wet) * Math.min(1, (dark - 0.25) * 2);
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  for (const l of lamps){
+    if (!inV(l[0], l[1], 60)) continue;
+    const g = getGW(l[0], l[1] + 40); if (g !== G_ROAD && g !== G_WALK && g !== G_LOT) continue;
+    const gr = ctx.createLinearGradient(0, l[1], 0, l[1] + 70); gr.addColorStop(0, "rgba(255,190,110," + (0.36 * a).toFixed(3) + ")"); gr.addColorStop(1, "rgba(255,190,110,0)");
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(l[0], l[1] + 32, 6, 38, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const v of vehicles){
+    if (!v.driver || v.wreck || VT[v.type].boat || !inV(v.x, v.y, 120)) continue;
+    const c = Math.cos(v.a), s = Math.sin(v.a), hl = VT[v.type].len / 2;
+    for (const [d, col, len] of [[1, "rgba(255,245,215,", 46], [-1, "rgba(255,40,30,", 22]]){
+      const x = v.x + c * (hl + len * 0.5) * d, y = v.y + s * (hl + len * 0.5) * d;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(v.a);
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, len); gr.addColorStop(0, col + (0.28 * a).toFixed(3) + ")"); gr.addColorStop(1, col + "0)");
+      ctx.fillStyle = gr; ctx.scale(1, 0.35); ctx.beginPath(); ctx.arc(0, 0, len, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+  }
+  ctx.restore();
+};
+
 // START
 // =====================================================================
 applyOutfit();
