@@ -1554,6 +1554,189 @@ function gridTown(o){
   for (const T2 of TOWNS2) for (const [x, y] of T2.stree){ if (getGW(x, y) !== G_WALK) continue; addTree(x, y, 8 + wrnd() * 4); trees[trees.length - 1].garden = 1; }
   let k = 0; for (const s of solids) if (!(s.t === "c" && dead.has(s.x + "," + s.y))) solids[k++] = s; solids.length = k;
 })();
+// =====================================================================
+// v31: RZEKA POŁĄCZONA Z JEZIORAMI (KANAŁY), NOWE MOSTY I PRZYSTANIE,
+// AUTOSTRADA A1 DOOKOŁA MAPY (3+3 PASY), BRAMKI I MOP-y
+// =====================================================================
+const V31 = { channels: [], marinas: [], hw: null, tolls: [], mops: [], bridges: [], brt: new Uint8Array(MW * MW), XL: 650, XR: 33560, YT: 8900, YB: 33300, HWW: 100 };
+(function genV31(){
+  const ws0 = wseed; wseed = 3131313;
+  const { XL, XR, YT, YB, HWW } = V31, PI = Math.PI;
+  // ---------- kanały ----------
+  const carved = new Uint8Array(MW * MW);
+  function carve(raw, w, name){
+    const P = densify(chaikin(raw, 3), 20);
+    for (const [x, y] of P){
+      const r = w * (0.85 + fbm(x / 500, y / 500, 31) * 0.3), rt = Math.ceil((r + 70) / T), tx = Math.floor(x / T), ty = Math.floor(y / T);
+      for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
+        const X = tx + dx, Y = ty + dy; if (X < 1 || Y < 1 || X >= MW - 1 || Y >= MW - 1) continue;
+        const d = Math.hypot((X + 0.5) * T - x, (Y + 0.5) * T - y), i = Y * MW + X, g = ground[i];
+        if (d <= r){ ground[i] = G_WATER; ROADVIS[i] = 0; carved[i] = 1; }
+        else if (d <= r + 55 && !HARDG.has(g) && g !== G_SAND){ ground[i] = G_GRASS; ROADVIS[i] = 0; }
+      }
+    }
+    V31.channels.push({ name, pts: P, w });
+  }
+  carve([[RX1 - 40, 22650], [20500, 22620], [22000, 22520], [23500, 22300], [25000, 22000], [26500, 21650], [27600, 21100], [28000, 20400]], 120, "Kanał Jeziorny");
+  carve([[1700, 19000], [2100, 20800], [2700, 22700], [3700, 23950], [5500, 24180], [8000, 24150], [10500, 24020], [13000, 23960], [15200, 23960], [17200, 24010], [RX0 + 40, 24050]], 95, "Kanał Leśny");
+  carve([[MOUNT.tarn[0], MOUNT.tarn[1]], [15200, 3050], [16200, 3150], [17200, 3050], [RX0 + 40, 2950]], 70, "Potok Górski");
+  // ---------- autostrada A1 ----------
+  const RC = 2400, pts = [];
+  const arc = (cx, cy, a0, a1) => { for (let k = 1; k < 14; k++){ const a = a0 + (a1 - a0) * k / 14; pts.push([cx + Math.cos(a) * RC, cy + Math.sin(a) * RC]); } };
+  pts.push([XL + RC, YT], [XR - RC, YT]); arc(XR - RC, YT + RC, -PI / 2, 0);
+  pts.push([XR, YT + RC], [XR, YB - RC]); arc(XR - RC, YB - RC, 0, PI / 2);
+  pts.push([XR - RC, YB], [XL + RC, YB]); arc(XL + RC, YB - RC, PI / 2, PI);
+  pts.push([XL, YB - RC], [XL, YT + RC]); arc(XL + RC, YT + RC, PI, PI * 1.5);
+  pts.push([XL + RC, YT]);
+  // pobocza: trawa wokół pasa drogowego
+  for (const [x, y] of densify(pts, 40)){
+    const rt = Math.ceil((HWW + 90) / T), tx = Math.floor(x / T), ty = Math.floor(y / T);
+    for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
+      const X = tx + dx, Y = ty + dy; if (X < 0 || Y < 0 || X >= MW || Y >= MW) continue;
+      const i = Y * MW + X, g = ground[i];
+      if (Math.hypot((X + 0.5) * T - x, (Y + 0.5) * T - y) <= HWW + 90 && !HARDG.has(g) && g !== G_SAND){ ground[i] = G_GRASS; ROADVIS[i] = 0; }
+    }
+  }
+  const HR = addRoad(pts, HWW, { name: "Autostrada A1", lanes: 3, cruise: 340 });
+  HR.want = 12; HR.loop = true; HR.hwy = true; HR.types = ["sedan", "sedan", "suv", "van", "truck", "truck", "truck", "small", "sport", "pickup", "bus", "limo", "muscle"];
+  V31.hw = HR;
+  const link = (raw, name, o) => { const R = addRoad(raw, (o && o.hw) || 40, Object.assign({ name, cruise: 230, lamp: true }, o || {})); R.want = 2; return R; };
+  const Bor = TOWNS2.find(t => t.name === "Borowo");
+  link([[RB, 9770], [RB, YT + HWW - 12]], "Węzeł Wierchy");
+  link([[7360, 9590], [7360, YT + HWW - 12]], "Węzeł Zalesie");
+  link([[14598, 9550], [14598, YT + HWW - 12]], "Węzeł Podgórze");
+  if (Bor) link([[Bor.x0 + 230 - 30, Bor.c[1]], [XL + HWW - 12, Bor.c[1]]], "Węzeł Borowo");
+  link([[2370, 25840], [XL + HWW - 12, 25840]], "Węzeł Sosnowo");
+  link([[26490, 31110], [26490, YB - HWW + 12]], "Węzeł Brzozów");
+  { const p = roadAt(TOWN.county, roadNearestS(TOWN.county, 12225, 29151).s); link([[p[0], p[1]], [p[0], YB - HWW + 12]], "Węzeł Dębowo"); }
+  link([[27410, 23620], [XR - HWW + 12, 23620]], "Węzeł Zatoka");
+  // ---------- nowe mosty na rzece ----------
+  const MP = link([[16348, 10420], [17419, 10423], [18000, 10520], [19600, 10620], [20650, 10620]], "Most Północny", { hw: 44, smooth: 2 });
+  const MS = link([[16090, 26200], [18000, 26200], [19500, 26200], [21500, 25600], [23500, 24900], [24770, 24460]], "Most Południowy", { hw: 44, smooth: 2 });
+  MP.want = MS.want = 4;
+  // ---------- przystanie ----------
+  const shore = (x, y, dx, dy) => { for (let k = 0; k < 120; k++){ if (getGW(x, y) === G_WATER) return [x - dx * 6, y - dy * 6]; x += dx * 12; y += dy * 12; } return null; };
+  function marina(name, land, dir, road){
+    if (road) link(road, "Dojazd: " + name, { hw: 30, lamp: true });
+    const s = shore(land[0], land[1], dir[0], dir[1]); if (!s) return;
+    const [sx, sy] = s, nx = -dir[1], ny = dir[0];
+    // pomost w wodę
+    const L = 150, Wd = 20, px = sx + dir[0] * L / 2, py = sy + dir[1] * L / 2;
+    const deck = Math.abs(dir[0]) > 0.5 ? { x: Math.min(sx, sx + dir[0] * L), y: sy - Wd / 2, w: L, h: Wd } : { x: sx - Wd / 2, y: Math.min(sy, sy + dir[1] * L), w: Wd, h: L };
+    const deck2 = Math.abs(dir[0]) > 0.5 ? { x: Math.min(sx, sx + dir[0] * L * 0.7), y: sy - Wd / 2 + 120, w: L * 0.7, h: Wd } : { x: sx - Wd / 2 + 120, y: Math.min(sy, sy + dir[1] * L * 0.7), w: Wd, h: L * 0.7 };
+    // nabrzeże i hangar
+    const hx = sx - dir[0] * 120 + nx * 60, hy = sy - dir[1] * 120 + ny * 60;
+    wfill(Math.min(sx, hx) - 90, Math.min(sy, hy) - 90, Math.max(sx, hx) + 110, Math.max(sy, hy) + 110, G_DECK, c => c !== G_WATER && c !== G_ROAD);
+    const bw = Math.abs(dir[0]) > 0.5 ? 70 : 100, bh = Math.abs(dir[0]) > 0.5 ? 100 : 70;
+    addB(hx - bw / 2, hy - bh / 2, bw, bh, { kind: "pitched", col: "#2e5d7a", wallCol: "#e8e2d4", ht: 0.12, label: "⚓", labelSize: 14, det: false });
+    V31.marinas.push({ name, x: sx, y: sy, dir, deck, deck2, px, py, house: [hx, hy], biz: [sx - dir[0] * 40 - nx * 70, sy - dir[1] * 40 - ny * 70] });
+    poi("⚓", name, sx, sy);
+  }
+  marina("Przystań Północna", [RX1 + 260, 10950], [-1, 0], [[19150, 10590], [19150, 10950], [RX1 + 140, 10950]]);
+  marina("Przystań Południowa", [RX0 - 260, 23500], [1, 0], [[15960, 23500], [RX0 - 140, 23500]]);
+  marina("Przystań Zatoka", [25660, 22500], [0, -1], [[25660, 23170], [25660, 22420]]);
+  marina("Przystań Leśna", [1950, 18420], [0, 1], null);
+  marina("Marina Wschodnia", [31000, 21600], [0, -1], [[31000, 23590], [31000, 21500]]);
+  marina("Przystań Mostowa", [RX1 + 260, 26480], [-1, 0], [[19350, 26230], [19350, 26480], [RX1 + 140, 26480]]);
+  marina("Przystań Jeziorna", [21150, 22900], [0, -1], [[21150, 23900], [21150, 22850]]);
+  // ---------- MOP-y ----------
+  const map = (side, u, v) => side === "N" ? [u, YT + HWW + v] : side === "S" ? [u, YB - HWW - v] : side === "W" ? [XL + HWW + v, u] : [XR - HWW - v, u];
+  const rectUV = (side, u0, v0, w, h) => { const a = map(side, u0, v0), b = map(side, u0 + w, v0 + h); return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])]; };
+  const angOf = side => side === "N" || side === "S" ? 0 : Math.PI / 2;
+  function mop(side, a0, name){
+    const a1 = a0 + 1200;
+    const [lx, ly, lw, lh] = rectUV(side, a0, 90, a1 - a0, 230);
+    wfill(lx - 60, ly - 60, lx + lw + 60, ly + lh + 240, G_GRASS, c => c !== G_WATER && c !== G_ROAD);
+    wfill(lx, ly, lx + lw, ly + lh, G_LOT);
+    const ent = addRoad([map(side, a0 - 420, -8), map(side, a0 - 160, 60), map(side, a0 + 30, 170)].map(p => p), 26, { name: name + " – wjazd", cruise: 150, smooth: 1 });
+    const ext = addRoad([map(side, a1 - 30, 170), map(side, a1 + 160, 60), map(side, a1 + 420, -8)], 26, { name: name + " – wyjazd", cruise: 150, smooth: 1 });
+    ent.want = ext.want = 0;
+    // stanowiska parkingowe
+    for (let u = a0 + 40; u < a0 + 600; u += 34){ const r = rectUV(side, u, 230, 2, 80); lotLines.push(r); }
+    for (let u = a0 + 60; u < a0 + 560; u += 120){ const r = rectUV(side, u, 100, 3, 60); lotLines.push(r); }
+    // budynki
+    const B = (u, v, w, h, o) => { const r = rectUV(side, u, v, w, h); return addB(r[0], r[1], r[2], r[3], o); };
+    B(a0 + 640, 330, 190, 90, { kind: "flat", col: "#b7a58c", wallCol: "#d9cdb8", ht: 0.14, label: "🍔 BAR MOP", labelSize: 10, det: false });
+    B(a0 + 850, 330, 70, 60, { kind: "flat", col: "#90a4ae", wallCol: "#eceff1", ht: 0.1, label: "WC", labelSize: 10, det: false });
+    B(a0 + 940, 330, 130, 80, { kind: "shop", awn: side === "N" || side === "W" ? "t" : "b", awnCol: "#1565c0", label: "SKLEP 24h", labelSize: 9, ht: 0.12, col: "#bbdefb", det: false });
+    const can = B(a0 + 700, 130, 230, 100, { kind: "canopy", col: "#eef0f2", ht: 0.08, solid: false, label: "⛽ STACJA", labelCol: "#1565c0", labelSize: 12, det: false });
+    for (let k = 0; k < 3; k++){ const p = map(side, a0 + 740 + k * 75, 180); addB(p[0] - 6, p[1] - 6, 12, 12, { kind: "pump", col: "#1565c0", ht: 0.05, det: false }); }
+    // ciężarówki i auta
+    for (let k = 0; k < 4; k++){ const p = map(side, a0 + 80 + k * 120, 130); addParkedCar(p[0], p[1], angOf(side) + Math.PI / 2, null, "truck"); }
+    for (let k = 0; k < 9; k++){ if (wrnd() < 0.4) continue; const p = map(side, a0 + 57 + k * 34, 272); addParkedCar(p[0], p[1], angOf(side) + Math.PI / 2, null, null); }
+    // zieleń
+    for (let u = a0 + 40; u < a1; u += 110){ const p = map(side, u, 40 + wrnd() * 20); addTree(p[0], p[1], 12 + wrnd() * 8); }
+    for (let u = a0 + 60; u < a0 + 600; u += 150){ const p = map(side, u, 400); addTree(p[0], p[1], 14 + wrnd() * 8); }
+    for (let u = a0 + 20; u <= a1; u += 170){ lamps.push(map(side, u, 84)); lamps.push(map(side, u, 326)); }
+    const gp = map(side, a0 + 815, 180), bar = map(side, a0 + 735, 300), cen = map(side, (a0 + a1) / 2, 200);
+    V31.mops.push({ name, side, gas: gp, bar, c: cen, can });
+    poi("🅿️", name, cen[0], cen[1]);
+  }
+  mop("N", 24000, "MOP Kozia Góra");
+  mop("E", 27000, "MOP Nad Jeziorem");
+  mop("S", 6000, "MOP Złote Pola");
+  mop("W", 13000, "MOP Puszcza");
+  // ---------- bramki ----------
+  for (const [side, u] of [["N", 10500], ["E", 19000], ["S", 22500], ["W", 21500]]){
+    const p = map(side, u, -HWW), s = roadNearestS(HR, p[0], p[1]).s, q = roadAt(HR, s);
+    V31.tolls.push({ side, s, x: q[0], y: q[1], ux: q[2], uy: q[3], open: [0, 0, 0, 0, 0, 0] });
+    for (const al of [-160, 0, 160]) for (const sd of [-1, 1]) lamps.push([q[0] + q[2] * al - q[3] * sd * (HWW + 18), q[1] + q[3] * al + q[2] * sd * (HWW + 18)]);
+  }
+  // ---------- mosty: przerwy w murze rzeki, balustrady, znaczniki ----------
+  const cuts = [];
+  for (const R of ROADS){
+    let run = null;
+    const flush = () => { if (run && run.i1 > run.i0){ V31.bridges.push({ R, i0: run.i0, i1: run.i1 }); const a = R.pts[run.i0], b = R.pts[run.i1]; let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (let k = run.i0; k <= run.i1; k++){ const p = R.pts[k]; x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); } decal("bridge31", x0 - R.hw - 30, y0 - R.hw - 30, x1 - x0 + R.hw * 2 + 60, y1 - y0 + R.hw * 2 + 60, { pts: R.pts.slice(Math.max(0, run.i0 - 2), Math.min(R.pts.length, run.i1 + 3)), hw: R.hw }); } run = null; };
+    for (let i = 0; i < R.pts.length; i++){
+      const p = R.pts[i], inCityRiver = p[1] > RA - RHW - 20 && p[1] < RB + RHW + 20 && p[0] > RA - RHW - 20 && p[0] < RB + RHW + 20;
+      const ti = Math.floor(p[1] / T) * MW + Math.floor(p[0] / T), w = getGW(p[0], p[1]) === G_WATER && !inCityRiver && (carved[ti] || (p[0] > RX0 - 8 && p[0] < RX1 + 8));
+      if (w){ if (!run) run = { i0: i, i1: i }; else run.i1 = i; } else flush();
+      if (p[0] > RX0 - 8 && p[0] < RX1 + 8 && !inCityRiver) cuts.push([p[1] - R.hw - 14, p[1] + R.hw + 14]);
+    }
+    flush();
+  }
+  for (const [ya, yb] of cuts){
+    for (let k = solids.length - 1; k >= 0; k--){
+      const o = solids[k];
+      if (o.t !== "r" || o.x !== RX0 || o.w !== RX1 - RX0) continue;
+      if (o.y + o.h < ya || o.y > yb) continue;
+      solids.splice(k, 1);
+      if (ya - o.y > 4) solids.push({ t: "r", x: RX0, y: o.y, w: RX1 - RX0, h: ya - o.y });
+      if (o.y + o.h - yb > 4) solids.push({ t: "r", x: RX0, y: yb, w: RX1 - RX0, h: o.y + o.h - yb });
+    }
+  }
+  // kafle mostów + balustrady
+  for (const B of V31.bridges){
+    const R = B.R;
+    for (let i = Math.max(0, B.i0 - 1); i <= Math.min(R.pts.length - 1, B.i1 + 1); i++){
+      const p = R.pts[i], rt = Math.ceil((R.hw + 10) / T), tx = Math.floor(p[0] / T), ty = Math.floor(p[1] / T);
+      for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){ const X = tx + dx, Y = ty + dy; if (X < 0 || Y < 0 || X >= MW || Y >= MW) continue; if (Math.hypot((X + 0.5) * T - p[0], (Y + 0.5) * T - p[1]) < R.hw + 4) V31.brt[Y * MW + X] = 1; }
+    }
+    for (let i = B.i0; i <= B.i1; i += 2){
+      const a = R.pts[Math.max(0, i - 1)], b = R.pts[Math.min(R.pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], dl = Math.hypot(dx, dy) || 1, p = R.pts[i];
+      for (const sd of [-1, 1]) solids.push({ t: "c", x: p[0] - dy / dl * sd * (R.hw + 7), y: p[1] + dx / dl * sd * (R.hw + 7), r: 7, rail: true });
+    }
+  }
+  // brzegi kanałów: blokada dla aut (z wyjątkiem mostów)
+  const nearRoad = new Uint8Array(MW * MW);
+  for (const R of ROADS) for (let i = 0; i < R.pts.length; i += 2){
+    const p = R.pts[i], rt = Math.ceil((R.hw + 30) / T), tx = Math.floor(p[0] / T), ty = Math.floor(p[1] / T);
+    for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){ const X = tx + dx, Y = ty + dy; if (X >= 0 && Y >= 0 && X < MW && Y < MW) nearRoad[Y * MW + X] = 1; }
+  }
+  const seen = new Uint8Array(MW * MW);
+  for (const C of V31.channels) for (const [x, y] of C.pts){
+    const rt = Math.ceil((C.w * 1.2 + 60) / T), tx = Math.floor(x / T), ty = Math.floor(y / T);
+    for (let dy = -rt; dy <= rt; dy++) for (let dx = -rt; dx <= rt; dx++){
+      const X = tx + dx, Y = ty + dy; if (X < 1 || Y < 1 || X >= MW - 1 || Y >= MW - 1) continue;
+      const i = Y * MW + X; if (seen[i]) continue; seen[i] = 1;
+      if (ground[i] !== G_WATER || nearRoad[i]) continue;
+      if (X * T > RX0 - T && X * T < RX1 + T) continue;
+      if (ground[i - 1] !== G_WATER || ground[i + 1] !== G_WATER || ground[i - MW] !== G_WATER || ground[i + MW] !== G_WATER) solids.push({ t: "r", x: X * T + 4, y: Y * T + 4, w: T - 8, h: T - 8, lake: true });
+    }
+  }
+  cleanupTrees();
+  wseed = ws0;
+})();
 
 buildings.sort((a, b) => a.ht - b.ht);
 
@@ -1656,7 +1839,8 @@ const VT = {
   swat:     { len: 58, wid: 26, maxF: 500, acc: 350, mass: 2.4, grip: 7.4, name: "Opancerzony van", price: 0, steerK: 0.9 },
   bicycle:  { len: 24, wid: 8, maxF: 155, acc: 170, mass: 0.22, grip: 8.6, name: "Rower", price: 400, bike: true, human: true, steerK: 1.2 },
   skate:    { len: 16, wid: 7, maxF: 120, acc: 140, mass: 0.15, grip: 7.6, name: "Deskorolka", price: 150, bike: true, human: true, steerK: 1.35 },
-  tractor:  { len: 40, wid: 24, maxF: 215, acc: 270, mass: 2.2, grip: 8.4, name: "Traktor", price: 0, steerK: 1.05 }
+  tractor:  { len: 40, wid: 24, maxF: 215, acc: 270, mass: 2.2, grip: 8.4, name: "Traktor", price: 0, steerK: 1.05 },
+  truck:    { len: 104, wid: 28, maxF: 400, acc: 170, mass: 3.8, grip: 6.0, name: "Ciężarówka", price: 0, steerK: 0.75 }
 };
 for (const k in VT){
   const t = VT[k], r = t.wid / 2, n = Math.max(2, Math.ceil(t.len / t.wid));
@@ -2166,7 +2350,7 @@ const ENG = { police: [44, "sawtooth", "square"], swat: [30, "sawtooth", "sawtoo
   van: [33, "sawtooth", "square"], pickup: [35, "sawtooth", "sawtooth"], suv: [37, "sawtooth", "square"],
   muscle: [28, "sawtooth", "sawtooth"], limo: [35, "triangle", "sawtooth"], sport: [50, "sawtooth", "square"],
   scooter: [72, "square", "square"], moto: [48, "sawtooth", "square"], bus: [24, "sawtooth", "square"], ambulance: [36, "sawtooth", "square"], firetruck: [24, "sawtooth", "sawtooth"], garbage: [22, "sawtooth", "square"],
-  boat: [34, "sawtooth", "square"], speedboat: [40, "sawtooth", "sawtooth"] };
+  boat: [34, "sawtooth", "square"], speedboat: [40, "sawtooth", "sawtooth"], truck: [20, "sawtooth", "sawtooth"] };
 let gear = 0, lastGear = 0, engType = "";
 function updateAudio(dt){
   if (!actx) return;
@@ -3359,7 +3543,7 @@ const CONE = (function(){
 function drawVehicle(v){
   ctx.save();
   ctx.translate(v.x, v.y); ctx.rotate(v.a);
-  if (VT[v.type].boat && isUnderBridge(v)) ctx.globalAlpha = 0.3;
+  if (VT[v.type].boat && (isUnderBridge(v) || V31.brt[Math.floor(v.y / T) * MW + Math.floor(v.x / T)])) ctx.globalAlpha = 0.3;
   if (v.fallen && !v.driver) ctx.rotate(0.35);
   drawCarBody(ctx, v, false);
   ctx.globalAlpha = 1;
@@ -4453,7 +4637,8 @@ const BODY = {
   bus:    { ws: [0.95, 0.88], roof: [0.88, -0.97], rw: null, nose: 0.04, tail: 0.03, r: 4 },
   ambulance:{ ws: [0.84, 0.68], roof: [0.68, -0.96], rw: null, nose: 0.15, tail: 0.05, r: 4 },
   firetruck:{ ws: [0.95, 0.8], roof: [0.8, 0.52], rw: null, nose: 0.06, tail: 0.03, r: 4 },
-  garbage:  { ws: [0.95, 0.8], roof: [0.8, 0.55], rw: null, nose: 0.06, tail: 0.03, r: 4 }
+  garbage:  { ws: [0.95, 0.8], roof: [0.8, 0.55], rw: null, nose: 0.06, tail: 0.03, r: 4 },
+  truck:    { ws: [0.97, 0.86], roof: [0.86, 0.66], rw: null, nose: 0.03, tail: 0.02, r: 3 }
 };
 const RIMCOL = { std: "#9aa0a6", sport: "#d0d4d8", chrome: "#f2f6fa", black: "#202226", gold: "#d4a017" };
 const LIGHTCOL = { white: "#fff6d8", xenon: "#cfe6ff", yellow: "#ffd75a" };
@@ -16542,6 +16727,1030 @@ regionsUpdate = function(dt){
   if (!SAVE.hero && !HERO.asked && state === "play"){ HERO.t = (HERO.t || 0) + dt; if (HERO.t > 1.2 && !mission){ HERO.asked = true; heroPick(); } }
 };
 applyOutfit();
+
+// =====================================================================
+// v31: WODA – MOSTY, PRZYSTANIE, STATKI, ROWERKI WODNE, KAJAKI,
+// KACZKI I ŁABĘDZIE, BIZNESY WODNE
+// =====================================================================
+for (const M of V31.marinas){ boatSolids.push(M.deck, M.deck2); }
+// ---------- mosty (rysowane w kaflach podłoża) ----------
+function offLine(pts, k){
+  const out = [];
+  for (let i = 0; i < pts.length; i++){
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], dl = Math.hypot(dx, dy) || 1;
+    out.push([pts[i][0] - dy / dl * k, pts[i][1] + dx / dl * k]);
+  }
+  return out;
+}
+function strokePts(c, P){ c.beginPath(); c.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]); c.stroke(); }
+function drawBridge31(d, c){
+  const pts = d.pts, hw = d.hw;
+  if (pts.length < 2) return;
+  c.save(); c.lineJoin = "round"; c.lineCap = "butt";
+  // cień mostu na wodzie (po stronie południowo-wschodniej)
+  const a = pts[0], b = pts[pts.length - 1], dx = b[0] - a[0], dy = b[1] - a[1], dl = Math.hypot(dx, dy) || 1, sgn = (-dy / dl + dx / dl) >= 0 ? 1 : -1;
+  c.strokeStyle = "rgba(0,18,40,.38)"; c.lineWidth = 22; strokePts(c, offLine(pts, sgn * (hw + 18)));
+  c.strokeStyle = "rgba(0,18,40,.18)"; c.lineWidth = 16; strokePts(c, offLine(pts, sgn * (hw + 36)));
+  // filary
+  c.fillStyle = "rgba(60,64,70,.9)";
+  for (let i = 0; i < pts.length; i += 12){ for (const sd of [-1, 1]){ const q = offLine([pts[Math.max(0, i - 1)], pts[i], pts[Math.min(pts.length - 1, i + 1)]], sd * (hw + 4))[1]; c.beginPath(); c.arc(q[0] + sgn * 5, q[1] + sgn * 5, 7, 0, Math.PI * 2); c.fill(); } }
+  // belki krawędziowe
+  for (const sd of [-1, 1]){
+    c.strokeStyle = "#8e9399"; c.lineWidth = 9; strokePts(c, offLine(pts, sd * (hw + 4)));
+    c.strokeStyle = "#c4c8cc"; c.lineWidth = 3; strokePts(c, offLine(pts, sd * (hw + 2)));
+    c.strokeStyle = "#e9ecef"; c.lineWidth = 2; strokePts(c, offLine(pts, sd * (hw + 7)));
+  }
+  // słupki balustrady
+  c.fillStyle = "#5f656c";
+  for (let i = 0; i < pts.length; i += 2) for (const sd of [-1, 1]){ const q = offLine([pts[Math.max(0, i - 1)], pts[i], pts[Math.min(pts.length - 1, i + 1)]], sd * (hw + 7))[1]; c.fillRect(q[0] - 1.5, q[1] - 1.5, 3, 3); }
+  c.restore();
+}
+const _drawDecal31 = drawDecal;
+drawDecal = function(d, c){ if (d.type === "bridge31") return drawBridge31(d, c || MAINCTX); return _drawDecal31(d, c); };
+// ---------- kolizje łodzi: każda woda (rzeka, kanały, jeziora) ----------
+const boatOK = (x, y) => getGW(x, y) === G_WATER || (x > RX0 && x < RX1);
+const _collideBoat31 = collideBoat;
+collideBoat = function(v){
+  const t = VT[v.type], r = t.wid / 2, c = Math.cos(v.a), s = Math.sin(v.a);
+  let inCol = true;
+  for (const off of t.offs){ const cx = v.x + c * off; if (cx < RX0 + r + 2 || cx > RX1 - r - 2){ inCol = false; break; } }
+  if (inCol){ v.lpx = v.x; v.lpy = v.y; return _collideBoat31(v); }
+  let bad = false;
+  for (const off of t.offs){
+    const cx = v.x + c * off, cy = v.y + s * off;
+    if (!boatOK(cx, cy) || !boatOK(cx - s * r * 0.8, cy + c * r * 0.8) || !boatOK(cx + s * r * 0.8, cy - c * r * 0.8)){ bad = true; break; }
+    for (const o of boatSolids){ if (cx > o.x - r && cx < o.x + o.w + r && cy > o.y - r && cy < o.y + o.h + r){ bad = true; break; } }
+    if (bad) break;
+  }
+  CR.imp = 0; CR.x = v.x; CR.y = v.y;
+  if (bad){
+    const imp = Math.hypot(v.vx, v.vy);
+    if (v.lpx !== undefined){ v.x = v.lpx; v.y = v.lpy; }
+    v.vx *= -0.25; v.vy *= -0.25; v.spin *= 0.5;
+    CR.imp = imp > 60 ? imp * 0.4 : 0;
+  } else { v.lpx = v.x; v.lpy = v.y; }
+  if (v.y < 40){ v.y = 40; v.vy = Math.abs(v.vy) * 0.3; }
+  if (v.y > WORLD - 40){ v.y = WORLD - 40; v.vy = -Math.abs(v.vy) * 0.3; }
+  return CR;
+};
+// ---------- ścieżki statków ----------
+function wMkPath(pts){ const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return { pts, cum, len: cum[cum.length - 1] }; }
+function wPathAt(P, s){
+  s = clamp(s, 0, P.len); let lo = 0, hi = P.cum.length - 1;
+  while (lo < hi - 1){ const m = (lo + hi) >> 1; if (P.cum[m] <= s) lo = m; else hi = m; }
+  const a = P.pts[lo], b = P.pts[Math.min(P.pts.length - 1, lo + 1)], seg = (P.cum[lo + 1] || P.cum[lo]) - P.cum[lo] || 1, u = (s - P.cum[lo]) / seg, dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1;
+  return [a[0] + dx * u, a[1] + dy * u, dx / d, dy / d];
+}
+const WFX = { ships: [], pedal: [], kayaks: [], flocks: [], t: 0 };
+(function initWater(){
+  const RC = (RX0 + RX1) / 2;
+  const river = []; for (let y = 1600; y <= WORLD - 900; y += 200) river.push([RC, y]);
+  const isl = LAKE.isl, lakeLoop = []; for (let k = 0; k <= 36; k++){ const a = k / 36 * Math.PI * 2 + Math.PI * 0.75; lakeLoop.push([isl[0] + Math.cos(a) * 1650, isl[1] + Math.sin(a) * 1250]); }
+  const C1 = V31.channels[0], C2 = V31.channels[1];
+  const toLake = [[RC, C1.pts[0][1]]].concat(C1.pts.filter((p, i) => i % 3 === 0)).concat(lakeLoop);
+  WFX.ships.push({ P: wMkPath(river), s: 3000, dir: 1, spd: 70, len: 170, wid: 40, col: "#f5f5f5", acc: "#1565c0", name: "„Biała Dama”", off: 80 });
+  WFX.ships.push({ P: wMkPath(river), s: 22000, dir: -1, spd: 55, len: 210, wid: 34, col: "#37474f", acc: "#c62828", name: "barka „Odra”", off: 80, barge: true });
+  WFX.ships.push({ P: wMkPath(toLake), s: 500, dir: 1, spd: 65, len: 150, wid: 36, col: "#fafafa", acc: "#00838f", name: "„Mewa”", off: 0 });
+  WFX.ships.push({ P: wMkPath(lakeLoop), s: 0, dir: 1, spd: 80, len: 120, wid: 30, col: "#fff8e1", acc: "#ef6c00", name: "„Słoneczko”", off: 0, loop: true });
+  for (const C of [C1, C2, V31.channels[2]]) if (C) for (let k = 0; k < 2; k++) WFX.kayaks.push({ P: wMkPath(C.pts), s: C.pts.length * 20 * (0.25 + k * 0.4), dir: k ? -1 : 1, spd: 32 + k * 6, col: k ? "#e53935" : "#fdd835", off: k ? -30 : 30 });
+  // rowerki wodne przy plażach i przystaniach
+  const pedalAt = (x, y, n) => { for (let k = 0; k < n; k++){ const a = Math.random() * 6.28, d = 60 + Math.random() * 200; WFX.pedal.push({ ax: x, ay: y, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, a: Math.random() * 6.28, t: Math.random() * 9, col: pick(["#fdd835", "#e53935", "#1e88e5", "#43a047", "#fb8c00"]), swan: Math.random() < 0.35 }); } };
+  pedalAt(LAKE.shoreX + 420, LAKE.c[1] - 500, 6);
+  for (const M of V31.marinas) if (M.name !== "Przystań Północna" && M.name !== "Przystań Mostowa") pedalAt(M.x + M.dir[0] * 260, M.y + M.dir[1] * 260, 3);
+  // stada kaczek i łabędzi
+  const flockAt = (x, y, swan) => { if (getGW(x, y) !== G_WATER) return; const n = swan ? 2 + ((Math.random() * 2) | 0) : 3 + ((Math.random() * 5) | 0), m = []; for (let k = 0; k < n; k++) m.push({ dx: (Math.random() - 0.5) * 60, dy: (Math.random() - 0.5) * 50, a: Math.random() * 6.28, male: Math.random() < 0.5, ph: Math.random() * 6 }); WFX.flocks.push({ x, y, hx: x, hy: y, a: Math.random() * 6.28, swan, m, flee: 0, t: Math.random() * 5 }); };
+  for (const C of V31.channels) for (let i = 30; i < C.pts.length; i += 70) flockAt(C.pts[i][0], C.pts[i][1], i % 3 === 0);
+  for (let y = 2600; y < WORLD - 1000; y += 2600) if (!(y > RA - 400 && y < RB + 400)) flockAt(RX0 + 90 + Math.random() * 60, y, y % 3 === 0);
+  for (let k = 0; k < 14; k++){ const a = k / 14 * Math.PI * 2; flockAt(LAKE.c[0] + Math.cos(a) * LAKE.rx * 0.82, LAKE.c[1] + Math.sin(a) * 3400, k % 3 === 0); }
+  flockAt(FOREST.lake[0], FOREST.lake[1] + 60, true); flockAt(FOREST.lake[0] - 150, FOREST.lake[1], false);
+  flockAt(MOUNT.tarn[0], MOUNT.tarn[1], false);
+  for (const M of V31.marinas) flockAt(M.x + M.dir[0] * 120 - M.dir[1] * 160, M.y + M.dir[1] * 120 + M.dir[0] * 160, Math.random() < 0.4);
+})();
+// ---------- biznesy wodne ----------
+(function waterBiz(){
+  const add = (id, name, icon, price, rate, desc, perk, at) => { if (!at || BIZ.some(b => b.id === id)) return; const p = freeNear(at[0], at[1]); BIZ.push({ id, name, icon, price, rate, desc, perk, x: p[0], y: p[1], cat: "water" }); pois.push({ icon: "💼", name, x: p[0], y: p[1] }); };
+  const M = n => { const m = V31.marinas.find(q => q.name === n); return m ? m.biz : null; };
+  const H = n => { const m = V31.marinas.find(q => q.name === n); return m ? [m.house[0] + 70, m.house[1] + 70] : null; };
+  add("w_fala", "Wypożyczalnia motorówek „Fala”", "🚤", 40000, 165, "Motorówki na godziny – kolejka w każdy słoneczny weekend.", "Motorówka zawsze czeka przy przystani", M("Przystań Północna"));
+  add("w_tawerna", "Tawerna „Pod Kotwicą”", "⚓", 30000, 125, "Ryba, piwo i szanty nad samą rzeką.", "Obiad w tawernie: +40 zdrowia", H("Przystań Północna"));
+  add("w_flota", "Żegluga „Biała Flota”", "🛳️", 150000, 540, "Statki pasażerskie kursujące rzeką i kanałem aż na Wielkie Jezioro.", "Bilety na wszystkie rejsy: +5 reputacji", M("Przystań Południowa"));
+  add("w_bryza", "Szkoła żeglarstwa „Bryza”", "⛵", 55000, 215, "Kursy na patent żeglarski na kanale i jeziorze.", "Stały dochód", M("Przystań Zatoka"));
+  add("w_kajaki", "Kajaki „Wiosło”", "🛶", 25000, 105, "Spływy kajakowe Kanałem Leśnym.", "Stały dochód", M("Przystań Leśna"));
+  add("w_jachty", "Jachty „Wschodni Wiatr”", "🛥️", 170000, 600, "Luksusowe jachty do wynajęcia na Wielkim Jeziorze.", "Duży, stały dochód", M("Marina Wschodnia"));
+  add("w_taxi", "Wodne taxi „Kropla”", "🚤", 50000, 195, "Szybki transport po rzece – szybszy niż korki!", "Stały dochód", M("Przystań Mostowa"));
+  add("w_skutery", "Skutery wodne „Turbo”", "🌊", 45000, 185, "Adrenalina na wodzie – skutery dla odważnych.", "Stały dochód · w dzień ×1,5", M("Przystań Jeziorna"));
+  add("w_rowerki", "Rowerki wodne „Kaczuszka”", "🦆", 20000, 92, "Rowerki wodne na plaży w Jeziorkach – hit wakacji.", "Lody gratis: buff szybkości", [LAKE.shoreX - 160, LAKE.c[1] - 520]);
+})();
+CATN.water = "firm wodnych";
+const _bizRate31w = bizRate;
+bizRate = function(b){ let r = _bizRate31w(b); if (r && b.id === "w_skutery"){ const h = hourNow(); if (h > 8 && h < 20) r *= 1.5; } return r; };
+const _bizPerk31w = bizPerk;
+bizPerk = function(b){
+  _bizPerk31w(b);
+  if (!SAVE.biz[b.id]) return;
+  if (b.id === "w_tawerna"){ heal(40); popup("🐟 Obiad w tawernie – +40 zdrowia", "#9fe39f"); }
+  if (b.id === "w_flota"){ addRep(5); popup("🛳️ Kapitanie! +5 reputacji", "#ffd27a"); }
+};
+// ---------- łodzie przy nowych przystaniach ----------
+function marinaBoats(){
+  const pp = playerPos();
+  for (const M of V31.marinas){
+    if (Math.hypot(pp.x - M.x, pp.y - M.y) > 1700 || onScreen(M.x, M.y, 260)) continue;
+    let n = vehicles.filter(v => v.m31 === M.name).length;
+    for (let k = 0; k < 3 && n < 3; k++){
+      const nx = -M.dir[1], ny = M.dir[0], d = 40 + k * 46, sd = k % 2 ? -1 : 1;
+      const x = M.x + M.dir[0] * d + nx * sd * 30, y = M.y + M.dir[1] * d + ny * sd * 30;
+      if (!boatOK(x, y) || vehicles.some(o => Math.abs(o.x - x) < 40 && Math.abs(o.y - y) < 40)) continue;
+      const tp = k === 1 ? "speedboat" : "boat", cfg = defaultCfg(tp, pick(["#ffffff", "#e53935", "#1e88e5", "#fdd835", "#00897b"])); cfg.stripeCol = pick(["#ffffff", "#111111", "#c62828"]);
+      const v = makeVehicle(cfg, x, y, Math.atan2(M.dir[1], M.dir[0])); v.m31 = M.name; v.radio = -1; n++;
+    }
+  }
+  for (let i = vehicles.length - 1; i >= 0; i--){ const v = vehicles[i]; if (v.m31 && v !== player.veh && !v.driver && Math.hypot(v.x - pp.x, v.y - pp.y) > 3600 && !onScreen(v.x, v.y, 100)) vehicles.splice(i, 1); }
+}
+// ---------- aktualizacja wody ----------
+function waterUpdate(dt){
+  const pp = playerPos();
+  WFX.t -= dt; if (WFX.t <= 0){ WFX.t = 3; marinaBoats(); }
+  const pv = player.mode === "car" && player.veh && VT[player.veh.type].boat ? player.veh : null;
+  for (const S of WFX.ships){
+    S.s += S.dir * S.spd * dt;
+    if (S.loop){ if (S.s > S.P.len) S.s -= S.P.len; }
+    else if (S.s > S.P.len - 20){ S.dir = -1; } else if (S.s < 20){ S.dir = 1; }
+    const q = wPathAt(S.P, S.s), nx = -q[3] * S.dir, ny = q[2] * S.dir;
+    S.x = q[0] + nx * S.off; S.y = q[1] + ny * S.off; S.a = Math.atan2(q[3] * S.dir, q[2] * S.dir);
+    if (pv){
+      const c = Math.cos(S.a), s = Math.sin(S.a), rx = pv.x - S.x, ry = pv.y - S.y, al = rx * c + ry * s, lat = -rx * s + ry * c, hl = S.len / 2 + 14, hw = S.wid / 2 + 12;
+      if (Math.abs(al) < hl && Math.abs(lat) < hw){
+        const pushL = hw - Math.abs(lat), sg = lat >= 0 ? 1 : -1;
+        pv.x += -s * sg * pushL; pv.y += c * sg * pushL;
+        const vn = pv.vx * (-s * sg) + pv.vy * (c * sg); if (vn < 0){ pv.vx -= -s * sg * vn * 1.5; pv.vy -= c * sg * vn * 1.5; }
+        if (!S.hornT || S.hornT < gameTime){ S.hornT = gameTime + 4; if (actx){ const t0 = actx.currentTime; tone(110, t0, 0.9, "sawtooth", 0.06); tone(116, t0, 0.9, "square", 0.03); } popup("🛳️ " + S.name + " trąbi na ciebie!", "#9fd4ff"); }
+      }
+    }
+  }
+  for (const K of WFX.kayaks){ K.s += K.dir * K.spd * dt; if (K.s > K.P.len - 30) K.dir = -1; else if (K.s < 30) K.dir = 1; const q = wPathAt(K.P, K.s); K.x = q[0] - q[3] * K.off; K.y = q[1] + q[2] * K.off; K.a = Math.atan2(q[3] * K.dir, q[2] * K.dir); K.t = (K.t || 0) + dt; }
+  for (const B of WFX.pedal){
+    if (Math.abs(B.x - pp.x) > 1500 || Math.abs(B.y - pp.y) > 1200) continue;
+    B.t += dt; B.a += Math.sin(B.t * 0.3 + B.ax) * 0.3 * dt;
+    const nx = B.x + Math.cos(B.a) * 22 * dt, ny = B.y + Math.sin(B.a) * 22 * dt;
+    if (getGW(nx + Math.cos(B.a) * 30, ny + Math.sin(B.a) * 30) !== G_WATER || Math.hypot(nx - B.ax, ny - B.ay) > 420){ B.a += Math.PI * 0.6; } else { B.x = nx; B.y = ny; }
+  }
+  const threat = (x, y) => { let d = Math.hypot(pp.x - x, pp.y - y); for (const S of WFX.ships) d = Math.min(d, Math.hypot(S.x - x, S.y - y) - S.len * 0.4); return d; };
+  for (const F of WFX.flocks){
+    if (Math.abs(F.x - pp.x) > 1400 || Math.abs(F.y - pp.y) > 1100) continue;
+    F.t += dt;
+    const d = threat(F.x, F.y);
+    if (d < (F.swan ? 110 : 150)){ F.flee = 2.5; F.a = Math.atan2(F.y - pp.y, F.x - pp.x) + (Math.random() - 0.5) * 0.6; }
+    F.flee = Math.max(0, F.flee - dt);
+    if (!F.flee){ F.a += Math.sin(F.t * 0.4 + F.hx) * 0.25 * dt; if (Math.hypot(F.x - F.hx, F.y - F.hy) > 380) F.a = Math.atan2(F.hy - F.y, F.hx - F.x); }
+    const sp = F.flee ? (F.swan ? 70 : 95) : (F.swan ? 9 : 12), nx = F.x + Math.cos(F.a) * sp * dt, ny = F.y + Math.sin(F.a) * sp * dt;
+    if (getGW(nx + Math.cos(F.a) * 40, ny + Math.sin(F.a) * 40) === G_WATER && getGW(nx, ny) === G_WATER){ F.x = nx; F.y = ny; } else F.a += 1.3 + Math.random();
+    if (F.flee > 2.3 && !F.quack && actx && d < 120){ F.quack = gameTime; const t0 = actx.currentTime; for (let k = 0; k < 3; k++) tone(F.swan ? 380 : 620 - k * 40, t0 + k * 0.14, 0.09, "square", 0.025); }
+    if (F.quack && gameTime - F.quack > 3) F.quack = 0;
+  }
+}
+// ---------- rysowanie ----------
+function drawShip(S){
+  const c = ctx, hl = S.len / 2, hw = S.wid / 2;
+  c.save(); c.translate(S.x, S.y); c.rotate(S.a);
+  if (V31.brt[Math.floor(S.y / T) * MW + Math.floor(S.x / T)] || getGW(S.x, S.y) !== G_WATER) c.globalAlpha = 0.35;
+  // kilwater
+  c.strokeStyle = "rgba(255,255,255,.35)"; c.lineWidth = 3; c.beginPath(); c.moveTo(-hl - 4, -hw * 0.7); c.lineTo(-hl - 90, -hw * 1.8); c.moveTo(-hl - 4, hw * 0.7); c.lineTo(-hl - 90, hw * 1.8); c.stroke();
+  c.fillStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.ellipse(-hl - 30, 0, 40, hw * 0.6, 0, 0, Math.PI * 2); c.fill();
+  const hull = () => { c.beginPath(); c.moveTo(-hl, -hw); c.lineTo(hl * 0.62, -hw); c.quadraticCurveTo(hl, -hw * 0.6, hl, 0); c.quadraticCurveTo(hl, hw * 0.6, hl * 0.62, hw); c.lineTo(-hl, hw); c.closePath(); };
+  c.save(); c.translate(5, 7); hull(); c.fillStyle = "rgba(0,15,35,.35)"; c.fill(); c.restore();
+  hull(); c.fillStyle = S.barge ? "#263238" : S.acc; c.fill();
+  c.save(); c.scale(0.93, 0.86); hull(); c.fillStyle = S.col; c.fill(); c.restore();
+  if (S.barge){
+    c.fillStyle = "#5d4037"; for (let k = 0; k < 4; k++) c.fillRect(-hl + 12 + k * (S.len * 0.17), -hw * 0.7, S.len * 0.15, hw * 1.4);
+    c.fillStyle = "rgba(0,0,0,.25)"; for (let k = 0; k < 4; k++) c.fillRect(-hl + 12 + k * (S.len * 0.17), hw * 0.2, S.len * 0.15, hw * 0.5);
+    c.fillStyle = "#eceff1"; rrect(c, hl * 0.42, -hw * 0.6, hl * 0.3, hw * 1.2, 3); c.fill();
+    c.fillStyle = "#1e3a5f"; c.fillRect(hl * 0.62, -hw * 0.45, 4, hw * 0.9);
+  } else {
+    c.fillStyle = "#e0e0e0"; rrect(c, -hl * 0.72, -hw * 0.66, hl * 1.2, hw * 1.32, 6); c.fill();
+    c.fillStyle = "#ffffff"; rrect(c, -hl * 0.58, -hw * 0.5, hl * 0.95, hw, 5); c.fill();
+    c.fillStyle = "rgba(30,60,90,.55)"; for (let k = 0; k < 8; k++){ c.fillRect(-hl * 0.66 + k * hl * 0.15, -hw * 0.64, hl * 0.09, 3); c.fillRect(-hl * 0.66 + k * hl * 0.15, hw * 0.64 - 3, hl * 0.09, 3); }
+    c.fillStyle = "#1e3a5f"; rrect(c, hl * 0.3, -hw * 0.42, hl * 0.12, hw * 0.84, 3); c.fill();
+    c.fillStyle = S.acc; c.beginPath(); c.ellipse(-hl * 0.2, 0, hw * 0.28, hw * 0.24, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "#222"; c.beginPath(); c.ellipse(-hl * 0.2, 0, hw * 0.14, hw * 0.12, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "#1565c0"; for (let k = 0; k < 6; k++){ c.beginPath(); c.arc(-hl * 0.5 + k * hl * 0.12, (k % 2 ? 1 : -1) * hw * 0.25, 2.4, 0, Math.PI * 2); c.fill(); }
+  }
+  c.restore();
+}
+function drawKayak(K){
+  const c = ctx; c.save(); c.translate(K.x, K.y); c.rotate(K.a);
+  c.fillStyle = "rgba(0,20,40,.3)"; c.beginPath(); c.ellipse(2, 3, 13, 3.6, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = K.col; c.beginPath(); c.ellipse(0, 0, 13, 3.4, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#263238"; c.beginPath(); c.ellipse(0, 0, 3.5, 2.2, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#e0b48c"; c.beginPath(); c.arc(0.3, 0, 1.8, 0, Math.PI * 2); c.fill();
+  const sw = Math.sin(K.t * 5) * 0.7; c.strokeStyle = "#ffeb3b"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(Math.sin(sw) * 9, -Math.cos(sw) * 9); c.lineTo(-Math.sin(sw) * 9, Math.cos(sw) * 9); c.stroke();
+  c.restore();
+}
+function drawPedal(B){
+  const c = ctx; c.save(); c.translate(B.x, B.y); c.rotate(B.a);
+  c.fillStyle = "rgba(0,20,40,.3)"; c.beginPath(); c.ellipse(2, 3, 12, 9, 0, 0, Math.PI * 2); c.fill();
+  if (B.swan){
+    c.fillStyle = "#fafafa"; c.beginPath(); c.ellipse(-1, 0, 12, 8.5, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = "#fafafa"; c.lineWidth = 3.4; c.beginPath(); c.moveTo(7, 0); c.quadraticCurveTo(16, -2, 13, 0); c.stroke();
+    c.fillStyle = "#ff9800"; c.beginPath(); c.moveTo(15, -1); c.lineTo(18, 0); c.lineTo(15, 1); c.fill();
+  } else {
+    c.fillStyle = B.col; rrect(c, -11, -9, 22, 5, 2); c.fill(); rrect(c, -11, 4, 22, 5, 2); c.fill();
+    c.fillStyle = "#eceff1"; c.fillRect(-6, -4.5, 12, 9);
+  }
+  c.fillStyle = "#e0b48c"; c.beginPath(); c.arc(-2, -2.6, 2, 0, Math.PI * 2); c.arc(-2, 2.6, 2, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#5d4037"; c.beginPath(); c.arc(-2.6, -2.6, 2, Math.PI * 0.5, Math.PI * 1.5); c.fill(); c.fillStyle = "#212121"; c.beginPath(); c.arc(-2.6, 2.6, 2, Math.PI * 0.5, Math.PI * 1.5); c.fill();
+  c.restore();
+}
+function drawFlock(F){
+  const c = ctx, sw = F.swan;
+  for (const m of F.m){
+    const x = F.x + m.dx, y = F.y + m.dy, a = F.a + Math.sin(F.t * 0.8 + m.ph) * 0.3, bob = Math.sin(F.t * 2 + m.ph) * 0.3;
+    c.save(); c.translate(x, y); c.rotate(a);
+    if (F.flee){ c.strokeStyle = "rgba(255,255,255,.35)"; c.lineWidth = 1; c.beginPath(); c.moveTo(-6, -2); c.lineTo(-16, -6); c.moveTo(-6, 2); c.lineTo(-16, 6); c.stroke(); }
+    else { c.strokeStyle = "rgba(255,255,255,.18)"; c.lineWidth = 0.8; c.beginPath(); c.arc(0, 0, (sw ? 12 : 8) + ((F.t * 6 + m.ph * 3) % 6), 0, Math.PI * 2); c.stroke(); }
+    if (sw){
+      c.fillStyle = "rgba(0,20,40,.25)"; c.beginPath(); c.ellipse(1.5, 2.5, 9, 5.5, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = "#fbfbfb"; c.beginPath(); c.ellipse(0, bob, 9, 5.2, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = "#e9e9e9"; c.beginPath(); c.ellipse(-2, bob, 5.5, 3.6, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = "#fbfbfb"; c.lineWidth = 2.2; c.beginPath(); c.moveTo(6, bob); c.quadraticCurveTo(11, bob - 3, 11.5, bob); c.stroke();
+      c.fillStyle = "#fbfbfb"; c.beginPath(); c.arc(11.8, bob, 1.9, 0, Math.PI * 2); c.fill();
+      c.fillStyle = "#ff8f00"; c.beginPath(); c.moveTo(13.3, bob - 0.9); c.lineTo(16, bob); c.lineTo(13.3, bob + 0.9); c.fill();
+      c.fillStyle = "#111"; c.fillRect(12.8, bob - 1, 0.8, 2);
+    } else {
+      c.fillStyle = "rgba(0,20,40,.25)"; c.beginPath(); c.ellipse(1, 1.8, 5.5, 3.4, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = m.male ? "#8d8f86" : "#8d6e63"; c.beginPath(); c.ellipse(0, bob, 5.5, 3.3, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = m.male ? "#5d4037" : "#6d4c41"; c.beginPath(); c.ellipse(-2.2, bob, 2.8, 2.4, 0, 0, Math.PI * 2); c.fill();
+      if (m.male){ c.fillStyle = "#3f51b5"; c.fillRect(-1, bob - 3, 2.4, 1); }
+      c.fillStyle = m.male ? "#1b5e20" : "#795548"; c.beginPath(); c.arc(4.4, bob, 2.2, 0, Math.PI * 2); c.fill();
+      if (m.male){ c.fillStyle = "#fff"; c.fillRect(3, bob - 1.8, 0.7, 3.6); }
+      c.fillStyle = "#ffb300"; c.beginPath(); c.ellipse(7, bob, 1.6, 0.9, 0, 0, Math.PI * 2); c.fill();
+    }
+    c.restore();
+  }
+}
+function drawMarina(M){
+  const c = ctx;
+  for (const d of [M.deck, M.deck2]){
+    c.fillStyle = "rgba(0,18,40,.3)"; c.fillRect(d.x + 4, d.y + 5, d.w, d.h);
+    c.fillStyle = "#8a6a46"; c.fillRect(d.x, d.y, d.w, d.h);
+    c.strokeStyle = "rgba(0,0,0,.25)"; c.lineWidth = 1; c.beginPath();
+    if (d.w > d.h) for (let x = d.x + 6; x < d.x + d.w; x += 6){ c.moveTo(x, d.y); c.lineTo(x, d.y + d.h); }
+    else for (let y = d.y + 6; y < d.y + d.h; y += 6){ c.moveTo(d.x, y); c.lineTo(d.x + d.w, y); }
+    c.stroke();
+    c.fillStyle = "#4e3b28"; const pts = d.w > d.h ? [[d.x + 2, d.y - 2], [d.x + d.w - 5, d.y - 2], [d.x + 2, d.y + d.h - 2], [d.x + d.w - 5, d.y + d.h - 2], [d.x + d.w / 2, d.y - 2], [d.x + d.w / 2, d.y + d.h - 2]] : [[d.x - 2, d.y + 2], [d.x - 2, d.y + d.h - 5], [d.x + d.w - 2, d.y + 2], [d.x + d.w - 2, d.y + d.h - 5], [d.x - 2, d.y + d.h / 2], [d.x + d.w - 2, d.y + d.h / 2]];
+    for (const p of pts) c.fillRect(p[0], p[1], 4, 4);
+  }
+  // boje
+  for (let k = 0; k < 4; k++){ const bx = M.x + M.dir[0] * (190 + k * 30) + (-M.dir[1]) * (k * 40 - 60), by = M.y + M.dir[1] * (190 + k * 30) + M.dir[0] * (k * 40 - 60); c.fillStyle = k % 2 ? "#ff7043" : "#fdd835"; c.beginPath(); c.arc(bx, by, 3.6 + Math.sin(gameTime * 2 + k) * 0.4, 0, Math.PI * 2); c.fill(); }
+}
+const _drawRiverStuff31 = drawRiverStuff;
+drawRiverStuff = function(inV){
+  _drawRiverStuff31(inV);
+  for (const M of V31.marinas) if (inV(M.x, M.y, 260)) drawMarina(M);
+  for (const B of WFX.pedal) if (inV(B.x, B.y, 30)) drawPedal(B);
+  for (const K of WFX.kayaks) if (K.x !== undefined && inV(K.x, K.y, 30)) drawKayak(K);
+  for (const F of WFX.flocks) if (inV(F.x, F.y, 60)) drawFlock(F);
+  for (const S of WFX.ships) if (S.x !== undefined && inV(S.x, S.y, S.len)) drawShip(S);
+};
+
+// =====================================================================
+// v31: AUTOSTRADA A1 – PASY, RUCH, BRAMKI, e-TOLL, MOP-y, CIĘŻARÓWKI
+// =====================================================================
+if (SAVE.etoll !== true) SAVE.etoll = false;
+SAVE.stats.tolls = SAVE.stats.tolls || 0;
+const HWL = [26, 53, 80];
+// drogi zamknięte w pętli
+const _roadAt31 = roadAt;
+roadAt = function(R, s){ if (R.loop){ s = ((s % R.len) + R.len) % R.len; } return _roadAt31(R, s); };
+const _aiRoadInput31 = aiRoadInput;
+aiRoadInput = function(v, dt){
+  const ai = v.ai, R = ai.road;
+  if (R && R.loop){
+    if (ai.dir > 0 && ai.s > R.len - 60) ai.s -= R.len;
+    if (ai.dir < 0 && ai.s < 40) ai.s += R.len;
+    if (!ai.hw31){ ai.hw31 = true; ai.lane = HWL[(Math.random() * 3) | 0]; if (v.type === "truck" || v.type === "bus") ai.lane = HWL[2]; ai.cruise0 = Math.min(VT[v.type].maxF * 0.9, v.type === "truck" ? 250 : 300 + Math.random() * 90); if (ai.lane === HWL[0]) ai.cruise0 = Math.min(VT[v.type].maxF * 0.92, ai.cruise0 + 50); }
+    let near = 1e9;
+    for (const G of V31.tolls){ let d = (G.s - ai.s) * ai.dir; d = ((d % R.len) + R.len) % R.len; if (d < near) near = d; }
+    ai.cruise = near < 320 ? Math.min(ai.cruise0, 70 + near * 0.25) : ai.cruise0;
+  }
+  return _aiRoadInput31(v, dt);
+};
+// ---------- oznakowanie 3 pasów + bariera środkowa ----------
+const _drawRoadDecal31 = drawRoadDecal;
+drawRoadDecal = function(d, c){
+  if (d.lanes !== 3) return _drawRoadDecal31(d, c);
+  const pts = d.pts, hw = d.hw; if (pts.length < 2) return;
+  c.save(); c.lineJoin = "round"; c.lineCap = "butt";
+  // pobocze (pas awaryjny – jaśniejszy asfalt) i ślady kół w pasach
+  c.strokeStyle = "rgba(255,255,255,.05)"; c.lineWidth = 10; strokePts(c, offLine(pts, hw - 3)); strokePts(c, offLine(pts, -(hw - 3)));
+  c.strokeStyle = "rgba(0,0,0,.09)"; c.lineWidth = 5;
+  for (const L of HWL) for (const sd of [-1, 1]) for (const w of [-6, 6]) strokePts(c, offLine(pts, sd * (L + w)));
+  c.strokeStyle = "rgba(240,240,230,.85)"; c.lineWidth = 3;
+  strokePts(c, offLine(pts, hw - 8)); strokePts(c, offLine(pts, -(hw - 8)));
+  strokePts(c, offLine(pts, 14)); strokePts(c, offLine(pts, -14));
+  c.setLineDash([30, 34]);
+  for (const k of [39.5, 66.5]){ strokePts(c, offLine(pts, k)); strokePts(c, offLine(pts, -k)); }
+  c.setLineDash([]);
+  // pas zieleni i bariera betonowa
+  c.strokeStyle = "#5b7a3c"; c.lineWidth = 16; strokePts(c, pts);
+  c.strokeStyle = "rgba(0,0,0,.3)"; c.lineWidth = 8; strokePts(c, offLine(pts, 2));
+  c.strokeStyle = "#a9adb2"; c.lineWidth = 6; strokePts(c, pts);
+  c.strokeStyle = "#dfe2e5"; c.lineWidth = 2; strokePts(c, offLine(pts, -1));
+  // bariery energochłonne na krawędziach
+  for (const sd of [-1, 1]){ c.strokeStyle = "rgba(0,0,0,.25)"; c.lineWidth = 4; strokePts(c, offLine(pts, sd * (hw + 6) + 2)); c.strokeStyle = "#c8ccd0"; c.lineWidth = 2.5; strokePts(c, offLine(pts, sd * (hw + 6))); }
+  c.restore();
+};
+// ---------- ciężarówka: naczepa ----------
+const _drawCarBody31 = drawCarBody;
+drawCarBody = function(g, v, preview){
+  _drawCarBody31(g, v, preview);
+  if (v.type !== "truck" || v.wreck) return;
+  const t = VT.truck, hl = t.len / 2, hw = t.wid / 2, h = (v.id * 2654435761 >>> 0) % 5, tc = ["#eceff1", "#e0e0e0", "#1565c0", "#c62828", "#2e7d32"][h];
+  g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(hl * 0.48, -hw * 0.5, 4, hw);
+  g.fillStyle = tc; rrect(g, -hl - 1, -hw - 0.5, hl * 1.47, t.wid + 1, 2); g.fill();
+  const gr = g.createLinearGradient(0, -hw, 0, hw); gr.addColorStop(0, "rgba(255,255,255,.28)"); gr.addColorStop(0.5, "rgba(255,255,255,0)"); gr.addColorStop(1, "rgba(0,0,0,.25)");
+  g.fillStyle = gr; rrect(g, -hl - 1, -hw - 0.5, hl * 1.47, t.wid + 1, 2); g.fill();
+  g.strokeStyle = "rgba(0,0,0,.18)"; g.lineWidth = 0.8; g.beginPath(); for (let x = -hl + 8; x < hl * 0.44; x += 8){ g.moveTo(x, -hw); g.lineTo(x, hw); } g.stroke();
+  g.strokeStyle = "rgba(0,0,0,.4)"; g.lineWidth = 1; g.strokeRect(-hl - 1, -hw - 0.5, hl * 1.47, t.wid + 1);
+  if (h < 2){ g.fillStyle = "rgba(21,101,192,.85)"; g.font = "900 9px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.save(); g.rotate(0); g.fillText(h ? "TRANS-POL" : "LOGISTYKA", -hl * 0.3, 0.5); g.restore(); }
+};
+// ---------- bramki ----------
+const TOLL_FEE = 20;
+const tollSt = { lock: 0 };
+function tollLocal(G, x, y){ const rx = x - G.x, ry = y - G.y; return [rx * G.ux + ry * G.uy, -rx * G.uy + ry * G.ux]; }
+function laneIdx(lat){ const a = Math.abs(lat); const k = a < 39.5 ? 0 : a < 66.5 ? 1 : 2; return (lat < 0 ? 0 : 3) + k; }
+function hwyTollUpdate(dt){
+  for (const G of V31.tolls){
+    const want = [0, 0, 0, 0, 0, 0];
+    for (const v of vehicles){
+      if (!v.driver || v.driver === "player") continue;
+      if (Math.abs(v.x - G.x) > 300 || Math.abs(v.y - G.y) > 300) continue;
+      const [al, lat] = tollLocal(G, v.x, v.y); if (Math.abs(lat) > 100 || Math.abs(al) > 150) continue;
+      want[laneIdx(lat)] = 1;
+    }
+    if (player.mode === "car" && player.veh){
+      const v = player.veh, [al, lat] = tollLocal(G, v.x, v.y), sp = Math.hypot(v.vx, v.vy);
+      if (Math.abs(lat) < 104 && Math.abs(al) < 170){
+        const li = laneIdx(lat);
+        if (SAVE.etoll || sp < 150 || G.paid === li) want[li] = 1;
+        if (G.prevAl !== undefined && Math.sign(G.prevAl) !== Math.sign(al) && Math.abs(al) < 60){
+          if (SAVE.etoll){ const f = TOLL_FEE / 2; SAVE.money = Math.max(0, SAVE.money - f); SAVE.stats.tolls++; popup("📡 e-TOLL: −" + fmt(f), "#9fd4ff"); }
+          else if (G.open[li] > 0.7){ SAVE.money = Math.max(0, SAVE.money - TOLL_FEE); SAVE.stats.tolls++; popup("🎫 Bramka A1: −" + fmt(TOLL_FEE), "#ffd27a"); cashSound(); }
+          else { v.hp = Math.max(1, v.hp - 18); v.vx *= 0.55; v.vy *= 0.55; thud(v.x, v.y); popup("💥 Staranowałeś szlaban! Mandat i policja…", "#ff4136"); crime(1, v.x, v.y); SAVE.money = Math.max(0, SAVE.money - 200); }
+          G.paid = -1; saveDirty = true;
+        }
+        if (sp < 150 && Math.abs(al) < 170) G.paid = li;
+        G.prevAl = al;
+      } else { G.prevAl = undefined; G.paid = -1; }
+    }
+    for (let k = 0; k < 6; k++) G.open[k] = clamp(G.open[k] + (want[k] ? 2.2 : -1.2) * dt, 0, 1);
+  }
+}
+function drawTollGround(G){
+  const c = ctx; c.save(); c.translate(G.x, G.y); c.rotate(Math.atan2(G.uy, G.ux));
+  // pas zwalniający i linie stopu
+  c.fillStyle = "rgba(255,255,255,.75)";
+  for (const sd of [-1, 1]){ c.fillRect(sd * 120 - 2, -96, 4, 192); for (let k = 0; k < 6; k++) c.fillRect(sd * (150 + k * 14) - 1, -96, 2, 192); }
+  // budki kasowe
+  for (const lat of [-108, -66.5, -39.5, 0, 39.5, 66.5, 108]){
+    c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(-14 + 3, lat - 5 + 4, 28, 10);
+    c.fillStyle = "#eceff1"; c.fillRect(-14, lat - 5, 28, 10); c.fillStyle = "#1565c0"; c.fillRect(-14, lat - 5, 28, 3);
+    c.fillStyle = "#ffeb3b"; c.fillRect(-16, lat - 6, 3, 12);
+  }
+  // szlabany
+  for (let k = 0; k < 6; k++){
+    const sd = k < 3 ? -1 : 1, i = k % 3, l0 = [0, 39.5, 66.5][i], l1 = [39.5, 66.5, 100][i], len = (l1 - l0 - 6) * (1 - G.open[k] * 0.85);
+    const by = sd * (l0 + 3), dirY = sd;
+    for (const side of [-1, 1]){
+      const x = side * 22;
+      c.strokeStyle = "rgba(0,0,0,.3)"; c.lineWidth = 3.5; c.beginPath(); c.moveTo(x + 2, by + 2); c.lineTo(x + 2, by + dirY * len + 2); c.stroke();
+      c.strokeStyle = "#ffffff"; c.lineWidth = 3; c.beginPath(); c.moveTo(x, by); c.lineTo(x, by + dirY * len); c.stroke();
+      c.strokeStyle = "#e53935"; c.setLineDash([5, 5]); c.beginPath(); c.moveTo(x, by); c.lineTo(x, by + dirY * len); c.stroke(); c.setLineDash([]);
+    }
+    c.fillStyle = G.open[k] > 0.7 ? "#2ecc40" : "#ff3b30"; c.beginPath(); c.arc(-10, sd * (l0 + l1) / 2, 2.6, 0, Math.PI * 2); c.arc(10, sd * (l0 + l1) / 2, 2.6, 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+}
+function drawTollRoof(G){
+  const c = ctx, k = 1.18, X = camX + (G.x - camX) * k, Y = camY + (G.y - camY) * k;
+  c.save(); c.translate(X, Y); c.rotate(Math.atan2(G.uy, G.ux));
+  c.fillStyle = "rgba(0,0,0,.18)"; c.fillRect(-22 + 10, -124 + 12, 44, 248);
+  const gr = c.createLinearGradient(-24, 0, 24, 0); gr.addColorStop(0, "#cfd8dc"); gr.addColorStop(0.5, "#eceff1"); gr.addColorStop(1, "#b0bec5");
+  c.fillStyle = gr; c.fillRect(-24, -126, 48, 252);
+  c.fillStyle = "#1565c0"; c.fillRect(-24, -126, 48, 7); c.fillRect(-24, 119, 48, 7);
+  c.save(); c.rotate(Math.PI / 2); c.fillStyle = "#0d47a1"; c.font = "900 15px system-ui"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("A1 · PUNKT POBORU OPŁAT", 0, 0); c.restore();
+  c.restore();
+}
+// ---------- MOP: stacja i bar ----------
+const mopSt = { lock: 0 };
+function nearMop(x, y, key, r){ for (const M of V31.mops){ const p = M[key]; if (Math.hypot(p[0] - x, p[1] - y) < r) return M; } return null; }
+function mopGasCheck(){
+  if (player.mode !== "car" || state !== "play" || mopSt.lock > gameTime) return;
+  const v = player.veh; if (!v || VT[v.type].boat) return;
+  const M = nearMop(v.x, v.y, "gas", 120); if (!M || Math.hypot(v.vx, v.vy) > 25) return;
+  mopSt.lock = gameTime + 12;
+  const cost = 80;
+  showDialog({ name: M.name + " · stacja", item: "⛽" }, "Pracownik stacji macha ręką: „Dzień dobry! Tankujemy do pełna? Szybki przegląd przed dalszą trasą?”", [
+    { t: "🔧 Naprawa, mycie i paliwo (" + fmt(cost) + ")", pri: true, fn: () => { if (SAVE.money < cost){ showDialog({ name: M.name, item: "⛽" }, "Za mało gotówki.", [{ t: "😅" }]); return; } SAVE.money -= cost; v.hp = 100; v.dents = []; v.burning = false; if (v.cfg.nitro) v.nitroFuel = nitroCap(v); persist(); cashSound(); closeDialog(); popup("✨ Auto jak nowe!", "#9fe39f"); } },
+    { t: "☕ Kawa na drogę ($6)", fn: () => { if (SAVE.money >= 6){ SAVE.money -= 6; heal(10); } closeDialog(); popup("☕ Pobudka! +10 zdrowia", "#ffd27a"); } },
+    { t: "📡 " + (SAVE.etoll ? "e-TOLL aktywny ✓" : "Kup e-TOLL ($1 500)"), fn: () => { if (SAVE.etoll){ closeDialog(); return; } if (SAVE.money < 1500){ showDialog({ name: "e-TOLL", item: "📡" }, "Za mało gotówki – e-TOLL kosztuje $1 500.", [{ t: "😅" }]); return; } SAVE.money -= 1500; SAVE.etoll = true; persist(); showDialog({ name: "e-TOLL", item: "📡" }, "Gotowe! Przejeżdżasz bramkami bez zatrzymywania, a opłata jest o połowę niższa.", [{ t: "👍" }]); } },
+    { t: "👋 Jadę dalej", fn: closeDialog }]);
+}
+function mopBarDialog(M){
+  showDialog({ name: M.name + " · bar", item: "🍔" }, "Pani za ladą: „Zupa dnia – żurek! Do tego schabowy albo hot-dog. Kierowcy jedzą u nas od lat.”", [
+    { t: "🍲 Obiad: żurek i schabowy ($18) +60 zdrowia", pri: true, fn: () => { if (SAVE.money < 18) return closeDialog(); SAVE.money -= 18; heal(60); persist(); closeDialog(); popup("🍲 Pycha! +60 zdrowia", "#9fe39f"); } },
+    { t: "🌭 Hot-dog ($6) +25 zdrowia", fn: () => { if (SAVE.money < 6) return closeDialog(); SAVE.money -= 6; heal(25); closeDialog(); popup("🌭 +25 zdrowia", "#9fe39f"); } },
+    { t: "🗺️ Gdzie są bramki?", fn: () => showDialog({ name: M.name, item: "🍔" }, "Na A1 są cztery punkty poboru opłat – po jednym na każdej stronie obwodnicy. Przejazd kosztuje " + fmt(TOLL_FEE) + ". Zwolnij przed szlabanem, otworzy się sam. Z e-TOLL-em płacisz połowę i nie musisz hamować.", [{ t: "👍" }]) },
+    { t: "👋 Na razie", fn: closeDialog }]);
+}
+const _regionLabel31 = regionLabel;
+regionLabel = function(){ const r = _regionLabel31(); if (r) return r; if (player.mode !== "foot") return ""; const f = player.foot; return nearMop(f.x, f.y, "bar", 70) ? "🍔 BAR MOP" : ""; };
+const _regionAction31 = regionAction;
+regionAction = function(){ if (_regionAction31()) return true; if (player.mode !== "foot") return false; const f = player.foot, M = nearMop(f.x, f.y, "bar", 70); if (!M) return false; mopBarDialog(M); return true; };
+const _regionOf31 = regionOf;
+regionOf = function(x, y){
+  const { XL, XR, YT, YB, HWW } = V31;
+  for (const M of V31.mops) if (Math.hypot(M.c[0] - x, M.c[1] - y) < 750) return "🅿️ " + M.name;
+  if (x > XL - 200 && x < XR + 200 && y > YT - 200 && y < YB + 200 && (Math.abs(x - XL) < HWW + 120 || Math.abs(x - XR) < HWW + 120 || Math.abs(y - YT) < HWW + 120 || Math.abs(y - YB) < HWW + 120)) return "🛣️ Autostrada A1";
+  for (const C of V31.channels){ for (let i = 0; i < C.pts.length; i += 6){ const p = C.pts[i]; if (Math.abs(p[0] - x) < 220 && Math.abs(p[1] - y) < 220) return "🌊 " + C.name; } }
+  return _regionOf31(x, y);
+};
+// ---------- rysowanie i aktualizacja ----------
+const _drawRiverStuff33 = drawRiverStuff;
+drawRiverStuff = function(inV){ _drawRiverStuff33(inV); for (const G of V31.tolls) if (inV(G.x, G.y, 200)) drawTollGround(G); };
+const _drawRegionsSky33 = drawRegionsSky;
+drawRegionsSky = function(inV){ _drawRegionsSky33(inV); for (const G of V31.tolls) if (inV(G.x, G.y, 260)) drawTollRoof(G); };
+const _regionsUpdate31 = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdate31(dt);
+  try { waterUpdate(dt); } catch (e) { console.error(e); }
+  hwyTollUpdate(dt); mopGasCheck();
+};
+ACH.push(["a1", "🛣️", "Autostradowiec", "Przejedź 10 bramek na A1", 800, () => (SAVE.stats.tolls || 0) >= 10]);
+ACH.push(["water3", "⚓", "Armator", "Miej 3 biznesy wodne", 1500, () => BIZ.filter(b => b.cat === "water" && SAVE.biz[b.id]).length >= 3]);
+
+// =====================================================================
+// v31: LAPTOP 2.0 – PULPIT Z IKONAMI: BIZNES, ZARZĄDZANIE, STATYSTYKI,
+// OSIĄGNIĘCIA, MOJE AUTA, KOMUNIKATOR, POSTAĆ
+// =====================================================================
+if (!SAVE.chat || typeof SAVE.chat !== "object") SAVE.chat = {};
+if (!Array.isArray(SAVE.hist)) SAVE.hist = [];
+const LAPPS = [
+  { id: "biz", ic: "💼", n: "Biznes", tabs: [["mine", "🏢 Moje firmy"], ["market", "🛒 Rynek"]] },
+  { id: "mgmt", ic: "📊", n: "Zarządzanie", tabs: [["desk", "📊 Przegląd"], ["bank", "🏦 Bank"]] },
+  { id: "stats", ic: "📈", n: "Statystyki" },
+  { id: "ach", ic: "🏆", n: "Osiągnięcia" },
+  { id: "cars", ic: "🚗", n: "Moje auta" },
+  { id: "chat", ic: "💬", n: "Komunikator" },
+  { id: "hero", ic: "🙋", n: "Postać", tabs: [["hero", "🙋 Wygląd"]] },
+  { id: "map", ic: "🗺️", n: "Mapa" }
+];
+LAP.app = null; LAP.achF = "all"; LAP.chat = null;
+(function lapStyle(){
+  const st = document.createElement("style");
+  st.textContent = `#lapBody.desk{padding:0;background:radial-gradient(circle at 20% 15%,rgba(255,179,0,.25),transparent 40%),radial-gradient(circle at 85% 80%,rgba(0,188,212,.28),transparent 45%),linear-gradient(135deg,#14213d,#1f3a68 55%,#0f2027)}
+  .ldesk{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px;padding:16px 14px 10px}
+  .lico{position:relative;border:0;background:rgba(255,255,255,.06);border-radius:16px;padding:10px 4px 8px;color:#fff;font:700 12px system-ui;display:flex;flex-direction:column;align-items:center;gap:6px;backdrop-filter:blur(2px)}
+  .lico:active{transform:scale(.95)} .lico span.i{font-size:34px;width:56px;height:56px;border-radius:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 14px rgba(0,0,0,.35)}
+  .lico .bd{position:absolute;top:4px;right:10px;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px}
+  .ltask{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;background:rgba(0,0,0,.45);color:#dde;font:700 12px system-ui;border-top:1px solid rgba(255,255,255,.08)}
+  .lwid{margin:6px 14px 0;padding:10px 12px;border-radius:14px;background:rgba(0,0,0,.28);color:#e8eaf6;font-size:13px;line-height:1.5}
+  .lwid b{color:#ffd54f}
+  .lappbar{display:flex;gap:4px;align-items:center}
+  .lappbar .back{background:#37474f !important;color:#fff !important}
+  .lst{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0}
+  .lst div{background:#20242c;border-radius:12px;padding:9px 10px;font-size:12px;color:#aab}.lst b{display:block;font-size:17px;color:#fff;margin-top:2px}
+  .lachs{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin:8px 0}
+  .lach{display:flex;gap:10px;align-items:center;background:#20242c;border-radius:12px;padding:9px 10px;border:1px solid #2a2e37}
+  .lach .i{font-size:26px;width:40px;text-align:center}.lach.off{opacity:.45;filter:grayscale(1)}.lach small{color:#99a;display:block;font-size:11px}
+  .lprog{height:10px;border-radius:5px;background:#333;overflow:hidden;margin:6px 0 4px}.lprog i{display:block;height:100%;background:linear-gradient(90deg,#ffb300,#ff7043)}
+  .lhbar{display:flex;align-items:center;gap:8px;font-size:12px;margin:4px 0}.lhbar span{width:150px;color:#ccd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lhbar i{display:block;height:12px;border-radius:3px;background:#4caf50}.lhbar em{font-style:normal;color:#9aa;width:70px;text-align:right}
+  .lchat{display:flex;gap:10px;min-height:260px}.lclist{width:36%;min-width:130px;display:flex;flex-direction:column;gap:5px}
+  .lclist button{display:flex;align-items:center;gap:8px;border:0;border-radius:12px;background:#20242c;color:#fff;padding:7px 8px;font:700 13px system-ui;text-align:left}
+  .lclist button.on{background:#2e3a4f}.lclist canvas{border-radius:50%;flex:0 0 auto}.lclist small{display:block;color:#99a;font-weight:500;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+  .lclist .u{background:#e53935;border-radius:9px;padding:0 6px;font-size:11px;margin-left:auto}
+  .lconv{flex:1;display:flex;flex-direction:column;background:#101318;border-radius:14px;padding:8px;min-width:0}
+  .lmsgs{flex:1;display:flex;flex-direction:column;gap:6px;overflow:auto;max-height:46vh;padding:4px}
+  .lb{max-width:78%;padding:7px 10px;border-radius:14px;font-size:13px;line-height:1.35}.lb.me{align-self:flex-end;background:#1e88e5;color:#fff;border-bottom-right-radius:4px}.lb.them{align-self:flex-start;background:#2b2f38;color:#eee;border-bottom-left-radius:4px}
+  .lb small{display:block;opacity:.6;font-size:10px;margin-top:2px}
+  .lqr{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}.lqr button{font:700 12px system-ui;padding:7px 9px;border-radius:999px;border:0;background:#2e3a4f;color:#fff}
+  .lcar{display:flex;gap:10px;align-items:center;background:#1d2027;border:1px solid #2a2e37;border-radius:12px;padding:9px 10px;margin:7px 0}.lcar .sw{width:34px;height:20px;border-radius:5px;border:1px solid rgba(255,255,255,.3)}
+  .lcar .t{flex:1;font-size:13px}.lcar small{display:block;color:#99a}`;
+  document.head.appendChild(st);
+  // otwarcie laptopa zawsze na pulpicie
+  $("lapBtn").addEventListener("click", () => { LAP.app = null; }, true);
+  addEventListener("keydown", e => { if (e.key === "l" || e.key === "L") LAP.app = null; }, true);
+  const lo = window.lapOpen;
+  window.lapOpen = tab => { LAP.app = tab ? (LAPPS.find(a => a.tabs && a.tabs.some(t => t[0] === tab)) || {}).id || null : null; lo(tab); };
+  $("lapTabs").addEventListener("click", e => { const b = e.target.closest("button[data-app]"); if (!b) return; e.stopPropagation(); uiClick(); lapGo(b.dataset.app); }, true);
+  $("lapBody").addEventListener("click", e => {
+    const b = e.target.closest("[data-app],[data-x]"); if (!b) return;
+    e.stopPropagation(); uiClick();
+    if (b.dataset.app !== undefined) return lapGo(b.dataset.app);
+    lapX(b.dataset.x, b.dataset.v);
+  }, true);
+})();
+function lapGo(app){
+  if (app === "map"){ lapClose(); setTimeout(() => { try { openMap(); } catch (e) {} }, 60); return; }
+  LAP.app = app || null; LAP.msg = ""; LAP.sell = null;
+  const A = LAPPS.find(a => a.id === app); if (A && A.tabs && !A.tabs.some(t => t[0] === LAP.tab)) LAP.tab = A.tabs[0][0];
+  lapRender(); $("lapBody").scrollTop = 0;
+}
+const netWorth = () => { let v = SAVE.money + (SAVE.bank || 0); for (const b of BIZ){ const s = SAVE.biz[b.id]; if (s) v += bizSaleVal(b) + (s.mgr ? 0 : s.cash); } return v; };
+const chatKey = f => f.name + "|" + f.col;
+function chatLog(f, me, t){ const k = chatKey(f), L = SAVE.chat[k] || (SAVE.chat[k] = { m: [], u: 0 }); L.m.push({ me: me ? 1 : 0, t, h: clockStr() }); if (L.m.length > 40) L.m.splice(0, L.m.length - 40); if (!me && !(LAP.app === "chat" && LAP.chat === k && $("lapWrap").classList.contains("show"))) L.u++; L.last = Date.now(); saveDirty = true; }
+const unreadAll = () => Object.values(SAVE.chat).reduce((t, L) => t + (L.u || 0), 0);
+// SMS-y z gry trafiają do komunikatora
+const _toast34 = toast;
+toast = function(msg, ms){
+  try { const m = typeof msg === "string" && msg.match(/SMS od ([^:]+): „([^”]+)”/); if (m){ const f = SAVE.friends.find(q => q.name === m[1].trim()); if (f) chatLog(f, false, m[2]); } } catch (e) {}
+  return _toast34(msg, ms);
+};
+const _lapRender30 = lapRender;
+lapRender = function(){
+  const A = LAPPS.find(a => a.id === LAP.app);
+  if (A && A.tabs && !A.tabs.some(t => t[0] === LAP.tab)){ const B = LAPPS.find(a => a.tabs && a.tabs.some(t => t[0] === LAP.tab)); if (B) LAP.app = B.id; }
+  const App = LAPPS.find(a => a.id === LAP.app);
+  const head = document.querySelector("#lapWrap .phead span");
+  const body = $("lapBody"), tabs = $("lapTabs");
+  body.classList.toggle("desk", !App);
+  if (head) head.textContent = App ? "💻 " + App.n.toUpperCase() : "💻 LAPTOP";
+  if (!App){ tabs.style.display = "none"; return lapDesktop(); }
+  tabs.style.display = "";
+  if (App.tabs){
+    _lapRender30();
+    tabs.innerHTML = '<button data-app="" class="back">⬅ Pulpit</button>' + App.tabs.map(([k, n]) => '<button data-tab="' + k + '" class="' + (LAP.tab === k ? "on" : "") + '">' + n + "</button>").join("");
+    return;
+  }
+  tabs.innerHTML = '<button data-app="" class="back">⬅ Pulpit</button><button class="on">' + App.ic + " " + App.n + "</button>";
+  if (App.id === "stats") lapStats2(); else if (App.id === "ach") lapAch(); else if (App.id === "cars") lapCars(); else if (App.id === "chat") lapChat();
+};
+function lapDesktop(){
+  const S = lapStats(), alerts = S.broken + S.full, nAch = ACH.filter(a => SAVE.ach[a[0]]).length, ur = unreadAll();
+  const badge = { biz: alerts, chat: ur, ach: 0 };
+  const cols = { biz: "#ff8f00", mgmt: "#3949ab", stats: "#00897b", ach: "#fbc02d", cars: "#e53935", chat: "#43a047", hero: "#8e24aa", map: "#1e88e5" };
+  let h = '<div class="lwid">👋 Dzień dobry' + (SAVE.hero && SAVE.hero.g === "f" ? ", szefowo" : ", szefie") + '! · 🕒 <b>' + clockStr() + '</b> · 💵 <b>' + fmt(SAVE.money) + '</b> · 🏦 <b>' + fmt(SAVE.bank || 0) + '</b> · 📈 <b>' + fmt(S.rate) + '/min</b>' + (alerts ? ' · ⚠️ <b>' + alerts + '</b> spraw w firmach' : '') + (ur ? ' · 💬 <b>' + ur + '</b> nowe wiadomości' : '') + "</div>";
+  h += '<div class="ldesk">' + LAPPS.map(a => '<button class="lico" data-app="' + a.id + '"><span class="i" style="background:linear-gradient(145deg,' + cols[a.id] + ',' + shade(cols[a.id], -0.35) + ')">' + a.ic + "</span>" + a.n + (badge[a.id] ? '<span class="bd">' + badge[a.id] + "</span>" : "") + "</button>").join("") + "</div>";
+  h += '<div class="ltask"><span>🪟 JWM OS 31</span><span>🏆 ' + nAch + "/" + ACH.length + " · 🏢 " + S.owned.length + " firm · 🚗 " + SAVE.col.length + " aut</span><span>📶 🔋 " + clockStr() + "</span></div>";
+  $("lapBody").innerHTML = h;
+}
+// ---------- statystyki ----------
+function lapStats2(){
+  const st = SAVE.stats, S = lapStats(), nAch = ACH.filter(a => SAVE.ach[a[0]]).length;
+  const km = v => (v || 0).toFixed(1).replace(".", ",") + " km";
+  const tiles = [["💰 Zarobione łącznie", fmt(st.earned || 0)], ["🏦 Majątek", fmt(netWorth())], ["🏢 Firmy", S.owned.length + " / " + BIZ.length], ["📈 Dochód firm", fmt(S.rate) + "/min"],
+    ["🚗 Przejechane", km(st.km)], ["🚶 Pieszo", km(st.footKm)], ["🚲 Rowerem", km(st.bikeKm)], ["🚤 Łodzią", km(st.boatKm)], ["🌙 Nocą", km(st.nightKm)], ["🌧️ W deszczu", km(st.rainKm)],
+    ["⚡ Rekord prędkości", Math.round(st.maxKmh || 0) + " km/h"], ["🌀 Najlepszy drift", Math.round(st.bestDrift || 0) + " pkt"], ["🏁 Wygrane wyścigi", st.wins || 0], ["🚕 Kursy taxi", st.fares || 0],
+    ["🧰 Zlecenia", st.jobs || 0], ["🚌 Przystanki", st.busStops || 0], ["🔑 Ukradzione auta", st.jacked || 0], ["🛡️ Udaremnione napady", st.robStop || 0], ["⭐ Rekord gwiazdek", st.maxStars || 0],
+    ["🎫 Bramki A1", st.tolls || 0], ["👥 Znajomi", SAVE.friends.length], ["🏠 Mieszkania", SAVE.homes.length], ["🎓 Poziom", SAVE.lvl || 1], ["🏆 Osiągnięcia", nAch + "/" + ACH.length]];
+  let h = "<h3>Majątek w czasie</h3><canvas id=\"lapChart\" style=\"width:100%;height:150px;background:#101318;border-radius:12px\"></canvas>";
+  h += '<div class="lst">' + tiles.map(t => "<div>" + t[0] + "<b>" + t[1] + "</b></div>").join("") + "</div>";
+  const cats = {}; for (const b of S.owned){ const c = b.cat || "inne"; cats[c] = (cats[c] || 0) + bizRate(b); }
+  const arr = Object.entries(cats).sort((a, c) => c[1] - a[1]).slice(0, 10), mx = Math.max(1, ...arr.map(a => a[1]));
+  if (arr.length) h += "<h3>Dochód według branż</h3>" + arr.map(([c, v]) => '<div class="lhbar"><span>' + lapEsc(c === "big" ? "duże inwestycje" : CATN[c] || c) + '</span><i style="width:' + Math.max(3, v / mx * 55).toFixed(1) + '%"></i><em>' + fmt(v) + "/min</em></div>").join("");
+  $("lapBody").innerHTML = h;
+  const cv = $("lapChart"); if (!cv) return;
+  const W = cv.clientWidth || 600, H = 150, d = Math.min(2, window.devicePixelRatio || 1); cv.width = W * d; cv.height = H * d;
+  const g = cv.getContext("2d"); g.scale(d, d);
+  const data = SAVE.hist.slice(-120).map(p => p.v); data.push(netWorth());
+  if (data.length < 2){ g.fillStyle = "#99a"; g.font = "13px system-ui"; g.fillText("Wykres pojawi się po kilku minutach gry.", 14, H / 2); return; }
+  const lo = Math.min(...data), hi = Math.max(...data), rng = Math.max(1, hi - lo), px = i => 70 + (W - 86) * i / (data.length - 1), py = v => H - 22 - (H - 40) * (v - lo) / rng;
+  g.strokeStyle = "rgba(255,255,255,.08)"; g.lineWidth = 1; for (let k = 0; k <= 2; k++){ const y = 18 + (H - 40) * k / 2; g.beginPath(); g.moveTo(70, y); g.lineTo(W - 16, y); g.stroke(); }
+  g.fillStyle = "#8a90a0"; g.font = "11px system-ui"; g.textAlign = "right"; g.fillText(fmt(hi), 66, 22); g.fillText(fmt(lo), 66, H - 20);
+  const gr = g.createLinearGradient(0, 18, 0, H - 22); gr.addColorStop(0, "rgba(255,179,0,.35)"); gr.addColorStop(1, "rgba(255,179,0,0)");
+  g.beginPath(); g.moveTo(px(0), H - 22); data.forEach((v, i) => g.lineTo(px(i), py(v))); g.lineTo(px(data.length - 1), H - 22); g.closePath(); g.fillStyle = gr; g.fill();
+  g.beginPath(); data.forEach((v, i) => i ? g.lineTo(px(i), py(v)) : g.moveTo(px(i), py(v))); g.strokeStyle = "#ffb300"; g.lineWidth = 2.2; g.stroke();
+  const lx = px(data.length - 1), ly = py(data[data.length - 1]); g.fillStyle = "#ffb300"; g.beginPath(); g.arc(lx, ly, 3.5, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#fff"; g.textAlign = "right"; g.font = "700 12px system-ui"; g.fillText(fmt(data[data.length - 1]), lx - 6, Math.max(14, ly - 8));
+}
+// ---------- osiągnięcia ----------
+function lapAch(){
+  const n = ACH.filter(a => SAVE.ach[a[0]]).length;
+  let list = ACH.slice(); if (LAP.achF === "on") list = list.filter(a => SAVE.ach[a[0]]); else if (LAP.achF === "off") list = list.filter(a => !SAVE.ach[a[0]]);
+  list.sort((a, c) => (SAVE.ach[c[0]] || 0) - (SAVE.ach[a[0]] || 0));
+  let h = '<div class="lwid" style="margin:10px 0">🏆 Zdobyte: <b>' + n + " / " + ACH.length + '</b> · nagrody XP: <b>' + ACH.filter(a => SAVE.ach[a[0]]).reduce((t, a) => t + (a[4] || 0), 0) + '</b><div class="lprog"><i style="width:' + (n / ACH.length * 100).toFixed(1) + '%"></i></div></div>';
+  h += '<div class="lctl">' + [["all", "Wszystkie"], ["on", "✅ Zdobyte"], ["off", "🔒 Do zdobycia"]].map(([k, t]) => '<button data-x="achF" data-v="' + k + '" class="' + (LAP.achF === k ? "on" : "") + '">' + t + "</button>").join("") + "</div>";
+  h += '<div class="lachs">' + list.map(a => { const ok = SAVE.ach[a[0]]; return '<div class="lach' + (ok ? "" : " off") + '"><span class="i">' + (ok ? a[1] : "🔒") + "</span><div><b>" + lapEsc(a[2]) + "</b><small>" + lapEsc(a[3]) + " · " + (a[4] || 0) + " XP" + (ok ? " · " + new Date(ok).toLocaleDateString("pl-PL") : "") + "</small></div></div>"; }).join("") + "</div>";
+  $("lapBody").innerHTML = h;
+}
+// ---------- moje auta ----------
+function lapCars(){
+  let h = "";
+  const v = player.mode === "car" && player.veh ? player.veh : null;
+  h += '<div class="lwid" style="margin:10px 0">' + (v ? "🚗 Jedziesz: <b>" + lapEsc(VT[v.type].name) + "</b> · stan " + Math.round(v.hp) + "%" : "🚶 Jesteś teraz pieszo.") + "<br>📡 e-TOLL: " + (SAVE.etoll ? "<b>aktywny</b> – bramki na A1 bez zatrzymywania, opłata −50%" : 'nieaktywny <button data-x="etoll" style="font:700 12px system-ui;border:0;border-radius:9px;background:#2e7d32;color:#fff;padding:6px 9px;margin-left:6px">Kup za $1 500</button>') + "</div>";
+  h += "<h3>Kolekcja (" + SAVE.col.length + ")</h3>";
+  if (!SAVE.col.length) h += '<div class="lmsg">Kolekcja jest pusta. Wjedź autem do swojego garażu, żeby je zapisać.</div>';
+  SAVE.col.forEach((cc, i) => {
+    const t = VT[cc.type] || { name: cc.type };
+    h += '<div class="lcar"><span class="sw" style="background:' + lapEsc(cc.col) + '"></span><div class="t"><b>' + lapEsc(t.name) + "</b><small>" + lapEsc(perfLine(cc)) + (t.maxF ? " · " + Math.round(t.maxF * 0.36) + " km/h" : "") + '</small></div><button data-x="deliver" data-v="' + i + '" style="font:700 12px system-ui;border:0;border-radius:9px;background:#1565c0;color:#fff;padding:7px 9px">🚚 Podstaw tutaj ($250)</button></div>';
+  });
+  h += '<div class="s" style="font-size:12px;color:#99a;margin-top:6px">Kierowca z warsztatu podstawi auto obok ciebie w kilka sekund.</div>';
+  $("lapBody").innerHTML = h;
+}
+// ---------- komunikator ----------
+function lapChat(){
+  const F = SAVE.friends.slice().sort((a, c) => ((SAVE.chat[chatKey(c)] || {}).last || 0) - ((SAVE.chat[chatKey(a)] || {}).last || 0));
+  if (!F.length){ $("lapBody").innerHTML = '<div class="lmsg" style="margin-top:12px">Nie masz jeszcze znajomych. Pogadaj z ludźmi na ulicy – gdy cię polubią, wymienicie się numerami i pojawią się tutaj.</div>'; return; }
+  if (!LAP.chat || !F.some(f => chatKey(f) === LAP.chat)) LAP.chat = chatKey(F[0]);
+  const f = F.find(q => chatKey(q) === LAP.chat), L = SAVE.chat[LAP.chat] || { m: [], u: 0 };
+  L.u = 0;
+  let h = '<div class="lchat" style="margin-top:10px"><div class="lclist">';
+  F.slice(0, 30).forEach((q, i) => { const Q = SAVE.chat[chatKey(q)] || { m: [] }, last = Q.m[Q.m.length - 1]; h += '<button data-x="chatSel" data-v="' + i + '" class="' + (chatKey(q) === LAP.chat ? "on" : "") + '"><canvas width="68" height="68" style="width:34px;height:34px" data-face="' + i + '"></canvas><span>' + lapEsc(q.name) + (isPartner(q) ? " ❤️" : "") + "<small>" + lapEsc(last ? (last.me ? "Ty: " : "") + last.t : relTitle(q)) + "</small></span>" + (Q.u ? '<span class="u">' + Q.u + "</span>" : "") + "</button>"; });
+  h += '</div><div class="lconv"><div style="font:800 14px system-ui;padding:2px 4px 6px;border-bottom:1px solid #222">' + lapEsc(f.name) + ' <small style="color:#99a;font-weight:500">· ' + lapEsc(relTitle(f)) + " · teraz " + lapEsc(whereNow(f)[1]) + '</small></div><div class="lmsgs" id="lapMsgs">';
+  if (!L.m.length) h += '<div style="color:#778;font-size:12px;text-align:center;margin:20px">Zacznij rozmowę 👋</div>';
+  for (const m of L.m) h += '<div class="lb ' + (m.me ? "me" : "them") + '">' + lapEsc(m.t) + "<small>" + m.h + "</small></div>";
+  if (LAP.typing === LAP.chat) h += '<div class="lb them" style="opacity:.7">✍️ pisze…</div>';
+  h += '</div><div class="lqr">';
+  const q = [["hey", "👋 Co słychać?"], ["where", "📍 Gdzie jesteś?"], ["meet", "☕ Spotkajmy się!"], ["joke", "😂 Wyślij mema"]];
+  if (isPartner(f) || (f.love || 0) > 2) q.push(["love", "❤️ Myślę o tobie"]);
+  q.push(["go", "🧭 Jadę do ciebie"], ["call", "📞 Zadzwoń"]);
+  h += q.map(([k, t]) => '<button data-x="chatQ" data-v="' + k + '">' + t + "</button>").join("") + "</div></div></div>";
+  $("lapBody").innerHTML = h;
+  F.slice(0, 30).forEach((qf, i) => { const c = document.querySelector('canvas[data-face="' + i + '"]'); if (!c) return; const g = c.getContext("2d"); g.scale(68 / 112, 68 / 112); drawFace(g, lookFrom(qf.name + qf.col, qf.fem, qf.hair, ageOf(qf.name, qf.col)), qf.col); });
+  const mm = $("lapMsgs"); if (mm) mm.scrollTop = mm.scrollHeight;
+  saveDirty = true;
+}
+const CHATQ = { hey: "Hej! Co tam u ciebie słychać?", where: "Gdzie teraz jesteś?", meet: "Może się spotkamy? ☕", joke: "😂 [mem z kotem w samochodzie]", love: "Myślę o tobie ❤️", go: "Jadę do ciebie, czekaj! 🚗" };
+function chatReply(f, k){
+  const tr = f.trait || "friendly", w = whereNow(f)[1], P = isPartner(f), rep = f.rep || 0;
+  const R = {
+    hey: tr === "grumpy" ? ["Jakoś leci. Co chcesz?", "Bywało lepiej 🙄", "Pracuję. Coś pilnego?"] : tr === "shy" ? ["O, hej… dobrze, dzięki 😊", "Cześć! Miło, że piszesz", "Wszystko ok 🙂"] : tr === "talkative" ? ["Ojej, ile się działo! Opowiem ci przy kawie 😄", "Hej hej! Słyszałeś, że w Zatoce otworzyli nową przystań?!", "Wszystko super, a u ciebie?! Pisz wszystko!"] : ["U mnie spoko! A u ciebie? 😊", "Hej! Właśnie piję kawę ☕", "Siemka! Dawno cię nie było!", "Dobrze, dzięki! 👋"],
+    where: ["Jestem " + w + ".", "Teraz " + w + " 📍", "Siedzę " + w + ", wpadnij jak chcesz!"],
+    meet: rep >= 3 || P ? ["Chętnie! Jestem " + w + " – przyjedź!", "Jasne, czekam! 😊", "Super pomysł, daj znać jak będziesz"] : ["Hmm, może innym razem 😅", "Dziś nie dam rady, sorki", "Zobaczymy… 🙂"],
+    joke: ["😂😂😂", "Hahaha, dobre!", "Nie no, umieram 🤣", "Skąd ty to bierzesz? 😆"],
+    love: P ? ["Ja o tobie też ❤️", "Tęsknię! 💗", "😘😘", "Kocham cię 💕"] : ["Oj, rumienię się 😳", "Miło mi… 😊"],
+    go: ["Super, czekam! 🙌", "Dobra, jestem " + w + ".", "Jedź ostrożnie! 🚗"]
+  };
+  return gText(pick(R[k] || R.hey), !!f.fem, isFemHero());
+}
+function lapX(a, v){
+  if (a === "achF"){ LAP.achF = v; return lapRender(); }
+  if (a === "etoll"){ if (SAVE.etoll) return; if (SAVE.money < 1500){ LAP.msg = ""; toast("Za mało gotówki – e-TOLL kosztuje $1 500.", 2200); return; } SAVE.money -= 1500; SAVE.etoll = true; persist(); cashSound(); toast("📡 e-TOLL aktywny! Bramki A1 bez zatrzymywania, opłata −50%.", 3000); return lapRender(); }
+  if (a === "deliver"){
+    const cc = SAVE.col[+v]; if (!cc) return;
+    if (SAVE.money < 250){ toast("Podstawienie auta kosztuje $250.", 2000); return; }
+    const pp = playerPos(), p = freeNear(pp.x + 70, pp.y + 50);
+    SAVE.money -= 250; persist(); cashSound();
+    clearAround(p[0], p[1], 50);
+    const nv = makeVehicle(cloneCfg(cc), p[0], p[1], 0); nv.radio = -1;
+    lapClose(); toast("🚚 " + VT[cc.type].name + " podstawione obok ciebie!", 2600); popup("🔑 Twoje auto czeka", "#9fd4ff");
+    return;
+  }
+  if (a === "chatSel"){ const F = SAVE.friends.slice().sort((x, c) => ((SAVE.chat[chatKey(c)] || {}).last || 0) - ((SAVE.chat[chatKey(x)] || {}).last || 0)); const f = F[+v]; if (f) LAP.chat = chatKey(f); return lapRender(); }
+  if (a === "chatQ"){
+    const f = SAVE.friends.find(q => chatKey(q) === LAP.chat); if (!f) return;
+    const i = SAVE.friends.indexOf(f);
+    if (v === "call"){ lapClose(); setTimeout(() => ringTone(() => callFriend(i)), 80); return; }
+    chatLog(f, true, gText(CHATQ[v], isFemHero(), !!f.fem));
+    LAP.typing = LAP.chat; lapRender();
+    const key = LAP.chat;
+    setTimeout(() => {
+      chatLog(f, false, chatReply(f, v));
+      if (f.chatDay !== dayIdx()){ f.chatDay = dayIdx(); try { relAdd(f, 1, isPartner(f) ? 1 : 0, true); } catch (e) {} }
+      if (LAP.typing === key) LAP.typing = null;
+      if ($("lapWrap").classList.contains("show") && LAP.app === "chat") lapRender();
+      if (v === "go"){ lapClose(); try { visitFriend(i); } catch (e) {} }
+      if (actx){ const t0 = actx.currentTime; tone(880, t0, 0.08, "sine", 0.05); tone(1320, t0 + 0.09, 0.1, "sine", 0.05); }
+    }, 900 + Math.random() * 700);
+    return;
+  }
+}
+// ---------- historia majątku ----------
+const HIST = { t: 20 };
+const _regionsUpdate34 = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdate34(dt);
+  HIST.t -= dt;
+  if (HIST.t <= 0){ HIST.t = 45; SAVE.hist.push({ t: Date.now(), v: Math.round(netWorth()) }); if (SAVE.hist.length > 240) SAVE.hist.splice(0, SAVE.hist.length - 240); saveDirty = true; }
+};
+
+// =====================================================================
+// v31: GRAFIKA 2.0 – REALISTYCZNY ASFALT, CHODNIKI, TRAWA, WODA,
+// DACHY Z TEKSTURĄ (BUFOROWANE), ELEWACJE Z OKNAMI I OKLUZJĄ
+// =====================================================================
+const G2 = { roof: new Map(), frame: 0, built: 0 };
+let PAT2 = null;
+function wrapBlob(g, n, x, y, rx, ry, rot, fill){
+  for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]){
+    if (x + ox + rx * 1.5 < 0 || x + ox - rx * 1.5 > n || y + oy + ry * 1.5 < 0 || y + oy - ry * 1.5 > n) continue;
+    g.fillStyle = fill; g.beginPath(); g.ellipse(x + ox, y + oy, rx, ry, rot, 0, Math.PI * 2); g.fill();
+  }
+}
+function softBlob(g, n, x, y, r, col){
+  for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]){
+    if (x + ox + r < 0 || x + ox - r > n || y + oy + r < 0 || y + oy - r > n) continue;
+    const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r); gr.addColorStop(0, col); gr.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = gr; g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+  }
+}
+(function buildTex2(){
+  // asfalt: kruszywo, łaty, przebarwienia
+  TEX.road = noiseTex(512, "#3b3e43", 26, 1101, (g, n, r) => {
+    for (let i = 0; i < 70; i++) softBlob(g, n, r() * n, r() * n, 30 + r() * 90, r() < 0.55 ? "rgba(0,0,0," + (0.05 + r() * 0.07).toFixed(3) + ")" : "rgba(255,255,255," + (0.025 + r() * 0.03).toFixed(3) + ")");
+    for (let i = 0; i < 5200; i++){ const v = 150 + ((r() * 90) | 0); g.fillStyle = "rgba(" + v + "," + v + "," + (v - 6) + "," + (0.18 + r() * 0.3).toFixed(2) + ")"; g.fillRect(r() * n, r() * n, r() < 0.8 ? 1 : 1.6, r() < 0.8 ? 1 : 1.6); }
+    for (let i = 0; i < 3000; i++){ g.fillStyle = "rgba(10,10,12," + (0.25 + r() * 0.35).toFixed(2) + ")"; g.fillRect(r() * n, r() * n, 1, 1); }
+    for (let i = 0; i < 6; i++){ const w = 30 + r() * 70, h = 20 + r() * 40, x = r() * n, y = r() * n; g.fillStyle = "rgba(20,21,24,.28)"; g.fillRect(x, y, w, h); g.strokeStyle = "rgba(0,0,0,.25)"; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w, h); }
+  });
+  // chodnik: płyty betonowe z fugami i przebarwieniami
+  TEX.walk = noiseTex(192, "#9b9d98", 14, 1203, (g, n, r) => {
+    const sz = 32;
+    for (let y = 0; y < n; y += sz) for (let x = 0; x < n; x += sz){
+      const t = (r() - 0.5) * 0.12; g.fillStyle = t > 0 ? "rgba(255,255,255," + t.toFixed(3) + ")" : "rgba(0,0,0," + (-t).toFixed(3) + ")"; g.fillRect(x, y, sz, sz);
+      g.fillStyle = "rgba(60,60,58,.38)"; g.fillRect(x, y, sz, 1); g.fillRect(x, y, 1, sz);
+      g.fillStyle = "rgba(255,255,255,.14)"; g.fillRect(x + 1, y + 1, sz - 2, 1); g.fillRect(x + 1, y + 1, 1, sz - 2);
+      if (r() < 0.12){ g.strokeStyle = "rgba(40,40,40,.35)"; g.lineWidth = 0.7; g.beginPath(); let px = x + r() * sz, py = y; g.moveTo(px, py); for (let k = 0; k < 4; k++){ px += (r() - 0.5) * 12; py += sz / 4; g.lineTo(px, py); } g.stroke(); }
+    }
+    for (let i = 0; i < 14; i++) softBlob(g, n, r() * n, r() * n, 6 + r() * 16, "rgba(60,55,45," + (0.08 + r() * 0.12).toFixed(3) + ")");
+    for (let i = 0; i < 18; i++){ g.fillStyle = "rgba(40,40,40,.35)"; g.beginPath(); g.arc(r() * n, r() * n, 0.9 + r() * 1.2, 0, Math.PI * 2); g.fill(); }
+  });
+  // trawa: kępy, przebarwienia, źdźbła
+  TEX.grass = noiseTex(256, "#477c39", 20, 1307, (g, n, r) => {
+    for (let i = 0; i < 40; i++) softBlob(g, n, r() * n, r() * n, 20 + r() * 50, r() < 0.5 ? "rgba(120,150,60," + (0.12 + r() * 0.15).toFixed(3) + ")" : "rgba(20,60,25," + (0.12 + r() * 0.18).toFixed(3) + ")");
+    for (let i = 0; i < 2600; i++){ const x = r() * n, y = r() * n, l = 2 + r() * 4, c = r(); g.strokeStyle = c < 0.4 ? "rgba(110,165,75,.55)" : c < 0.8 ? "rgba(28,70,30,.5)" : "rgba(170,180,90,.45)"; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 2.5, y - l); g.stroke(); }
+    for (let i = 0; i < 40; i++){ g.fillStyle = r() < 0.5 ? "rgba(255,255,255,.55)" : "rgba(245,215,80,.6)"; g.beginPath(); g.arc(r() * n, r() * n, 0.9, 0, Math.PI * 2); g.fill(); }
+  });
+  TEX.lot = noiseTex(256, "#45484d", 22, 1409, (g, n, r) => {
+    for (let i = 0; i < 26; i++) softBlob(g, n, r() * n, r() * n, 8 + r() * 26, "rgba(8,8,10," + (0.12 + r() * 0.2).toFixed(3) + ")");
+    for (let i = 0; i < 1800; i++){ const v = 140 + ((r() * 80) | 0); g.fillStyle = "rgba(" + v + "," + v + "," + v + ",.22)"; g.fillRect(r() * n, r() * n, 1, 1); }
+  });
+  TEX.water = noiseTex(256, "#2a6797", 10, 1511, (g, n, r) => {
+    for (let i = 0; i < 26; i++) softBlob(g, n, r() * n, r() * n, 30 + r() * 70, r() < 0.5 ? "rgba(10,40,80,.16)" : "rgba(80,160,200,.10)");
+    for (let i = 0; i < 90; i++){ g.strokeStyle = "rgba(255,255,255," + (0.04 + r() * 0.07).toFixed(3) + ")"; g.lineWidth = 0.8 + r(); const x = r() * n, y = r() * n, w = 8 + r() * 18; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + w / 2, y - 2 - r() * 2, x + w, y); g.stroke(); }
+  });
+  TEX.roofN = noiseTex(128, "#808080", 34, 1613);
+  PAT.ready = false; GFX.chunks.clear(); GFX.key = "";
+})();
+function pats2(){ if (!PAT2){ PAT2 = { roofN: ctx.createPattern(TEX.roofN, "repeat") }; } return PAT2; }
+// ---------- detale nawierzchni w kaflach ----------
+const _paintGroundExtras35 = paintGroundExtras;
+paintGroundExtras = function(X0, Y0, X1, Y1, inV, cx2){
+  _paintGroundExtras35(X0, Y0, X1, Y1, inV, cx2);
+  const tx0 = clamp(Math.floor(X0 / T), 0, MW - 1), tx1 = clamp(Math.floor(X1 / T), 0, MW - 1), ty0 = clamp(Math.floor(Y0 / T), 0, MW - 1), ty1 = clamp(Math.floor(Y1 / T), 0, MW - 1);
+  const c = cx2 || ctx;
+  // koleiny w miejskich ulicach
+  c.save(); c.strokeStyle = "rgba(0,0,0,.075)"; c.lineWidth = 7; c.beginPath();
+  for (let r = 0; r <= NB; r++){
+    const p = nodePos(r);
+    for (const o of [-46, -26, 26, 46]){
+      const q = p + o;
+      if (q > Y0 - 10 && q < Y1 + 10 && X1 > RA - RHW && X0 < RB + RHW){ c.moveTo(Math.max(X0, RA), q); c.lineTo(Math.min(X1, RB), q); }
+      if (q > X0 - 10 && q < X1 + 10 && Y1 > RA - RHW && Y0 < RB + RHW){ c.moveTo(q, Math.max(Y0, RA)); c.lineTo(q, Math.min(Y1, RB)); }
+    }
+  }
+  c.stroke(); c.restore();
+  // koleiny na drogach w krainach
+  c.save(); c.lineJoin = "round"; c.strokeStyle = "rgba(0,0,0,.07)"; c.lineWidth = 5;
+  for (const d of decals){
+    if (d.type !== "road" || d.surf !== G_ROAD || d.lanes === 3) continue;
+    if (d.x > X1 || d.y > Y1 || d.x + d.w < X0 || d.y + d.h < Y0) continue;
+    const L = d.lanes === 2 ? [18, 50] : [d.hw * 0.42];
+    for (const l of L) for (const sd of [-1, 1]) for (const w of [-6, 6]) strokePts(c, offLine(d.pts, sd * (l + w)));
+  }
+  c.restore();
+  // zalane smołą pęknięcia, kratki ściekowe przy krawężnikach
+  for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++){
+    const i = y * MW + x; if (ground[i] !== G_ROAD) continue;
+    const h = ghash(x * 1.7, y * 2.3), cx = x * T + T / 2, cy = y * T + T / 2;
+    if (h < 0.05){
+      c.strokeStyle = "rgba(8,8,10,.6)"; c.lineWidth = 2.2; c.lineCap = "round"; c.beginPath();
+      let px = x * T + ghash(x, y * 5) * T, py = y * T + ghash(x * 5, y) * T; c.moveTo(px, py);
+      const horiz = ghash(y, x) < 0.5;
+      for (let k = 0; k < 6; k++){ if (horiz){ px += 8 + ghash(x + k, y) * 6; py += (ghash(x, y + k) - 0.5) * 9; } else { py += 8 + ghash(x + k, y) * 6; px += (ghash(x, y + k) - 0.5) * 9; } c.lineTo(px, py); }
+      c.stroke(); c.strokeStyle = "rgba(255,255,255,.07)"; c.lineWidth = 0.8; c.stroke();
+    } else if (h < 0.075){
+      const L = ground[i - 1] === G_WALK, Rr = ground[i + 1] === G_WALK, U = ground[i - MW] === G_WALK, D = ground[i + MW] === G_WALK;
+      if (L || Rr || U || D){
+        const gx = L ? x * T + 7 : Rr ? x * T + T - 7 : cx, gy = U ? y * T + 7 : D ? y * T + T - 7 : cy, vert = L || Rr;
+        c.fillStyle = "#26282b"; c.fillRect(gx - (vert ? 5 : 11), gy - (vert ? 11 : 5), vert ? 10 : 22, vert ? 22 : 10);
+        c.strokeStyle = "#5b5f64"; c.lineWidth = 1.2; c.strokeRect(gx - (vert ? 5 : 11), gy - (vert ? 11 : 5), vert ? 10 : 22, vert ? 22 : 10);
+        c.fillStyle = "rgba(90,95,100,.9)"; for (let k = -8; k <= 8; k += 3) vert ? c.fillRect(gx - 4, gy + k, 8, 1) : c.fillRect(gx + k, gy - 4, 1, 8);
+      }
+    }
+  }
+  // granitowe krawężniki z fugami i brud przy krawężniku
+  for (let by = 0; by < NB; by++) for (let bx = 0; bx < NB; bx++){
+    if (bx === RIVER_BX) continue;
+    const X = GT(bx * P + 3), Y = GT(by * P + 3), Sz = 11 * T;
+    if (X > X1 + 10 || Y > Y1 + 10 || X + Sz < X0 - 10 || Y + Sz < Y0 - 10) continue;
+    c.strokeStyle = "rgba(45,38,30,.16)"; c.lineWidth = 10; c.strokeRect(X - 9, Y - 9, Sz + 18, Sz + 18);
+    c.strokeStyle = "#c3c4bf"; c.lineWidth = 5; c.strokeRect(X - 1.5, Y - 1.5, Sz + 3, Sz + 3);
+    c.setLineDash([0.8, 31]); c.strokeStyle = "rgba(40,40,40,.28)"; c.lineWidth = 4; c.strokeRect(X - 1.5, Y - 1.5, Sz + 3, Sz + 3); c.setLineDash([]);
+    c.strokeStyle = "rgba(255,255,255,.4)"; c.lineWidth = 1; c.strokeRect(X - 3.5, Y - 3.5, Sz + 7, Sz + 7);
+  }
+};
+// ---------- dachy jako bufory ----------
+const ROOF2_KINDS = new Set(["flat", "tower", "shop", "garage", "pitched", "hall"]);
+function roofSpriteScale(b){ const q = SET.quality === "high" ? 2 : 1.5; return Math.min(q, 512 / Math.max(b.w, b.h)); }
+const mixCol = (a, b2, t) => { const A = parseInt(a.slice(1), 16), B = parseInt(b2.slice(1), 16); const ch = s => Math.round(((A >> s) & 255) * (1 - t) + ((B >> s) & 255) * t); return "#" + ((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1); };
+function hexOK(c){ return typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c) ? c : "#8a8d90"; }
+function buildRoofSprite(b){
+  const S = roofSpriteScale(b), W = Math.max(4, Math.ceil(b.w * S)), H = Math.max(4, Math.ceil(b.h * S)), cv = mkCanvas(W, H), g = cv.getContext("2d");
+  g.scale(S, S);
+  const w = b.w, h = b.h, rnd2 = (k) => ghash(b.x * 0.37 + k * 13.1, b.y * 0.29 - k * 7.7), col = hexOK(b.col);
+  const P2 = pats(), PN = pats2();
+  if (b.kind === "pitched") roofPitched(g, b, w, h, col, rnd2, PN);
+  else if (b.kind === "hall") roofHall(g, b, w, h, col, rnd2, PN);
+  else roofFlat(g, b, w, h, col, rnd2, PN, P2);
+  return cv;
+}
+function roofFlat(g, b, w, h, col, rnd2, PN, P2){
+  const tower = b.kind === "tower", base = tower ? mixCol(col, "#5f666e", 0.35) : mixCol(col, rnd2(1) < 0.4 ? "#9a9c9e" : "#6e7174", 0.45);
+  g.fillStyle = base; g.fillRect(0, 0, w, h);
+  g.globalAlpha = 0.16; g.fillStyle = PN.roofN; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+  g.globalAlpha = 0.55; g.fillStyle = P2.gravel; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+  // zacieki i kałuże
+  for (let k = 0; k < 3 + ((rnd2(2) * 4) | 0); k++){ const x = rnd2(k + 10) * w, y = rnd2(k + 20) * h, r = 8 + rnd2(k + 30) * Math.min(w, h) * 0.25; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, "rgba(20,22,26,.22)"); gr.addColorStop(1, "rgba(20,22,26,0)"); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+  // szwy papy / membrany
+  g.strokeStyle = "rgba(0,0,0,.08)"; g.lineWidth = 0.6; g.beginPath(); for (let y = 10; y < h; y += 10){ g.moveTo(4, y); g.lineTo(w - 4, y); } g.stroke();
+  // attyka: krawędź i cień wewnętrzny
+  const pw = tower ? 4 : 3;
+  g.fillStyle = mixCol(base, "#e6e6e6", 0.45); g.fillRect(0, 0, w, pw); g.fillRect(0, 0, pw, h); g.fillRect(w - pw, 0, pw, h); g.fillRect(0, h - pw, w, pw);
+  let gr = g.createLinearGradient(0, pw, 0, pw + 9); gr.addColorStop(0, "rgba(0,0,0,.35)"); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(pw, pw, w - pw * 2, 9);
+  gr = g.createLinearGradient(pw, 0, pw + 9, 0); gr.addColorStop(0, "rgba(0,0,0,.3)"); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(pw, pw, 9, h - pw * 2);
+  g.strokeStyle = "rgba(0,0,0,.45)"; g.lineWidth = 1; g.strokeRect(0.5, 0.5, w - 1, h - 1);
+  // kratki odpływowe
+  g.fillStyle = "#2b2d30"; for (const [x, y] of [[pw + 6, h - pw - 6], [w - pw - 6, pw + 6]]){ g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI * 2); g.fill(); }
+  const shadow = (x, y, ww, hh, d) => { g.fillStyle = "rgba(0,0,0,.32)"; g.beginPath(); g.moveTo(x + ww, y); g.lineTo(x + ww + d, y + d); g.lineTo(x + ww + d, y + hh + d); g.lineTo(x + d, y + hh + d); g.lineTo(x, y + hh); g.lineTo(x + ww, y + hh); g.closePath(); g.fill(); };
+  // nadbudówka techniczna (wieżowce)
+  if (tower && w > 60 && h > 60){
+    const ww = w * 0.34, hh = h * 0.3, x = w * 0.33, y = h * 0.35;
+    shadow(x, y, ww, hh, 9);
+    g.fillStyle = mixCol(base, "#d0d3d6", 0.35); g.fillRect(x, y, ww, hh);
+    g.globalAlpha = 0.15; g.fillStyle = PN.roofN; g.fillRect(x, y, ww, hh); g.globalAlpha = 1;
+    g.strokeStyle = "rgba(0,0,0,.3)"; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, ww - 1, hh - 1);
+    g.strokeStyle = "rgba(0,0,0,.18)"; g.beginPath(); for (let xx = x + 4; xx < x + ww - 2; xx += 4){ g.moveTo(xx, y + 3); g.lineTo(xx, y + hh * 0.4); } g.stroke();
+    g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 1; g.strokeRect(6.5, 6.5, w - 13, h - 13);
+    // maszt
+    g.fillStyle = "#cfd3d6"; g.fillRect(x + ww * 0.8, y + hh * 0.2, 2, 2); g.strokeStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.moveTo(x + ww * 0.8 + 1, y + hh * 0.2 + 1); g.lineTo(x + ww * 0.8 + 18, y + hh * 0.2 + 18); g.stroke();
+  }
+  // urządzenia (klimatyzatory) z b.det
+  for (const d of b.det){
+    const [x, y, ww, hh] = d;
+    shadow(x, y, ww, hh, 4);
+    const gr2 = g.createLinearGradient(x, y, x + ww, y + hh); gr2.addColorStop(0, "#d9dcdf"); gr2.addColorStop(1, "#9aa0a6");
+    g.fillStyle = gr2; g.fillRect(x, y, ww, hh);
+    g.strokeStyle = "rgba(0,0,0,.4)"; g.lineWidth = 0.8; g.strokeRect(x + 0.4, y + 0.4, ww - 0.8, hh - 0.8);
+    const r = Math.min(ww, hh) * 0.32;
+    g.fillStyle = "#3a3f45"; g.beginPath(); g.arc(x + ww / 2, y + hh / 2, r, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "rgba(200,205,210,.7)"; g.lineWidth = 0.6; g.beginPath(); for (let k = 0; k < 4; k++){ const a = k * Math.PI / 4; g.moveTo(x + ww / 2 - Math.cos(a) * r, y + hh / 2 - Math.sin(a) * r); g.lineTo(x + ww / 2 + Math.cos(a) * r, y + hh / 2 + Math.sin(a) * r); } g.stroke();
+  }
+  // dodatki: świetliki, wywietrzniki, panele, właz, anteny
+  const n = 2 + ((rnd2(3) * 4) | 0);
+  for (let k = 0; k < n; k++){
+    const t = rnd2(k + 40), x = 10 + rnd2(k + 50) * (w - 40), y = 10 + rnd2(k + 60) * (h - 34);
+    if (b.det.some(d => x < d[0] + d[2] + 6 && x + 26 > d[0] - 6 && y < d[1] + d[3] + 6 && y + 20 > d[1] - 6)) continue;
+    if (t < 0.3){ // świetlik
+      const ww = 14 + rnd2(k + 70) * 14, hh = 9 + rnd2(k + 80) * 8;
+      g.fillStyle = "rgba(0,0,0,.3)"; g.fillRect(x + 2, y + 2, ww, hh);
+      const gg = g.createLinearGradient(x, y, x + ww, y + hh); gg.addColorStop(0, "#9fc3e0"); gg.addColorStop(0.45, "#3d6487"); gg.addColorStop(1, "#1f344a");
+      g.fillStyle = gg; g.fillRect(x, y, ww, hh); g.strokeStyle = "#c9cdd1"; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, ww - 1, hh - 1);
+      g.beginPath(); g.moveTo(x + ww / 2, y); g.lineTo(x + ww / 2, y + hh); g.stroke();
+    } else if (t < 0.55){ // wywietrzniki
+      for (let j = 0; j < 3; j++){ const xx = x + j * 7; g.fillStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.arc(xx + 1.5, y + 1.5, 2.6, 0, Math.PI * 2); g.fill(); g.fillStyle = "#b8bcc0"; g.beginPath(); g.arc(xx, y, 2.6, 0, Math.PI * 2); g.fill(); g.fillStyle = "#2e3236"; g.beginPath(); g.arc(xx, y, 1.2, 0, Math.PI * 2); g.fill(); }
+    } else if (t < 0.75 && !tower && w > 70 && h > 50){ // panele fotowoltaiczne
+      const cols = 3 + ((rnd2(k + 90) * 3) | 0), cw = 7, ch = 11;
+      for (let j = 0; j < cols; j++) for (let r = 0; r < 2; r++){ const xx = x + j * (cw + 1.5), yy = y + r * (ch + 1.5); g.fillStyle = "rgba(0,0,0,.3)"; g.fillRect(xx + 1.5, yy + 1.5, cw, ch); const pg = g.createLinearGradient(xx, yy, xx + cw, yy + ch); pg.addColorStop(0, "#3c5a85"); pg.addColorStop(1, "#141f33"); g.fillStyle = pg; g.fillRect(xx, yy, cw, ch); g.strokeStyle = "rgba(170,200,240,.35)"; g.lineWidth = 0.4; g.beginPath(); g.moveTo(xx + cw / 2, yy); g.lineTo(xx + cw / 2, yy + ch); g.moveTo(xx, yy + ch / 2); g.lineTo(xx + cw, yy + ch / 2); g.stroke(); }
+    } else if (t < 0.88){ // właz
+      g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(x + 2, y + 2, 9, 9); g.fillStyle = "#7d848b"; g.fillRect(x, y, 9, 9); g.strokeStyle = "#4c5257"; g.lineWidth = 0.8; g.strokeRect(x + 0.4, y + 0.4, 8.2, 8.2);
+    } else { // antena satelitarna
+      g.fillStyle = "rgba(0,0,0,.3)"; g.beginPath(); g.ellipse(x + 7, y + 7, 6, 4, 0.6, 0, Math.PI * 2); g.fill(); g.fillStyle = "#eceff1"; g.beginPath(); g.ellipse(x + 5, y + 5, 6, 4, 0.6, 0, Math.PI * 2); g.fill(); g.fillStyle = "#90a4ae"; g.beginPath(); g.arc(x + 5, y + 5, 1.2, 0, Math.PI * 2); g.fill();
+    }
+  }
+}
+function roofPitched(g, b, w, h, col, rnd2, PN){
+  const lt = shade(col, 0.16), dk = shade(col, -0.24), md = shade(col, -0.02), sd = shade(col, 0.04);
+  const horiz = b.ridge === "h";
+  const planes = horiz ? (() => { const hh = h / 2, e = Math.min(hh, w / 2); return [[[0, 0], [w, 0], [w - e, hh], [e, hh], lt, 0], [[0, h], [w, h], [w - e, hh], [e, hh], dk, 0], [[0, 0], [e, hh], [0, h], null, sd, 1], [[w, 0], [w - e, hh], [w, h], null, md, 1]]; })()
+    : (() => { const hw = w / 2, e = Math.min(hw, h / 2); return [[[0, 0], [0, h], [hw, h - e], [hw, e], lt, 1], [[w, 0], [w, h], [hw, h - e], [hw, e], dk, 1], [[0, 0], [hw, e], [w, 0], null, sd, 0], [[0, h], [hw, h - e], [w, h], null, md, 0]]; })();
+  for (const P of planes){
+    const pts = P.slice(0, 4).filter(Boolean), fill = P[4], rowsH = P[5] === 0;
+    g.save(); g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); g.clip();
+    g.fillStyle = fill; g.fillRect(0, 0, w, h);
+    g.globalAlpha = 0.12; g.fillStyle = PN.roofN; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+    // rzędy dachówek
+    const step = 4.2;
+    g.strokeStyle = "rgba(0,0,0,.22)"; g.lineWidth = 0.9; g.beginPath();
+    if (rowsH) for (let y = step; y < h; y += step){ g.moveTo(0, y); g.lineTo(w, y); } else for (let x = step; x < w; x += step){ g.moveTo(x, 0); g.lineTo(x, h); }
+    g.stroke();
+    g.strokeStyle = "rgba(255,255,255,.08)"; g.lineWidth = 0.6; g.beginPath();
+    if (rowsH) for (let y = step + 1; y < h; y += step){ g.moveTo(0, y); g.lineTo(w, y); } else for (let x = step + 1; x < w; x += step){ g.moveTo(x, 0); g.lineTo(x, h); }
+    g.stroke();
+    // spoiny pionowe (mijankowo)
+    g.strokeStyle = "rgba(0,0,0,.12)"; g.lineWidth = 0.6; g.beginPath();
+    if (rowsH){ let r = 0; for (let y = 0; y < h; y += step, r++) for (let x = (r % 2) * 3.5; x < w; x += 7){ g.moveTo(x, y); g.lineTo(x, y + step); } }
+    else { let r = 0; for (let x = 0; x < w; x += step, r++) for (let y = (r % 2) * 3.5; y < h; y += 7){ g.moveTo(x, y); g.lineTo(x + step, y); } }
+    g.stroke();
+    // przebarwienia dachówek
+    for (let k = 0; k < 18; k++){ const x = rnd2(k + 100) * w, y = rnd2(k + 120) * h; g.fillStyle = k % 2 ? "rgba(0,0,0,.08)" : "rgba(255,255,255,.06)"; g.fillRect(x, y, 7, step); }
+    // mech
+    if (rnd2(5) < 0.3){ const x = rnd2(6) * w, y = rnd2(7) * h, r = 6 + rnd2(8) * 10, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, "rgba(70,100,40,.35)"); gr.addColorStop(1, "rgba(70,100,40,0)"); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    g.restore();
+  }
+  // grzbiet i narożniki
+  g.lineCap = "round";
+  const ridge = horiz ? (() => { const hh = h / 2, e = Math.min(hh, w / 2); return [[e, hh, w - e, hh], [0, 0, e, hh], [w, 0, w - e, hh], [0, h, e, hh], [w, h, w - e, hh]]; })() : (() => { const hw = w / 2, e = Math.min(hw, h / 2); return [[hw, e, hw, h - e], [0, 0, hw, e], [w, 0, hw, e], [0, h, hw, h - e], [w, h, hw, h - e]]; })();
+  ridge.forEach((L, i) => { g.strokeStyle = shade(col, -0.45); g.lineWidth = i ? 2 : 3.2; g.beginPath(); g.moveTo(L[0], L[1]); g.lineTo(L[2], L[3]); g.stroke(); g.strokeStyle = "rgba(255,255,255,.22)"; g.lineWidth = i ? 0.7 : 1.1; g.beginPath(); g.moveTo(L[0] - 0.6, L[1] - 0.6); g.lineTo(L[2] - 0.6, L[3] - 0.6); g.stroke(); });
+  // rynny
+  g.strokeStyle = "#b0b5ba"; g.lineWidth = 1.6; g.strokeRect(0.8, 0.8, w - 1.6, h - 1.6);
+  g.strokeStyle = "rgba(0,0,0,.4)"; g.lineWidth = 0.8; g.strokeRect(0.2, 0.2, w - 0.4, h - 0.4);
+  // komin
+  if (b.chim){
+    const cx = w * 0.7, cy = h * 0.2, s = 7;
+    g.fillStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.moveTo(cx + s, cy); g.lineTo(cx + s + 7, cy + 7); g.lineTo(cx + s + 7, cy + s + 7); g.lineTo(cx + 7, cy + s + 7); g.lineTo(cx, cy + s); g.lineTo(cx + s, cy + s); g.fill();
+    g.fillStyle = "#8d4b3a"; g.fillRect(cx, cy, s, s); g.strokeStyle = "rgba(0,0,0,.25)"; g.lineWidth = 0.5; g.beginPath(); for (let k = 2; k < s; k += 2.3){ g.moveTo(cx, cy + k); g.lineTo(cx + s, cy + k); } g.stroke();
+    g.fillStyle = "#3b3b3b"; g.fillRect(cx + 1.6, cy + 1.6, s - 3.2, s - 3.2);
+  }
+  // okno dachowe
+  if (rnd2(9) < 0.55 && w > 50 && h > 40){
+    const x = horiz ? w * (0.25 + rnd2(10) * 0.4) : w * 0.15, y = horiz ? h * 0.12 : h * (0.3 + rnd2(11) * 0.3), ww = horiz ? 9 : 7, hh = horiz ? 7 : 9;
+    g.fillStyle = "rgba(0,0,0,.3)"; g.fillRect(x + 1.5, y + 1.5, ww, hh);
+    const gg = g.createLinearGradient(x, y, x + ww, y + hh); gg.addColorStop(0, "#a8c6dc"); gg.addColorStop(1, "#253a52"); g.fillStyle = gg; g.fillRect(x, y, ww, hh);
+    g.strokeStyle = "#e0e0e0"; g.lineWidth = 0.9; g.strokeRect(x, y, ww, hh);
+  }
+}
+function roofHall(g, b, w, h, col, rnd2, PN){
+  const base = mixCol(col, "#9aa3ab", 0.35);
+  g.fillStyle = base; g.fillRect(0, 0, w, h);
+  const along = w >= h;
+  for (let k = 0; along ? k < w : k < h; k += 4){ g.fillStyle = (k / 4) % 2 ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.12)"; along ? g.fillRect(k, 0, 2, h) : g.fillRect(0, k, w, 2); }
+  g.globalAlpha = 0.1; g.fillStyle = PN.roofN; g.fillRect(0, 0, w, h); g.globalAlpha = 1;
+  for (let k = 0; k < 5; k++){ const x = rnd2(k + 200) * w, y = rnd2(k + 210) * h; const gr = g.createLinearGradient(x, y, x, y + 30); gr.addColorStop(0, "rgba(140,70,30,.25)"); gr.addColorStop(1, "rgba(140,70,30,0)"); g.fillStyle = gr; g.fillRect(x, y, 6, 30); }
+  g.fillStyle = "rgba(205,230,245,.5)";
+  if (along){ g.fillRect(10, h * 0.3, w - 20, 6); g.fillRect(10, h * 0.65, w - 20, 6); } else { g.fillRect(w * 0.3, 10, 6, h - 20); g.fillRect(w * 0.65, 10, 6, h - 20); }
+  for (let k = 0; k < 3; k++){ const x = w * (0.2 + k * 0.3), y = h * 0.48; g.fillStyle = "rgba(0,0,0,.3)"; g.beginPath(); g.arc(x + 2, y + 2, 5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#c5cacf"; g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#454b51"; g.beginPath(); g.arc(x, y, 2.5, 0, Math.PI * 2); g.fill(); }
+  g.strokeStyle = "rgba(0,0,0,.4)"; g.lineWidth = 1; g.strokeRect(0.5, 0.5, w - 1, h - 1);
+}
+function roofOverlays(b, X, Y, W2, H2, k){
+  if (b.heli){
+    const r = Math.min(W2, H2) * 0.2, cx = X + W2 * 0.7, cy = Y + H2 * 0.32;
+    ctx.fillStyle = "#3a3f46"; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#e8e8e8"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = "#e8e8e8"; ctx.font = "900 " + (r * 1.1).toFixed(1) + "px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("H", cx, cy + r * 0.05);
+  }
+  if (b.icon === "hosp") plus(X + W2 * 0.2, Y + H2 * 0.32, Math.min(W2, H2) * 0.24, "#d32f2f");
+  if (b.icon === "pharm") plus(X + W2 * 0.5, Y + H2 * 0.28, Math.min(W2, H2) * 0.26, "#2e9e4f");
+  if (b.label){
+    const fs = b.labelSize ? b.labelSize * k : clamp(Math.min(W2, H2) * 0.16, 10, 30);
+    ctx.font = "900 " + fs.toFixed(1) + "px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const ly = b.icon === "pharm" ? Y + H2 * 0.68 : Y + H2 / 2, tw = ctx.measureText(b.label).width;
+    ctx.fillStyle = "rgba(0,0,0,.45)"; rrect(ctx, X + W2 / 2 - tw / 2 - fs * 0.4, ly - fs * 0.72, tw + fs * 0.8, fs * 1.44, fs * 0.3); ctx.fill();
+    ctx.fillStyle = b.labelCol; ctx.fillText(b.label, X + W2 / 2, ly + fs * 0.05);
+  }
+}
+const _drawRoof35 = drawRoof;
+drawRoof = function(b, X, Y, W2, H2, k){
+  if (!GFX.on || SET.quality === "low" || !ROOF2_KINDS.has(b.kind) || b.round) return _drawRoof35(b, X, Y, W2, H2, k);
+  let e = G2.roof.get(b);
+  if (!e){
+    if (G2.built >= 5) return _drawRoof35(b, X, Y, W2, H2, k);
+    G2.built++;
+    try { e = { c: buildRoofSprite(b), last: 0 }; } catch (er) { e = { c: null, last: 0 }; }
+    G2.roof.set(b, e);
+  }
+  e.last = G2.frame;
+  if (!e.c) return _drawRoof35(b, X, Y, W2, H2, k);
+  ctx.drawImage(e.c, X, Y, W2, H2);
+  roofOverlays(b, X, Y, W2, H2, k);
+};
+// ---------- ściany: okna w dzień, okluzja przy ziemi ----------
+const NOWIN = new Set(["hall", "container", "canopy", "pump", "stadium", "ctower", "garage"]);
+drawWall = function(x1, y1, x2, y2, X1, Y1, X2, Y2, col, floors, winOn, b, wi, dark){
+  quad(x1, y1, x2, y2, X2, Y2, X1, Y1, col);
+  if (!GFX.on){ if (floors > 1){ ctx.strokeStyle = "rgba(0,0,0,.13)"; ctx.lineWidth = 1; ctx.beginPath(); for (let f = 1; f < floors; f++){ const t = f / floors; ctx.moveTo(x1 + (X1 - x1) * t, y1 + (Y1 - y1) * t); ctx.lineTo(x2 + (X2 - x2) * t, y2 + (Y2 - y2) * t); } ctx.stroke(); } }
+  else {
+    // okluzja u podstawy i jaśniejszy gzyms
+    const t1 = 0.28;
+    quad(x1, y1, x2, y2, x2 + (X2 - x2) * t1, y2 + (Y2 - y2) * t1, x1 + (X1 - x1) * t1, y1 + (Y1 - y1) * t1, "rgba(0,0,0,.16)");
+    ctx.strokeStyle = "rgba(255,255,255,.16)"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(X1, Y1); ctx.lineTo(X2, Y2); ctx.stroke();
+    if (floors > 1){ ctx.strokeStyle = b.kind === "tower" ? "rgba(170,210,240,.2)" : "rgba(0,0,0,.14)"; ctx.lineWidth = 1; ctx.beginPath(); for (let f = 1; f < floors; f++){ const t = f / floors; ctx.moveTo(x1 + (X1 - x1) * t, y1 + (Y1 - y1) * t); ctx.lineTo(x2 + (X2 - x2) * t, y2 + (Y2 - y2) * t); } ctx.stroke(); }
+    const len = Math.hypot(x2 - x1, y2 - y1), hgt = Math.hypot(X1 - x1, Y1 - y1);
+    if (!NOWIN.has(b.kind) && len > 14 && hgt / floors > 3.2){
+      const fh = hgt / floors, ww = b.kind === "tower" ? 7 : 5, gap = b.kind === "tower" ? 3 : 7;
+      ctx.lineWidth = Math.max(0.8, fh * (b.kind === "tower" ? 0.42 : 0.36));
+      ctx.strokeStyle = b.kind === "tower" ? "rgba(35,62,92,.42)" : "rgba(28,36,48,.36)";
+      ctx.setLineDash([ww, gap]); ctx.beginPath();
+      for (let f = 0; f < floors; f++){ const t = (f + 0.55) / floors, ax = x1 + (X1 - x1) * t, ay = y1 + (Y1 - y1) * t, bx = x2 + (X2 - x2) * t, by = y2 + (Y2 - y2) * t, ux = (bx - ax), uy = (by - ay), l2 = Math.hypot(ux, uy) || 1, m = Math.min(4, l2 * 0.1); ctx.moveTo(ax + ux / l2 * m, ay + uy / l2 * m); ctx.lineTo(bx - ux / l2 * m, by - uy / l2 * m); }
+      ctx.stroke(); ctx.setLineDash([]);
+      if (b.kind === "tower" && dark < 0.3){ ctx.strokeStyle = "rgba(190,220,255,.12)"; ctx.lineWidth = Math.max(1, fh * 0.18); ctx.setLineDash([ww, gap]); ctx.beginPath(); for (let f = 0; f < floors; f++){ const t = (f + 0.75) / floors; ctx.moveTo(x1 + (X1 - x1) * t, y1 + (Y1 - y1) * t); ctx.lineTo(x2 + (X2 - x2) * t, y2 + (Y2 - y2) * t); } ctx.stroke(); ctx.setLineDash([]); }
+    }
+  }
+  if (winOn){
+    const n = Math.max(1, Math.floor(Math.hypot(x2 - x1, y2 - y1) / 16));
+    ctx.fillStyle = "rgba(255,214,120," + (0.75 * dark).toFixed(2) + ")";
+    for (let f = 0; f < floors; f++){
+      const t = (f + 0.5) / floors, ax = x1 + (X1 - x1) * t, ay = y1 + (Y1 - y1) * t, bx = x2 + (X2 - x2) * t, by = y2 + (Y2 - y2) * t;
+      for (let j = 0; j < n; j++){ if (hash3(b.win * 100 + wi, f, j) > 0.33) continue; const u = (j + 0.5) / n; ctx.fillRect(ax + (bx - ax) * u - 2, ay + (by - ay) * u - 1.5, 4, 3); }
+    }
+  }
+};
+// ---------- sprzątanie bufora dachów ----------
+const _render35 = render;
+render = function(){
+  G2.frame++; G2.built = 0;
+  _render35();
+  const max = SET.quality === "high" ? 320 : 220;
+  if (G2.roof.size > max && G2.frame % 30 === 0){ const arr = [...G2.roof.entries()].sort((a, b) => a[1].last - b[1].last); for (let i = 0; i < arr.length - max; i++) G2.roof.delete(arr[i][0]); }
+};
 
 // START
 // =====================================================================
