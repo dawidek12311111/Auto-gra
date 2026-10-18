@@ -1522,6 +1522,31 @@ function gridTown(o){
   gridTown({ name: "Podgórze", icon: "🏔️", x0: WCX - 3660, y0: MOUNT.yb - 2470, nx: 7, ny: 4, bw: 430, bh: 420, square: [4, 1], church: [1, 1], pitch: [[6, 3]], flats: true, seed: 9,
     shops: [["SKLEP", "#2e9e4f"], ["BAR", "#6d4c41", "#5d4037"], ["KIOSK", "#d63b2f", "#eceff1"], ["PIEKARNIA", "#c62828", "#a1887f"], ["OSCYPKI", "#795548", "#ffe0b2"], ["KAWIARNIA", "#8d6e63", "#6d4c41"], ["SPORT", "#1e88e5", "#bbdefb"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["PIZZA", "#c62828", "#ffccbc"], ["POCZTA", "#f9a825", "#78909c"]],
     conn: [(() => { const y = MOUNT.yb - 2470 + 4 * 420, p = roadAt(MOUNT.road, roadNearestS(MOUNT.road, WCX, y).s); return [[WCX - 3660 + 7 * 430 + 30, y], [p[0] - 20, p[1]]]; })()] });
+  // ---- v30: nowe miasteczka na północy, wschodzie, południu i zachodzie ----
+  const ws0 = wseed; wseed = 777001;
+  // Wierchy (północ, za rzeką): łączy się z obwodnicą od północy
+  gridTown({ name: "Wierchy", icon: "⛰️", x0: RB - 2 * 430, y0: 9800, nx: 6, ny: 4, bw: 430, bh: 410, square: [3, 1], church: [5, 0], pitch: [[0, 3]], flats: true, seed: 3,
+    shops: [["SKLEP", "#2e9e4f"], ["KAWIARNIA", "#8d6e63", "#6d4c41"], ["BAR", "#6d4c41", "#5d4037"], ["OSCYPKI", "#795548", "#ffe0b2"], ["SPORT", "#1e88e5", "#bbdefb"], ["PIEKARNIA", "#c62828", "#a1887f"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["PIZZA", "#c62828", "#ffccbc"], ["KIOSK", "#d63b2f", "#eceff1"], ["FRYZJER", "#8e24aa", "#e1bee7"], ["PAMIĄTKI", "#6d4c41", "#ffe082"], ["LODY", "#ec407a", "#f8bbd0"]],
+    conn: [[[RB, 9800 + 4 * 410 + 30], [RB, RA - 260], [RB - 120, RA - 60], [RB - 320, RA]]] });
+  // Zalesie (północny zachód): droga z Podgórza na zachód
+  { const yS = MOUNT.yb - 2470 + 2 * 420;
+    gridTown({ name: "Zalesie", icon: "🐎", x0: 6500, y0: yS - 2 * 400, nx: 5, ny: 3, bw: 430, bh: 400, square: [2, 1], church: [0, 0], pitch: [[4, 2]], flats: true, seed: 7,
+      shops: [["SKLEP", "#2e9e4f"], ["BAR", "#6d4c41", "#5d4037"], ["PIEKARNIA", "#c62828", "#a1887f"], ["WARZYWNIAK", "#558b2f", "#dcedc8"], ["KIOSK", "#d63b2f", "#eceff1"], ["KWIACIARNIA", "#ad1457", "#f8bbd0"], ["MIĘSNY", "#b71c1c", "#ffcdd2"], ["POCZTA", "#f9a825", "#78909c"]],
+      conn: [[[6500 + 5 * 430 + 30, yS], [WCX - 3660 - 30, yS]]] }); }
+  // Zatoka (wschód, za jeziorem): z dołu Jeziorek wzdłuż plaży
+  gridTown({ name: "Zatoka", icon: "⚓", x0: 24800, y0: 23200, nx: 6, ny: 3, bw: 430, bh: 420, square: [2, 1], church: [5, 2], pitch: [[0, 2]], flats: true, seed: 11,
+    shops: [["KAWIARNIA", "#8d6e63", "#6d4c41"], ["LODY", "#ec407a", "#f8bbd0"], ["SURF SHOP", "#00acc1", "#b2ebf2"], ["BAR", "#0277bd", "#4fc3f7"], ["SKLEP", "#2e9e4f"], ["KEBAB", "#ef6c00", "#ffe0b2"], ["PIZZA", "#c62828", "#ffccbc"], ["PAMIĄTKI", "#6d4c41", "#ffe082"], ["OPTYK", "#37474f", "#cfd8dc"], ["BUTY", "#5d4037", "#d7ccc8"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["SKLEP 24h", "#1565c0", "#bbdefb"], ["BANK", "#1565c0", "#cfd8dc"]],
+    conn: [[[RB + RHW + 330 + 2 * 420, WCY + 430 + 7 * 450 + 30], [RB + RHW + 330 + 2 * 420, 22100], [24000, 23620], [24770, 23620]]] });
+  // Brzozów (południe, za polami): przedłużenie ul. Wiejskiej na wschód
+  gridTown({ name: "Brzozów", icon: "🌳", x0: 25200, y0: 30240 - 2 * 420, nx: 6, ny: 4, bw: 430, bh: 420, square: [2, 1], church: [4, 0], pitch: [[5, 3]], flats: true, seed: 13,
+    shops: [["SKLEP", "#2e9e4f"], ["PIEKARNIA", "#c62828", "#a1887f"], ["MIĘSNY", "#b71c1c", "#ffcdd2"], ["BAR", "#6d4c41", "#5d4037"], ["WARZYWNIAK", "#558b2f", "#dcedc8"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["KWIACIARNIA", "#ad1457", "#f8bbd0"], ["FRYZJER", "#8e24aa", "#e1bee7"], ["KEBAB", "#ef6c00", "#ffe0b2"], ["KIOSK", "#d63b2f", "#eceff1"], ["KAWIARNIA", "#8d6e63", "#6d4c41"], ["POCZTA", "#f9a825", "#78909c"]],
+    conn: [[[20760, 30240], [25170, 30240]]] });
+  // Sosnowo (zachód / południowy zachód): odbicie od drogi powiatowej
+  { const yS = 25000 + 2 * 420, p = roadAt(TOWN.county, roadNearestS(TOWN.county, 9600, yS).s);
+    gridTown({ name: "Sosnowo", icon: "🌲", x0: 2400, y0: 25000, nx: 6, ny: 4, bw: 430, bh: 420, square: [3, 1], church: [1, 0], pitch: [[0, 3]], flats: true, seed: 15,
+      shops: [["SKLEP", "#2e9e4f"], ["BAR", "#6d4c41", "#5d4037"], ["PIEKARNIA", "#c62828", "#a1887f"], ["KAWIARNIA", "#8d6e63", "#6d4c41"], ["PIZZA", "#c62828", "#ffccbc"], ["APTEKA", "#2e9e4f", "#90a4ae"], ["KIOSK", "#d63b2f", "#eceff1"], ["FRYZJER", "#8e24aa", "#e1bee7"], ["WARZYWNIAK", "#558b2f", "#dcedc8"], ["MIĘSNY", "#b71c1c", "#ffcdd2"], ["BUTY", "#5d4037", "#d7ccc8"]],
+      conn: [[[2400 + 6 * 430 + 30, yS], [p[0] - 20, p[1]]]] }); }
+  wseed = ws0;
   cleanupTrees();
   const dead = new Set(); let j = 0;
   for (const t of trees){ const inT = TOWNS2.some(T2 => t.x > T2.x0 + 60 && t.x < T2.x1 - 60 && t.y > T2.y0 + 60 && t.y < T2.y1 - 60); if (inT && !t.garden) dead.add(t.x + "," + t.y); else trees[j++] = t; }
@@ -6878,7 +6903,7 @@ function buildInterior(){
     if (!own){
       $("iSub").textContent = h.desc;
       body.appendChild(el("h4", "", "Na sprzedaż · " + fmt(h.price)));
-      addRow("🛏️", "Sypialnia", "Wyśpij się: zdrowie 100 i przeskok do rana lub wieczora", "", null);
+      addRow("🛏️", "Sypialnia", "Śpij do wybranej godziny – twoje firmy zarabiają w tym czasie", "", null);
       addRow("👕", "Garderoba", "Zmieniaj ubranie i fryzurę", "", null);
       addRow("🚗", "Podjazd", "Wyprowadzaj auta z kolekcji prosto pod dom", "", null);
       addRow("📍", "Dom startowy", "Po wypadku i przy starcie gry zaczynasz tutaj", "", null);
@@ -6890,8 +6915,7 @@ function buildInterior(){
       status(); return;
     }
     $("iSub").textContent = (SAVE.home === h.id ? "📍 Twój dom startowy · " : "") + hp;
-    addRow("🛏️", "Śpij do rana", "Zdrowie 100, budzisz się o 8:00", "ŚPIJ", () => { heal(100); hourSkipTo(8); persist(); iStatus = "😴 Wyspany! Dzień dobry."; buildInterior(); });
-    addRow("🌙", "Drzemka do wieczora", "Zdrowie 100, budzisz się o 20:00", "ŚPIJ", () => { heal(100); hourSkipTo(20); persist(); iStatus = "😴 Dobry wieczór, miasto czeka!"; buildInterior(); });
+    sleepBox(body);
     if (SAVE.home !== h.id) addRow("📍", "Ustaw jako dom startowy", "Tu zaczniesz po wypadku", "USTAW", () => { SAVE.home = h.id; persist(); iStatus = "📍 Ustawiono dom startowy."; buildInterior(); });
     body.appendChild(el("h4", "", "👕 Garderoba – kolor ubrania"));
     const box = el("div", "sw8");
@@ -6901,6 +6925,7 @@ function buildInterior(){
     const box2 = el("div", "sw8");
     for (const c of HAIRCOL){ const b = el("button", c === SAVE.outfit.hair ? "on" : ""); b.style.background = c; b.addEventListener("click", () => { SAVE.outfit.hair = c; applyOutfit(); persist(); buildInterior(); }); box2.appendChild(b); }
     body.appendChild(box2);
+    addRow("🙋", "Płeć, fryzura, zarost i okulary", "Pełna zmiana wyglądu w laptopie", "OTWÓRZ 💻", () => lapOpen("hero"));
     body.appendChild(el("h4", "", "🚗 Podjazd – wyprowadź auto z kolekcji"));
     if (!SAVE.col.length) body.appendChild(el("div", "note", "Kolekcja jest pusta – zapisuj auta w garażu."));
     SAVE.col.forEach(cc => addRow(VT[cc.type].bike ? "🏍️" : "🚗", VT[cc.type].name, perfLine(cc), "WYPROWADŹ", () => {
@@ -10038,7 +10063,7 @@ function persona(p){
   pedName(p);
   if (p.pj === undefined){
     p.pj = (Math.random() * PJOBS.length) | 0; p.ph = (Math.random() * PHOBBY.length) | 0;
-    p.age = p.trait === "rich" ? 45 + ((Math.random() * 30) | 0) : 18 + ((Math.random() * 55) | 0);
+    p.age = lookAge(p.name, p.col); if (p.trait === "rich") p.age = Math.max(p.age, 45); { const ej = PJOBS.findIndex(j => j[0] === "emerytem"); if (p.age >= 64 && ej >= 0) p.pj = ej; else if (p.pj === ej) p.age = 64 + ((hrand(p.name + p.col + "e") * 16) | 0); }
     if (PJOBS[p.pj][0] === "emerytem") p.age = Math.max(p.age, 63);
     if (PJOBS[p.pj][0] === "studentem") p.age = Math.min(p.age, 26);
     p.like = p.like || 0; p.topics = {};
@@ -12643,14 +12668,14 @@ function bizDialog(b){
     ], "Na sprzedaż");
     return;
   }
-  const up = s.lvl < 3 ? Math.round(b.price * 0.5 * (s.lvl + 1)) : 0;
+  const up = s.lvl < BIZMAX ? Math.round(b.price * 0.5 * (s.lvl + 1)) : 0;
   const ch = [{ t: "💰 Odbierz kasę (" + fmt(s.cash) + ")", pri: true, fn: () => { const n = Math.floor(s.cash); s.cash -= n; if (n > 0) addMoney(n, b.name.toUpperCase()); persist(); bizDialog(b); } }];
-  if (up) ch.push({ t: "⬆ Rozbudowa " + (s.lvl + 1) + "/3 (" + fmt(up) + "): +50% dochodu", fn: () => { if (SAVE.money < up){ showDialog(w, "Za mało pieniędzy na rozbudowę.", [{ t: "😅" }]); return; } SAVE.money -= up; s.lvl++; persist(); cashSound(); addXP(Math.round(up / 40)); bizDialog(b); } });
+  if (up) ch.push({ t: "⬆ Rozbudowa " + (s.lvl + 1) + "/" + BIZMAX + " (" + fmt(up) + "): +50% dochodu", fn: () => { if (SAVE.money < up){ showDialog(w, "Za mało pieniędzy na rozbudowę.", [{ t: "😅" }]); return; } SAVE.money -= up; s.lvl++; persist(); cashSound(); addXP(Math.round(up / 40)); bizDialog(b); } });
   if (!s.mgr) ch.push({ t: "👔 Zatrudnij menedżera (" + fmt(Math.round(b.price * 0.3)) + ")", fn: () => { const c = Math.round(b.price * 0.3); if (SAVE.money < c){ showDialog(w, "Menedżer kosztuje " + fmt(c) + ".", [{ t: "😅" }]); return; } SAVE.money -= c; s.mgr = true; persist(); showDialog(w, "Menedżer co minutę przelewa 85% zysku prosto na twoją lokatę w banku. Napady przestają cię martwić.", [{ t: "👔" }]); } });
   if (!s.guard && !s.mgr) ch.push({ t: "🛡️ Ochrona (" + fmt(Math.round(b.price * 0.15)) + "): koniec napadów", fn: () => { const c = Math.round(b.price * 0.15); if (SAVE.money < c) return closeDialog(); SAVE.money -= c; s.guard = true; persist(); showDialog(w, "Ochroniarz pilnuje interesu. Złodzieje omijają cię szerokim łukiem.", [{ t: "🛡️" }]); } });
-  ch.push({ t: "🏷️ Sprzedaj (" + fmt(Math.round(b.price * 0.6)) + ")", fn: () => showDialog(w, "Na pewno sprzedać " + b.name + "?", [{ t: "✅ Tak, sprzedaj", fn: () => { addMoney(Math.round(b.price * 0.6) + Math.floor(s.cash), "SPRZEDAŻ FIRMY"); delete SAVE.biz[b.id]; persist(); closeDialog(); } }, { t: "❌ Nie", fn: () => bizDialog(b) }]) });
+  ch.push({ t: "🏷️ Sprzedaj (" + fmt(bizSaleVal(b)) + ")", fn: () => showDialog(w, "Na pewno sprzedać " + b.name + "?", [{ t: "✅ Tak, sprzedaj", fn: () => { addMoney(bizSaleVal(b) + Math.floor(s.cash), "SPRZEDAŻ FIRMY"); delete SAVE.biz[b.id]; persist(); closeDialog(); } }, { t: "❌ Nie", fn: () => bizDialog(b) }]) });
   ch.push({ t: "👋 Wyjdź", fn: closeDialog });
-  showDialog(w, "📊 Poziom rozbudowy: " + s.lvl + "/3 · dochód " + fmt(bizRate(b)) + "/min" + (s.mgr ? " (menedżer → bank)" : "") + "\n💵 Zarobione łącznie: " + fmt(s.earned) + "\n🎁 " + b.perk + (s.mgr ? "" : "\n🧾 Kasa firmy mieści maks. " + fmt(bizCap(b))), ch, "Twoja firma");
+  showDialog(w, "📊 Poziom rozbudowy: " + s.lvl + "/" + BIZMAX + " · dochód " + fmt(bizRate(b)) + "/min" + (s.mgr ? " (menedżer → bank)" : "") + "\n💵 Zarobione łącznie: " + fmt(s.earned) + "\n🎁 " + b.perk + (s.mgr ? "" : "\n🧾 Kasa firmy mieści maks. " + fmt(bizCap(b))), ch, "Twoja firma");
 }
 // premia taxi
 const _addMoneyTaxi = addMoney;
@@ -12761,7 +12786,7 @@ function careerUpdate(dt){
       row('<b>' + owned.length + ' / ' + BIZ.length + ' firm</b> · łączny dochód ok. ' + fmt(total) + ' / min<br><small>Podjedź do znacznika 💼 na mapie, żeby kupić firmę, odebrać kasę albo ją rozbudować.</small>');
       for (const b of BIZ){
         const s = SAVE.biz[b.id];
-        row(b.icon + ' <b>' + esc(b.name) + '</b><br><small>' + (s ? "Twoja · poziom " + s.lvl + "/3 · w kasie " + fmt(s.cash) + (s.mgr ? " · menedżer" : "") + (s.guard ? " · ochrona" : "") + (s.staff && s.staff.length ? " · 👥 " + s.staff.length : "") + " · zarobione " + fmt(s.earned) : "Na sprzedaż: " + fmt(b.price) + " · dochód ok. " + fmt(b.rate) + "/min") + '<br>🎁 ' + esc(b.perk) + '</small>');
+        row(b.icon + ' <b>' + esc(b.name) + '</b><br><small>' + (s ? "Twoja · poziom " + s.lvl + "/" + BIZMAX + " · w kasie " + fmt(s.cash) + (s.mgr ? " · menedżer" : "") + (s.guard ? " · ochrona" : "") + (s.staff && s.staff.length ? " · 👥 " + s.staff.length : "") + " · zarobione " + fmt(s.earned) : "Na sprzedaż: " + fmt(b.price) + " · dochód ok. " + fmt(b.rate) + "/min") + '<br>🎁 ' + esc(b.perk) + '</small>');
       }
     }
   };
@@ -14077,11 +14102,11 @@ function callManager(b){
   const ch = [];
   if (robbed) ch.push({ t: "🚨 Wezwij ochronę!", pri: true, fn: () => { if (Math.random() < 0.55){ bizState.rob = null; addRep(1); showDialog(w, "Ochrona przyjechała w ostatniej chwili! Złodzieje uciekli z pustymi rękami.", [{ t: "😮‍💨", fn: closeDialog }]); } else showDialog(w, "Ochrona nie odbiera! Szefie, musi pan przyjechać sam!", [{ t: "🏃", fn: closeDialog }]); } });
   if (!s.mgr && s.cash >= 1) ch.push({ t: "🏦 Przelej utarg (" + fmt(s.cash * 0.9) + ", prowizja 10%)", pri: !robbed, fn: () => { const n = Math.floor(s.cash * 0.9); s.cash = 0; addMoney(n, "PRZELEW: " + b.name.toUpperCase()); persist(); showDialog(w, "Przelew wysłany! Kasa pusta, zaczynamy od zera.", [{ t: "👍", fn: () => callManager(b) }]); } });
-  ch.push({ t: "📈 Jak idzie interes?", fn: () => showDialog(w, "Dochód: ok. " + fmt(bizRate(b)) + " / min. Zarobione łącznie: " + fmt(s.earned) + ".\nPoziom rozbudowy: " + s.lvl + "/3." + (staff.length ? "\nZałoga: " + staff.map(e => e.name + " (" + e.role + ")").join(", ") + "." : "\nBrakuje nam ludzi! Może zatrudni pan kogoś z ulicy?") + (s.guard ? "\nOchrona pilnuje lokalu." : ""), [{ t: "👍", fn: () => callManager(b) }]) });
+  ch.push({ t: "📈 Jak idzie interes?", fn: () => showDialog(w, "Dochód: ok. " + fmt(bizRate(b)) + " / min. Zarobione łącznie: " + fmt(s.earned) + ".\nPoziom rozbudowy: " + s.lvl + "/" + BIZMAX + "." + (staff.length ? "\nZałoga: " + staff.map(e => e.name + " (" + e.role + ")").join(", ") + "." : "\nBrakuje nam ludzi! Może zatrudni pan kogoś z ulicy?") + (s.guard ? "\nOchrona pilnuje lokalu." : ""), [{ t: "👍", fn: () => callManager(b) }]) });
   if (staff.length) ch.push({ t: "👥 Pracownicy (" + staff.length + "/" + STAFF_MAX + ")", fn: () => staffMenu(b, () => callManager(b)) });
   ch.push({ t: "👋 Rozłącz", fn: phoneBiz });
   const hello = robbed ? "Szefie!!! Mamy napad! Co robić?!" : s.mgr ? pick(["Dzień dobry, szefie. Wszystko pod kontrolą.", "Szefie! Interes się kręci, zyski idą na lokatę."]) : pick(["Halo, szefie? W kasie jest " + fmt(s.cash) + ".", "Dzień dobry! Ruch dziś niezły, w kasie " + fmt(s.cash) + "."]);
-  showDialog(w, hello, ch, "Twoja firma · poziom " + s.lvl + "/3");
+  showDialog(w, hello, ch, "Twoja firma · poziom " + s.lvl + "/" + BIZMAX);
 }
 function phoneNav(){
   const ch = QUICK().slice(0, 9).map(([n, x, y]) => ({ t: n, fn: () => { NAV = { x, y, name: n.slice(n.indexOf(" ") + 1) }; GPS.tgt = null; closeDialog(); popup("🧭 Nawigacja: " + NAV.name, "#5bc0de"); } }));
@@ -15879,6 +15904,644 @@ ACH.push(
   ["tycoon", "🏢", "Magnat nieruchomości", "Kup Biurowiec „Skyline”", 20000, () => !!SAVE.biz.sky],
   ["mil", "💎", "Milioner", "Zgromadź $1 000 000 (gotówka + bank)", 50000, () => SAVE.money + (SAVE.bank || 0) >= 1000000]
 );
+
+// =====================================================================
+// v30: LAPTOP (ZARZĄDZANIE FIRMAMI), SEN Z ZAROBKIEM, PŁEĆ I WYGLĄD
+// BOHATERA, NATURALNY WYGLĄD LUDZI, NOWE MIASTECZKA
+// =====================================================================
+const BIZMAX = 5;
+if (!SAVE.hero || typeof SAVE.hero !== "object" || (SAVE.hero.g !== "m" && SAVE.hero.g !== "f")) SAVE.hero = null;
+const isFemHero = () => !!(SAVE.hero && SAVE.hero.g === "f");
+const HS_M = [["krótkie", "short"], ["z przedziałkiem", "side"], ["na jeża", "buzz"], ["kręcone", "curly"], ["czapka", "cap"], ["łysy", "bald"]];
+const HS_F = [["długie", "long"], ["kucyk", "pony"], ["kok", "bun"], ["bob", "bob"], ["warkocze", "braid"], ["krótkie", "pixie"]];
+const BEARDS = [["bez zarostu", null], ["kilkudniowy", "stub"], ["broda", "full"], ["wąsy", "mus"], ["kozia bródka", "goat"]];
+const GLASSES = [["bez okularów", 0], ["okulary", 1], ["przeciwsłoneczne", 2]];
+const EYES = ["#5b3a1e", "#3b6ea5", "#4e7a3c", "#6b4a2b", "#2d2d2d", "#7a8b99"];
+const LIPS = ["#c2185b", "#d65a6f", "#a63d40", "#e57373", "#b5651d"];
+const DRESSES = ["#c2185b", "#7b1fa2", "#1976d2", "#f9a825", "#2e7d32", "#ef6c00", "#455a64", "#e91e63"];
+const TOPS = ["crew", "v", "shirt", "hood", "turtle"];
+// ---------- deterministyczny wygląd ----------
+function lookAge(name, col){
+  const k = (name || "") + (col || "");
+  return hrand(k + "old") < 0.2 ? 56 + ((hrand(k + "o2") * 26) | 0) : 19 + ((hrand(k + "a") * 36) | 0);
+}
+function ageOf(name, col){
+  const f = SAVE.friends.find(q => q.name === name && q.col === col);
+  return f ? prof(f).age : lookAge(name, col);
+}
+const _profL = prof;
+prof = function(f){ const had = !!f.prof, P = _profL(f); if (!had) P.age = lookAge(f.name, f.col); return P; };
+const normHex = c => (typeof c === "string" && /^#[0-9a-f]{3}$/i.test(c) ? "#" + c[1] + c[1] + c[2] + c[2] + c[3] + c[3] : c);
+function lookFrom(key, fem, hair, age){
+  hair = normHex(hair);
+  const r = k => hrand(key + k);
+  const L = { fem: !!fem, age, h: r("bg"), skin: SKINS[(r("sk") * SKINS.length) | 0] };
+  if (fem){ const v = r("hs"); L.hs = v < 0.32 ? "long" : v < 0.5 ? "pony" : v < 0.62 ? "bun" : v < 0.78 ? "bob" : v < 0.88 ? "braid" : "pixie"; if (age > 60 && (L.hs === "long" || L.hs === "braid")) L.hs = "bob"; }
+  else { const v = r("hs"); L.hs = age > 48 && r("bd") < 0.4 ? "bald" : v < 0.3 ? "short" : v < 0.55 ? "side" : v < 0.72 ? "buzz" : v < 0.86 ? "curly" : "cap"; }
+  L.hc = age >= 68 ? "#e3e3e3" : age >= 56 && r("gr") < 0.75 ? "#9e9e9e" : hair || "#3b2a1a";
+  if (!fem){ const v = r("be"); L.beard = v < 0.16 ? "full" : v < 0.32 ? "stub" : v < 0.41 ? "mus" : v < 0.48 ? "goat" : null; }
+  const g = r("gl"); L.gl = g < (age > 50 ? 0.32 : 0.1) ? 1 : g > 0.95 ? 2 : 0;
+  L.ear = fem && r("er") < 0.6; L.lip = fem && r("lp") < 0.55 ? LIPS[(r("lc") * LIPS.length) | 0] : null;
+  L.dress = fem && r("dr") < 0.33 ? DRESSES[(r("dc") * DRESSES.length) | 0] : null;
+  L.eye = EYES[(r("ey") * EYES.length) | 0]; L.frk = r("fr") < 0.12; L.mole = r("mo") < 0.1;
+  L.top = TOPS[(r("tp") * TOPS.length) | 0]; L.neck = fem && r("nk") < 0.35;
+  L.bp = r("bp") < 0.2 ? ["#2c3e50", "#c0392b", "#16a085", "#7f8c8d", "#f39c12"][(r("bc") * 5) | 0] : null;
+  L.cap = ["#c0392b", "#2c3e50", "#ecf0f1", "#27ae60", "#111"][(r("cc") * 5) | 0];
+  L.pants = ["#2a2a30", "#2c3e66", "#4a3c30", "#1d2a3a", "#555"][(r("pc") * 5) | 0];
+  L.smile = 0.4 + r("sm") * 0.6;
+  return L;
+}
+function heroLook(){
+  const H = SAVE.hero || { g: "m" }, key = JSON.stringify(H) + SAVE.outfit.hair + SAVE.outfit.col;
+  if (heroLook.c && heroLook.k === key) return heroLook.c;
+  const fem = H.g === "f", L = lookFrom("hero", fem, SAVE.outfit.hair, 28);
+  const hsList = fem ? HS_F : HS_M;
+  L.hs = hsList[Math.min(hsList.length - 1, H.hs || 0)][1];
+  L.beard = fem ? null : BEARDS[H.beard || 0][1];
+  L.gl = GLASSES[H.gl || 0][1]; L.skin = SKINS[H.sk || 0] || SKINS[0]; L.hc = SAVE.outfit.hair;
+  L.dress = null; L.bp = null; L.ear = fem; L.lip = fem ? LIPS[1] : null; L.mole = false; L.frk = false; L.top = fem ? "v" : "crew"; L.eye = EYES[H.eye || 0];
+  heroLook.k = key; heroLook.c = L;
+  return L;
+}
+heroLook.k = ""; heroLook.c = null;
+// imiona od razu przy narodzinach – płeć zgodna z wyglądem
+pedName = function(p){
+  if (!p.name){ if (p.fem === undefined) p.fem = Math.random() < 0.5; p.name = pick(p.fem ? NAMES_F : NAMES_M); }
+  return p.name;
+};
+const _makePedL = makePed;
+makePed = function(bx, by, s){ const p = _makePedL(bx, by, s); pedName(p); return p; };
+pedLook = function(p){
+  if (p === player.foot) return heroLook();
+  const key = (p.name || "") + "|" + p.col + "|" + (p.fem ? 1 : 0) + "|" + p.hair + "|" + (p.age || 0);
+  if (!p.gl || p.gl.key !== key){ p.gl = lookFrom((p.name || "?") + p.col, p.fem, p.hair, p.age || ageOf(p.name, p.col)); p.gl.key = key; }
+  return p.gl;
+};
+const _applyOutfitL = applyOutfit;
+applyOutfit = function(){ _applyOutfitL(); player.foot.fem = isFemHero(); };
+// ---------- sylwetka z góry ----------
+function hairBackTop(L){
+  const c = ctx; c.fillStyle = L.hc;
+  if (L.hs === "long"){ c.beginPath(); c.ellipse(-3.1, 0, 4.7, 4.1, 0, 0, Math.PI * 2); c.fill(); }
+  else if (L.hs === "pony"){ c.beginPath(); c.ellipse(-5.7, 0, 2.7, 1.3, 0, 0, Math.PI * 2); c.fill(); }
+  else if (L.hs === "braid"){ c.beginPath(); c.ellipse(-5.3, -1.6, 2.8, 0.9, 0, 0, Math.PI * 2); c.ellipse(-5.3, 1.6, 2.8, 0.9, 0, 0, Math.PI * 2); c.fill(); }
+}
+function hairTopTop(L){
+  const c = ctx, P = Math.PI; c.fillStyle = L.hc;
+  switch (L.hs){
+    case "long": c.beginPath(); c.arc(0.5, 0, 3.75, P * 0.3, P * 1.7); c.fill(); c.beginPath(); c.ellipse(1.6, -3.1, 1.8, 0.9, 0, 0, P * 2); c.ellipse(1.6, 3.1, 1.8, 0.9, 0, 0, P * 2); c.fill(); break;
+    case "pony": case "braid": c.beginPath(); c.arc(0.4, 0, 3.6, P * 0.42, P * 1.58); c.fill(); c.fillStyle = shade(L.hc, -0.3); c.beginPath(); c.arc(-3.3, 0, 0.8, 0, P * 2); c.fill(); break;
+    case "bun": c.beginPath(); c.arc(0.4, 0, 3.6, P * 0.42, P * 1.58); c.fill(); c.beginPath(); c.arc(-3.2, 0, 2, 0, P * 2); c.fill(); c.fillStyle = "rgba(255,255,255,.2)"; c.beginPath(); c.arc(-3.6, -0.6, 0.7, 0, P * 2); c.fill(); break;
+    case "bob": c.beginPath(); c.arc(0.6, 0, 3.95, P * 0.24, P * 1.76); c.fill(); break;
+    case "pixie": c.beginPath(); c.arc(0.5, 0, 3.6, P * 0.36, P * 1.64); c.fill(); c.beginPath(); c.ellipse(2.4, -1.4, 1.2, 1.7, 0.4, 0, P * 2); c.fill(); break;
+    case "short": c.beginPath(); c.arc(0.3, 0, 3.5, P * 0.45, P * 1.55); c.fill(); c.beginPath(); c.arc(0.6, 0, 3, P * 0.7, P * 1.3); c.fill(); break;
+    case "side": c.beginPath(); c.arc(0.6, 0, 3.7, P * 0.35, P * 1.65); c.fill(); c.beginPath(); c.arc(-0.6, 0, 3.2, 0, P * 2); c.fill(); break;
+    case "buzz": c.globalAlpha = 0.6; c.beginPath(); c.arc(0.4, 0, 3.35, P * 0.3, P * 1.7); c.fill(); c.globalAlpha = 1; break;
+    case "curly": c.beginPath(); c.arc(0.3, 0, 3.4, P * 0.45, P * 1.55); c.fill(); for (let i = 0; i < 6; i++){ const a = P * (0.5 + i * 0.2); c.beginPath(); c.arc(0.3 + Math.cos(a) * 3.2, Math.sin(a) * 3.2, 1.2, 0, P * 2); c.fill(); } break;
+    case "cap": c.fillStyle = L.cap; c.beginPath(); c.arc(0.5, 0, 3.6, 0, P * 2); c.fill(); c.fillRect(2.8, -2.6, 2.6, 5.2); c.fillStyle = "rgba(255,255,255,.25)"; c.beginPath(); c.arc(-0.2, -1, 1, 0, P * 2); c.fill(); break;
+    case "bald": c.strokeStyle = L.hc; c.lineWidth = 0.9; c.beginPath(); c.arc(0.6, 0, 3.1, P * 0.6, P * 1.4); c.stroke(); c.fillStyle = "rgba(255,255,255,.35)"; c.beginPath(); c.arc(0, -0.8, 1.3, 0, P * 2); c.fill(); break;
+  }
+  if (L.beard){ c.strokeStyle = L.hc; c.globalAlpha = L.beard === "stub" ? 0.45 : 0.95; c.lineWidth = L.beard === "full" ? 1.5 : 0.9;
+    c.beginPath(); if (L.beard === "mus" || L.beard === "goat") c.arc(0.8, 0, 3.0, -0.18 * P, 0.18 * P); else c.arc(0.8, 0, 3.0, -0.42 * P, 0.42 * P); c.stroke(); c.globalAlpha = 1; }
+  if (L.gl){ c.fillStyle = L.gl === 2 ? "#0b0b0b" : "#222"; c.fillRect(3.5, -2.3, L.gl === 2 ? 1.1 : 0.7, 4.6); }
+  if (L.ear){ c.fillStyle = "#ffd54f"; c.beginPath(); c.arc(0.9, -3.5, 0.55, 0, P * 2); c.arc(0.9, 3.5, 0.55, 0, P * 2); c.fill(); }
+}
+pedBodyNew = function(p, isPlayer){
+  const L = pedLook(p), fast = p.state === "flee" || isPlayer || p.jog || p.state === "thief" || p.state === "copchase";
+  const sw = p.moving ? Math.sin(p.t * (fast ? 14 : 9)) * 3.4 : 0, P = Math.PI;
+  const sv = GFX.sun;
+  if (sv && sv.a > 0.02){ const c = Math.cos(-p.a), s = Math.sin(-p.a), lx = (sv.x * c - sv.y * s) * 5, ly = (sv.x * s + sv.y * c) * 5; ctx.fillStyle = "rgba(10,15,30," + (sv.a * 1.3).toFixed(3) + ")"; ctx.beginPath(); ctx.ellipse(lx, ly, 6, 7.5, 0, 0, P * 2); ctx.fill(); }
+  else { ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(1.5, 2, 5.5, 7.5, 0, 0, P * 2); ctx.fill(); }
+  const fem = L.fem && !p.cop, sh = fem ? 6.5 : 7.6, base = p.col && p.col.charAt(0) === "#" ? p.col : "#555555";
+  // nogi
+  ctx.fillStyle = L.dress ? shade(L.skin, -0.1) : L.pants;
+  rrect(ctx, sw - 2.4, -4.4 + (fem ? 0.5 : 0), 5, fem ? 2.5 : 3, 1.4); ctx.fill(); rrect(ctx, -sw - 2.4, 1.6 + (fem ? 0.3 : 0), 5, fem ? 2.5 : 3, 1.4); ctx.fill();
+  ctx.fillStyle = fem ? "#3a1f1a" : "#1a1a1a"; ctx.fillRect(sw + 2, -4.1, 1.4, 2.2); ctx.fillRect(-sw + 2, 1.9, 1.4, 2.2);
+  if (L.dress){ ctx.fillStyle = shade(L.dress, -0.08); ctx.beginPath(); ctx.ellipse(-0.3, 0, 5.3, 6.1, 0, 0, P * 2); ctx.fill(); }
+  if (L.bp){ ctx.fillStyle = L.bp; rrect(ctx, -6.2, -3.6, 3.4, 7.2, 1.2); ctx.fill(); }
+  // ręce
+  ctx.fillStyle = shade(L.dress || base, -0.18);
+  const ay = sh + 0.9;
+  rrect(ctx, -sw * 0.9 - 1.8, -ay, 4.4, 2.5, 1.2); ctx.fill(); rrect(ctx, sw * 0.9 - 1.8, ay - 2.5, 4.4, 2.5, 1.2); ctx.fill();
+  ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(-sw * 0.9 + 2.8, -ay + 1.3, 1.45, 0, P * 2); ctx.arc(sw * 0.9 + 2.8, ay - 1.3, 1.45, 0, P * 2); ctx.fill();
+  // tułów
+  const tc = L.dress || base, gr = ctx.createLinearGradient(-4, -7, 4, 7); gr.addColorStop(0, shade(tc, 0.18)); gr.addColorStop(1, shade(tc, -0.22));
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(0, 0, fem ? 3.9 : 4.4, sh, 0, 0, P * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 0.6; ctx.stroke();
+  if (p.cop){ ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(0.8, 0, 3.4, 0, P * 2); ctx.fill(); ctx.fillStyle = "#0d1b3a"; ctx.beginPath(); ctx.arc(0.6, 0, 3.6, 0, P * 2); ctx.fill(); ctx.fillRect(2.6, -3, 2.4, 6); ctx.fillStyle = "#ffd400"; ctx.fillRect(1.6, -0.8, 1.6, 1.6); return; }
+  hairBackTop(L);
+  // głowa
+  ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(0.8, 0, fem ? 3.25 : 3.45, 0, P * 2); ctx.fill();
+  hairTopTop(L);
+  ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.beginPath(); ctx.arc(-0.4, -1.2, 1.1, 0, P * 2); ctx.fill();
+};
+// ---------- portret w rozmowie ----------
+function drawFace(g, L, col){
+  const P = Math.PI, sk = L.skin, skD = shade(sk, -0.14), hc = L.hc, fem = L.fem;
+  g.fillStyle = ["#2a2d34", "#2b3440", "#34302a", "#2f2a38", "#28362f"][(L.h * 5) | 0];
+  g.beginPath(); g.arc(56, 56, 56, 0, P * 2); g.fill();
+  g.save(); g.beginPath(); g.arc(56, 56, 56, 0, P * 2); g.clip();
+  const lg = g.createRadialGradient(40, 30, 10, 56, 56, 70); lg.addColorStop(0, "rgba(255,255,255,.10)"); lg.addColorStop(1, "rgba(0,0,0,.15)"); g.fillStyle = lg; g.fillRect(0, 0, 112, 112);
+  // włosy z tyłu
+  g.fillStyle = shade(hc, -0.12);
+  if (L.hs === "long"){ rrect(g, 29, 30, 54, 76, 22); g.fill(); }
+  else if (L.hs === "bob"){ rrect(g, 31, 30, 50, 46, 18); g.fill(); }
+  // ubranie
+  const cl = L.dress || col || "#5bc0de";
+  g.fillStyle = cl; g.beginPath(); g.ellipse(56, 116, fem ? 40 : 47, 38, 0, 0, P * 2); g.fill();
+  g.fillStyle = shade(cl, -0.2); g.beginPath(); g.ellipse(56, 116, fem ? 40 : 47, 38, 0, P * 1.05, P * 1.2); g.lineTo(56, 116); g.fill();
+  // szyja
+  g.fillStyle = skD; g.fillRect(fem ? 49 : 47, 62, fem ? 14 : 18, 22);
+  if (L.top === "v"){ g.fillStyle = skD; g.beginPath(); g.moveTo(45, 80); g.lineTo(67, 80); g.lineTo(56, 96); g.closePath(); g.fill(); }
+  else if (L.top === "shirt"){ g.fillStyle = skD; g.fillRect(50, 80, 12, 8); g.fillStyle = "#f5f5f5"; g.beginPath(); g.moveTo(44, 80); g.lineTo(56, 86); g.lineTo(50, 94); g.closePath(); g.moveTo(68, 80); g.lineTo(56, 86); g.lineTo(62, 94); g.closePath(); g.fill(); }
+  else if (L.top === "hood"){ g.strokeStyle = shade(cl, -0.3); g.lineWidth = 6; g.beginPath(); g.arc(56, 84, 15, P * 0.05, P * 0.95, true); g.stroke(); g.strokeStyle = "#eee"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(51, 88); g.lineTo(50, 100); g.moveTo(61, 88); g.lineTo(62, 100); g.stroke(); }
+  else if (L.top === "turtle"){ g.fillStyle = shade(cl, 0.08); rrect(g, 45, 74, 22, 14, 6); g.fill(); }
+  else { g.fillStyle = skD; g.beginPath(); g.ellipse(56, 82, 10, 5, 0, 0, P); g.fill(); }
+  if (L.neck){ g.strokeStyle = "#ffd54f"; g.lineWidth = 1.3; g.beginPath(); g.arc(56, 76, 10, P * 0.15, P * 0.85); g.stroke(); g.fillStyle = "#ffd54f"; g.beginPath(); g.arc(56, 86, 2, 0, P * 2); g.fill(); }
+  // uszy
+  g.fillStyle = shade(sk, -0.06); g.beginPath(); g.ellipse(35, 54, 4, 6.5, 0, 0, P * 2); g.ellipse(77, 54, 4, 6.5, 0, 0, P * 2); g.fill();
+  // twarz
+  g.fillStyle = sk; g.beginPath(); g.ellipse(56, 51, fem ? 19.5 : 21, fem ? 23 : 24, 0, 0, P * 2); g.fill();
+  if (!fem){ rrect(g, 37, 48, 38, 26, 11); g.fill(); }
+  const sh2 = g.createLinearGradient(36, 0, 76, 0); sh2.addColorStop(0, "rgba(0,0,0,.08)"); sh2.addColorStop(0.5, "rgba(0,0,0,0)"); sh2.addColorStop(1, "rgba(0,0,0,.10)"); g.fillStyle = sh2; g.beginPath(); g.ellipse(56, 51, fem ? 19.5 : 21, fem ? 23 : 24, 0, 0, P * 2); g.fill();
+  if (fem){ g.fillStyle = "rgba(255,110,110,.18)"; g.beginPath(); g.ellipse(43, 61, 5, 3, 0, 0, P * 2); g.ellipse(69, 61, 5, 3, 0, 0, P * 2); g.fill(); }
+  if (L.frk){ g.fillStyle = "rgba(140,80,40,.45)"; for (let i = 0; i < 12; i++){ const a = i * 2.4; g.beginPath(); g.arc(56 + (i % 2 ? 1 : -1) * (7 + (i * 3) % 9), 57 + Math.sin(a) * 3, 0.9, 0, P * 2); g.fill(); } }
+  if (L.mole){ g.fillStyle = "#5d4037"; g.beginPath(); g.arc(66, 64, 1.2, 0, P * 2); g.fill(); }
+  // oczy
+  for (const ex of [48, 64]){
+    g.fillStyle = "#fbfbfb"; g.beginPath(); g.ellipse(ex, 51, 4.6, fem ? 3.1 : 2.7, 0, 0, P * 2); g.fill();
+    g.fillStyle = L.eye; g.beginPath(); g.arc(ex + 0.4, 51.2, 2.3, 0, P * 2); g.fill();
+    g.fillStyle = "#111"; g.beginPath(); g.arc(ex + 0.4, 51.2, 1.1, 0, P * 2); g.fill();
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(ex + 1.2, 50.3, 0.7, 0, P * 2); g.fill();
+    g.strokeStyle = fem ? "#1a1a1a" : "rgba(60,30,20,.6)"; g.lineWidth = fem ? 1.6 : 0.9; g.beginPath(); g.ellipse(ex, 51, 4.6, fem ? 3.1 : 2.7, 0, P * 1.05, P * 1.95); g.stroke();
+    if (fem){ g.lineWidth = 1; g.beginPath(); g.moveTo(ex + (ex < 56 ? -4.4 : 4.4), 50); g.lineTo(ex + (ex < 56 ? -6.2 : 6.2), 48.3); g.stroke(); }
+  }
+  // brwi
+  g.strokeStyle = shade(hc === "#e3e3e3" || hc === "#dddddd" ? "#9e9e9e" : hc, -0.15); g.lineWidth = fem ? 1.7 : 2.8; g.lineCap = "round";
+  g.beginPath(); g.moveTo(43, fem ? 45 : 45.5); g.quadraticCurveTo(48, fem ? 42.2 : 43.5, 53, 44.6); g.moveTo(59, 44.6); g.quadraticCurveTo(64, fem ? 42.2 : 43.5, 69, fem ? 45 : 45.5); g.stroke();
+  // nos
+  g.strokeStyle = shade(sk, -0.28); g.lineWidth = 1.4; g.beginPath(); g.moveTo(56.5, 53); g.quadraticCurveTo(58.5, 59, 55.5, 61); g.stroke();
+  g.fillStyle = "rgba(0,0,0,.12)"; g.beginPath(); g.ellipse(53, 61, 1.4, 0.9, 0, 0, P * 2); g.ellipse(59, 61, 1.4, 0.9, 0, 0, P * 2); g.fill();
+  // usta
+  const sm = L.smile, lc = L.lip || (fem ? "#c9787a" : "#a0574d");
+  if (fem){ g.fillStyle = lc; g.beginPath(); g.moveTo(49, 66.5); g.quadraticCurveTo(56, 63.8, 63, 66.5); g.quadraticCurveTo(56, 71 + sm * 2, 49, 66.5); g.fill(); g.strokeStyle = shade(lc, -0.3); g.lineWidth = 0.8; g.beginPath(); g.moveTo(49.5, 66.6); g.quadraticCurveTo(56, 67.8 + sm, 62.5, 66.6); g.stroke(); }
+  else { g.strokeStyle = lc; g.lineWidth = 2; g.beginPath(); g.moveTo(49, 66); g.quadraticCurveTo(56, 66 + sm * 5, 63, 66); g.stroke(); }
+  // zmarszczki
+  if (L.age >= 48){ g.strokeStyle = "rgba(90,50,30," + (L.age >= 65 ? 0.4 : 0.25) + ")"; g.lineWidth = 0.9; g.beginPath(); g.moveTo(46, 37); g.quadraticCurveTo(56, 35, 66, 37); if (L.age >= 60){ g.moveTo(47, 40); g.quadraticCurveTo(56, 38.5, 65, 40); } g.moveTo(40, 52); g.lineTo(38, 54); g.moveTo(72, 52); g.lineTo(74, 54); g.moveTo(51, 62); g.quadraticCurveTo(48, 66, 49, 69); g.moveTo(61, 62); g.quadraticCurveTo(64, 66, 63, 69); g.stroke(); }
+  // zarost
+  if (L.beard){ g.fillStyle = hc;
+    if (L.beard === "full"){ g.globalAlpha = 0.95; g.beginPath(); g.moveTo(36, 52); g.quadraticCurveTo(37, 80, 56, 82); g.quadraticCurveTo(75, 80, 76, 52); g.lineTo(73, 52); g.quadraticCurveTo(70, 64, 63, 63); g.quadraticCurveTo(56, 61, 49, 63); g.quadraticCurveTo(42, 64, 39, 52); g.closePath(); g.fill(); g.fillStyle = sk; g.beginPath(); g.ellipse(56, 67.5, 6.5, 2.6, 0, 0, P * 2); g.fill(); g.strokeStyle = shade(lc, -0.1); g.lineWidth = 1.8; g.beginPath(); g.moveTo(51, 67.5); g.lineTo(61, 67.5); g.stroke(); }
+    else if (L.beard === "stub"){ g.globalAlpha = 0.28; g.beginPath(); g.moveTo(37, 54); g.quadraticCurveTo(38, 78, 56, 79); g.quadraticCurveTo(74, 78, 75, 54); g.quadraticCurveTo(66, 66, 56, 64); g.quadraticCurveTo(46, 66, 37, 54); g.fill(); }
+    if (L.beard === "mus" || L.beard === "goat" || L.beard === "full"){ g.globalAlpha = 0.95; g.fillStyle = hc; g.beginPath(); g.moveTo(48, 65); g.quadraticCurveTo(56, 59, 64, 65); g.quadraticCurveTo(56, 63.5, 48, 65); g.fill(); }
+    if (L.beard === "goat"){ g.beginPath(); g.ellipse(56, 74, 4.5, 4, 0, 0, P * 2); g.fill(); }
+    g.globalAlpha = 1; }
+  // włosy z przodu
+  g.fillStyle = hc;
+  switch (L.hs){
+    case "long": g.beginPath(); g.ellipse(56, 38, 23.5, 15, 0, P, P * 2); g.fill(); rrect(g, 31, 34, 9, 52, 4); g.fill(); rrect(g, 72, 34, 9, 52, 4); g.fill(); g.strokeStyle = shade(hc, -0.25); g.lineWidth = 1; g.beginPath(); g.moveTo(54, 24); g.quadraticCurveTo(50, 32, 40, 38); g.stroke(); break;
+    case "pony": g.beginPath(); g.ellipse(56, 39, 22.5, 14, 0, P, P * 2); g.fill(); g.beginPath(); g.ellipse(82, 58, 5.5, 15, 0.35, 0, P * 2); g.fill(); g.fillStyle = "#e91e63"; g.beginPath(); g.arc(78, 44, 2.4, 0, P * 2); g.fill(); break;
+    case "bun": g.beginPath(); g.ellipse(56, 39, 22.5, 14, 0, P, P * 2); g.fill(); g.beginPath(); g.arc(56, 21, 9.5, 0, P * 2); g.fill(); break;
+    case "bob": g.beginPath(); g.ellipse(56, 39, 24.5, 15.5, 0, P, P * 2); g.fill(); rrect(g, 31, 34, 10, 38, 5); g.fill(); rrect(g, 71, 34, 10, 38, 5); g.fill(); rrect(g, 38, 28, 36, 12, 5); g.fill(); break;
+    case "braid": g.beginPath(); g.ellipse(56, 39, 22.5, 14, 0, P, P * 2); g.fill(); for (const bx of [36, 76]) for (let i = 0; i < 6; i++){ g.beginPath(); g.ellipse(bx + (bx < 56 ? -1 : 1) * i * 0.5, 62 + i * 7, 4.2, 4.4, 0, 0, P * 2); g.fill(); } break;
+    case "pixie": g.beginPath(); g.ellipse(56, 39, 22.5, 13.5, 0, P, P * 2); g.fill(); g.beginPath(); g.ellipse(47, 35, 14, 6.5, -0.35, 0, P * 2); g.fill(); break;
+    case "short": g.beginPath(); g.ellipse(56, 39, 22.5, 14.5, 0, P, P * 2); g.fill(); rrect(g, 34, 36, 5, 13, 2); g.fill(); rrect(g, 73, 36, 5, 13, 2); g.fill(); break;
+    case "side": g.beginPath(); g.ellipse(56, 38, 23.5, 15.5, 0, P, P * 2); g.fill(); g.beginPath(); g.ellipse(50, 33, 15, 6.5, -0.25, 0, P * 2); g.fill(); rrect(g, 34, 36, 5, 13, 2); g.fill(); rrect(g, 73, 36, 5, 13, 2); g.fill(); g.strokeStyle = shade(hc, 0.25); g.lineWidth = 1; g.beginPath(); g.moveTo(44, 29); g.lineTo(62, 26); g.stroke(); break;
+    case "buzz": g.globalAlpha = 0.55; g.beginPath(); g.ellipse(56, 40, 21.5, 13, 0, P, P * 2); g.fill(); g.globalAlpha = 1; break;
+    case "curly": for (let i = 0; i <= 8; i++){ const a = P + i / 8 * P; g.beginPath(); g.arc(56 + Math.cos(a) * 20, 40 + Math.sin(a) * 13, 7.5, 0, P * 2); g.fill(); } g.beginPath(); g.ellipse(56, 36, 18, 10, 0, 0, P * 2); g.fill(); break;
+    case "bald": g.fillStyle = "rgba(255,255,255,.22)"; g.beginPath(); g.ellipse(50, 33, 7, 4, -0.3, 0, P * 2); g.fill(); g.fillStyle = hc; rrect(g, 34, 42, 5, 12, 2); g.fill(); rrect(g, 73, 42, 5, 12, 2); g.fill(); break;
+    case "cap": g.fillStyle = L.cap; g.beginPath(); g.ellipse(56, 38, 24, 15, 0, P, P * 2); g.fill(); g.fillStyle = shade(L.cap, -0.25); g.beginPath(); g.ellipse(56, 38.5, 27, 5, 0, 0, P); g.fill(); g.fillStyle = "rgba(255,255,255,.25)"; g.beginPath(); g.arc(56, 24, 2, 0, P * 2); g.fill(); g.fillStyle = hc; rrect(g, 34, 39, 5, 10, 2); g.fill(); rrect(g, 73, 39, 5, 10, 2); g.fill(); break;
+  }
+  // okulary
+  if (L.gl === 1){ g.strokeStyle = "#222"; g.lineWidth = 1.8; g.beginPath(); g.arc(48, 51, 6.5, 0, P * 2); g.moveTo(70.5, 51); g.arc(64, 51, 6.5, 0, P * 2); g.moveTo(54.5, 50); g.quadraticCurveTo(56, 48.5, 57.5, 50); g.moveTo(41.5, 50); g.lineTo(36, 49); g.moveTo(70.5, 50); g.lineTo(76, 49); g.stroke(); g.fillStyle = "rgba(255,255,255,.12)"; g.beginPath(); g.arc(48, 51, 6, 0, P * 2); g.arc(64, 51, 6, 0, P * 2); g.fill(); }
+  else if (L.gl === 2){ g.fillStyle = "rgba(15,15,20,.92)"; rrect(g, 40, 45.5, 15, 10, 4); g.fill(); rrect(g, 57, 45.5, 15, 10, 4); g.fill(); g.strokeStyle = "#111"; g.lineWidth = 2; g.beginPath(); g.moveTo(55, 49); g.lineTo(57, 49); g.moveTo(40, 48); g.lineTo(35, 48); g.moveTo(72, 48); g.lineTo(77, 48); g.stroke(); g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(43, 47, 4, 2); g.fillRect(60, 47, 4, 2); }
+  // kolczyki
+  if (L.ear){ g.fillStyle = "#ffd54f"; g.beginPath(); g.arc(35, 62, 2.2, 0, P * 2); g.arc(77, 62, 2.2, 0, P * 2); g.fill(); }
+  g.restore();
+}
+function lookOfW(w){
+  if (w.hero) return heroLook();
+  const p = peds.find(q => q.name === w.name && q.col === w.col && q.gl);
+  if (p) return pedLook(p);
+  return lookFrom((w.name || "?") + w.col, w.fem, w.hair, w.age || ageOf(w.name, w.col));
+}
+drawPortrait = function(w){
+  const cv = $("dPortrait"), g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 112, 112);
+  if (w.item){
+    g.fillStyle = "#2a2d34"; g.beginPath(); g.arc(56, 56, 56, 0, Math.PI * 2); g.fill();
+    g.font = "58px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(w.item, 56, 60);
+    return;
+  }
+  drawFace(g, lookOfW(w), w.col);
+};
+// ---------- cechy charakterystyczne w profilu ----------
+const PSTYLE_M = ["elegancki", "sportowy", "na luzie", "rockowy", "hipsterski", "klasyczny", "roboczy"], PSTYLE_F = ["elegancka", "sportowa", "na luzie", "rockowa", "hipsterska", "klasyczna", "romantyczna"];
+const PMUSIC = ["rock", "disco polo", "pop", "hip-hop", "jazz", "techno", "muzyka klasyczna", "metal", "reggae", "szanty"];
+const PQUIRK_M = ["zawsze się spóźnia", "zna wszystkie plotki z osiedla", "kolekcjonuje stare monety", "nie rusza się bez kawy", "śmieje się najgłośniej w barze", "mówi do swojego auta", "nigdy nie zapomina imion", "nosi skarpetki do sandałów", "gwiżdże przy pracy", "uwielbia dowcipy o teściowej"];
+const PQUIRK_F = ["zawsze się spóźnia", "zna wszystkie plotki z osiedla", "kolekcjonuje kubki z podróży", "nie rusza się bez kawy", "śmieje się najgłośniej w barze", "mówi do swojego kota", "nigdy nie zapomina imion", "ma setkę par butów", "nuci pod nosem", "zawsze ma przy sobie gumę do żucia"];
+const HAIRNAME = { "#2b1d14": ["brunet", "brunetka"], "#3b2a1a": ["brunet", "brunetka"], "#4a3220": ["szatyn", "szatynka"], "#111111": ["czarne włosy", "czarne włosy"], "#c9a35b": ["blondyn", "blondynka"], "#7a4b2a": ["rudy", "ruda"], "#c0392b": ["rudy", "ruda"], "#dddddd": ["platynowe włosy", "platynowa blondynka"] };
+const HSNAME = { long: "długie włosy", pony: "kucyk", bun: "kok", bob: "fryzura na boba", braid: "warkocze", pixie: "krótka fryzura", short: "krótkie włosy", side: "zaczesane na bok włosy", buzz: "włosy na jeża", curly: "kręcone włosy", cap: "czapka z daszkiem", bald: "łysina" };
+function looksLine(name, col, fem, hair, age){
+  hair = normHex(hair);
+  const L = lookFrom((name || "?") + col, fem, hair, age || ageOf(name, col)), k = (name || "") + col;
+  const hn = L.age >= 68 ? (fem ? "siwa" : "siwy") : L.age >= 56 && L.hc === "#9e9e9e" ? (fem ? "szpakowata" : "szpakowaty") : (HAIRNAME[hair] || ["", ""])[fem ? 1 : 0];
+  const bits = [hn, HSNAME[L.hs]];
+  if (L.beard) bits.push({ full: "broda", stub: "kilkudniowy zarost", mus: "wąsy", goat: "kozia bródka" }[L.beard]);
+  if (L.gl) bits.push(L.gl === 2 ? "ciemne okulary" : "okulary");
+  if (L.ear) bits.push("kolczyki"); if (L.frk) bits.push("piegi"); if (L.dress) bits.push("sukienka");
+  const st = (fem ? PSTYLE_F : PSTYLE_M)[(hrand(k + "st") * 7) | 0], mu = PMUSIC[(hrand(k + "mu") * PMUSIC.length) | 0], qu = (fem ? PQUIRK_F : PQUIRK_M)[(hrand(k + "qu") * 10) | 0];
+  return { age: L.age, look: bits.filter(Boolean).join(", "), style: st, music: mu, quirk: qu };
+}
+const _profileTextL = profileText;
+profileText = function(f){
+  const t = _profileTextL(f), q = looksLine(f.name, f.col, f.fem, f.hair), i = t.indexOf("\n");
+  const add = "\n👤 " + q.look + "\n👕 Styl: " + q.style + " · 🎵 " + q.music + "\n✨ " + q.quirk;
+  return i < 0 ? t + add : t.slice(0, i) + add + t.slice(i);
+};
+const TRAITN = { friendly: ["przyjazny", "przyjazna"], grumpy: ["zrzęda", "zrzęda"], shy: ["nieśmiały", "nieśmiała"], talkative: ["gaduła", "gaduła"], rich: ["bogacz", "bogaczka"] };
+const _talkPed30 = talkPed;
+talkPed = function(p){
+  const r = _talkPed30.apply(this, arguments);
+  try {
+    if (state === "talk" && p && p.name && !p.cop && !$("dSub").textContent.includes("👤")){
+      const q = looksLine(p.name, p.col, p.fem, p.hair, p.age), tn = TRAITN[p.trait], cur = $("dSub").textContent;
+      $("dSub").textContent = (cur ? cur + "\n" : "") + "👤 " + q.look + (tn ? " · " + tn[p.fem ? 1 : 0] : "") + " · styl " + q.style + " · 🎵 " + q.music;
+    }
+  } catch (e) {}
+  return r;
+};
+// ---------- gramatyka: bohaterka i rozmówczynie ----------
+const PLL = "A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż";
+const GX = {
+  v2: new RegExp("([" + PLL + "]*ł)(eś|byś)(?![" + PLL + "])", "g"),
+  v2b: new RegExp("((?:^|[^" + PLL + "])(?:[Jj]ak|[Gg]dy|[Żż]e|[Cc]zy|[Aa]|[Oo])?byś\\s+)([" + PLL + "]+ł)(?![" + PLL + "])", "g"),
+  v1: new RegExp("([" + PLL + "]*ł)(em|bym)(?![" + PLL + "])", "g"),
+  v1b: new RegExp("((?:^|[^" + PLL + "])(?:[Jj]ak|[Gg]dy|[Żż]e|[Cc]zy|[Aa]|[Oo])?bym\\s+)([" + PLL + "]+ł)(?![" + PLL + "])", "g"),
+  be2: new RegExp("([Jj]esteś|[Bb]yłaś|[Bb]ędziesz)((?:\\s+[" + PLL + "]+){1,2})", "g"),
+  be1: new RegExp("([Jj]estem|[Bb]yłam|[Bb]ędę)((?:\\s+[" + PLL + "]+){1,2})", "g"),
+  pan: new RegExp("(^|[^" + PLL + "])([Pp])an(a|u|em|ie)?(?![" + PLL + "])(?!\\s+[A-ZĄĆĘŁŃÓŚŹŻ])", "g")
+};
+const NOUN_LEM = new Set(["czoł", "koł", "stoł", "doł", "kanał", "upał", "materiał", "zapał", "szał", "wał", "anioł", "kościoł", "popioł", "orł", "osł", "węgł", "muł", "michał", "rafał", "pawł"]);
+const ADV = new Set(["taki", "bardzo", "naprawdę", "strasznie", "chyba", "serio", "już", "dziś", "dzisiaj", "teraz", "tu", "tutaj", "nadal", "wciąż", "taka", "zbyt", "trochę", "całkiem", "zawsze", "po", "prostu", "mega", "super", "na", "pewno"]);
+const VOC = [[/(^|[^A-Za-ząćęłńóśźż])([Kk])olego(?![a-ząćęłńóśźż])/g, "$1$2oleżanko"], [/(^|[^A-Za-ząćęłńóśźż])([Cc])hłopie(?![a-ząćęłńóśźż])/g, (m, a, c) => a + (c === "C" ? "D" : "d") + "ziewczyno"], [/(^|[^A-Za-ząćęłńóśźż])([Ss])zefie(?![a-ząćęłńóśźż])/g, "$1$2zefowo"], [/(^|[^A-Za-ząćęłńóśźż])([Mm])istrzu(?![a-ząćęłńóśźż])/g, "$1$2istrzyni"], [/(^|[^A-Za-ząćęłńóśźż])([Kk])ochany(?![a-ząćęłńóśźż])/g, "$1$2ochana"], [/(^|[^A-Za-ząćęłńóśźż])([Pp])rzyjacielu(?![a-ząćęłńóśźż])/g, "$1$2rzyjaciółko"], [/(^|[^A-Za-ząćęłńóśźż])([Ss])tary,/g, "$1$2tara,"], [/(^|[^A-Za-ząćęłńóśźż])([Mm])ój drogi(?![a-ząćęłńóśźż])/g, "$1$2oja droga"], [/(^|[^A-Za-ząćęłńóśźż])([Kk])ierowco(?![a-ząćęłńóśźż])/g, "$1$2ierowczyni"]];
+function capLike(src, out){ return src && src[0] !== src[0].toLowerCase() ? out.charAt(0).toUpperCase() + out.slice(1) : out; }
+function femL(m){
+  let r = m.match(/^(.*?)szedł$/i);
+  if (r){ const p = r[1]; return capLike(m, p.toLowerCase() + (p && !/[aeiouyąęó]$/i.test(p) ? "eszła" : "szła")); }
+  if (/ął$/.test(m)) return m.slice(0, -2) + "ęła";
+  r = m.match(/^(.*)ó([^aeiouyąęó]*)ł$/);
+  if (r) return r[1] + "o" + r[2] + "ła";
+  return m + "a";
+}
+function femAdj(words){
+  const parts = words.split(/(\s+)/); let done = false;
+  for (let i = 0; i < parts.length && !done; i++){
+    const w = parts[i]; if (!w || /^\s+$/.test(w)) continue;
+    const lw = w.toLowerCase();
+    if (lw === "taki"){ parts[i] = capLike(w, "taka"); continue; }
+    if (lw === "sam"){ parts[i] = capLike(w, "sama"); done = true; continue; }
+    if (ADV.has(lw)) continue;
+    if (w.length > 3 && /y$/.test(w) && !/^(by|my|wy|ty)$/i.test(w)){ parts[i] = w.slice(0, -1) + "a"; done = true; }
+    else if (w.length > 3 && /[kg]i$/.test(w)){ parts[i] = w.slice(0, -1) + "a"; done = true; }
+    else done = true;
+  }
+  return parts.join("");
+}
+function gText(t, firstFem, secondFem){
+  if (typeof t !== "string" || !t) return t;
+  if (secondFem === true){
+    t = t.replace(GX.v2, (m, a, s) => (NOUN_LEM.has(a.toLowerCase()) || a === "ł" ? m : femL(a) + (s === "eś" ? "ś" : "byś")));
+    t = t.replace(GX.v2b, (m, a, b) => a + femL(b));
+    t = t.replace(GX.be2, (m, a, b) => a + femAdj(b));
+    t = t.replace(GX.pan, (m, pre, P2, suf) => pre + P2 + (suf === "em" ? "anią" : "ani"));
+    for (const [rx, to] of VOC) t = t.replace(rx, to);
+  }
+  if (firstFem === true){
+    t = t.replace(GX.v1, (m, a, s) => (NOUN_LEM.has(a.toLowerCase()) || a === "ł" ? m : femL(a) + (s === "em" ? "m" : "bym")));
+    t = t.replace(GX.v1b, (m, a, b) => a + femL(b));
+    t = t.replace(GX.be1, (m, a, b) => a + femAdj(b));
+  }
+  return t;
+}
+const _showDialogG = showDialog;
+showDialog = function(w, text, choices, sub){
+  w = w || {};
+  try {
+    if ((w.item === "👩" || w.item === "👨") && w.name){
+      let best = null; for (const f of SAVE.friends) if (w.name.includes(f.name) && (!best || f.name.length > best.name.length)) best = f;
+      if (best) w = Object.assign({}, w, { item: null, col: best.col, hair: best.hair, fem: best.fem });
+    }
+    const spF = w.item ? (w.item === "👩" ? true : w.item === "👨" ? false : null) : (w.fem === undefined || w.fem === null ? null : !!w.fem);
+    const hf = isFemHero();
+    text = gText(text, spF, hf);
+    if (hf) sub = gText(sub, null, true);
+    if (choices && choices.length) choices = choices.map(c => (c && typeof c.t === "string" ? Object.assign({}, c, { t: gText(c.t, hf, spF) }) : c));
+  } catch (e) {}
+  return _showDialogG(w, text, choices, sub);
+};
+const _toastG = toast;
+toast = function(msg, ms){ return _toastG(isFemHero() ? gText(msg, null, true) : msg, ms); };
+const _popupG = popup;
+popup = function(txt, col){ return _popupG(isFemHero() ? gText(txt, null, true) : txt, col); };
+const _sayG = say;
+say = function(p, txt, t){
+  if (typeof txt === "string" && p){ txt = p === player.foot ? gText(txt, isFemHero(), null) : gText(txt, p.fem ? true : null, isFemHero()); }
+  return _sayG(p, txt, t);
+};
+// ---------- wybór postaci ----------
+const HERO = { asked: false };
+function setHero(g){
+  SAVE.hero = Object.assign({ hs: 0, beard: 0, gl: 0, sk: 0, eye: 0 }, SAVE.hero || {}, { g });
+  if (g === "f" && SAVE.hero.hs >= HS_F.length) SAVE.hero.hs = 0;
+  applyOutfit(); heroLook.k = ""; persist();
+}
+function heroPick(){
+  showDialog({ name: "Twoja postać", item: "🙋" }, "Kim chcesz grać w mieście?\nWygląd – fryzurę, zarost, okulary i karnację – zmienisz w każdej chwili w laptopie 💻 (zakładka „Postać”).", [
+    { t: "🙋‍♂️ Mężczyzną", pri: true, fn: () => { setHero("m"); closeDialog(); toast("🙋‍♂️ Gotowe! Miłej jazdy.", 2200); } },
+    { t: "🙋‍♀️ Kobietą", pri: true, fn: () => { setHero("f"); closeDialog(); toast("🙋‍♀️ Gotowe! Miłej jazdy.", 2200); } }
+  ], "Nowa postać");
+}
+// ---------- sen z zarobkiem ----------
+function sleepIncome(sec){
+  const steps = Math.max(1, Math.min(240, Math.ceil(sec / 20))), dt = sec / steps, cyc = SET.daynight === "cycle";
+  let till = 0, bank = 0, lost = 0;
+  for (let k = 0; k < steps; k++){
+    if (cyc) gameTime += dt;
+    for (const b of BIZ){
+      const s = SAVE.biz[b.id]; if (!s) continue;
+      const inc = bizRate(b) / 60 * dt; if (!(inc > 0)) continue;
+      if (s.mgr){ SAVE.bank += inc * 0.85; s.earned += inc * 0.85; bank += inc * 0.85; }
+      else { const room = Math.max(0, bizCap(b) - s.cash), a = Math.min(room, inc); s.cash += a; s.earned += a; till += a; lost += inc - a; }
+    }
+  }
+  saveDirty = true;
+  return { till, bank, lost };
+}
+const clockStr = () => { const m = Math.round(hourNow() * 60) % 1440; return Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0"); };
+function sleepNow(H, nap){
+  const cur = hourNow();
+  let hrs = nap || ((H - cur) % 24 + 24) % 24; if (hrs < 0.25) hrs += 24;
+  const sec = hrs * SET.dayLen * 60 / 24, r = sleepIncome(sec);
+  heal(100); persist();
+  const hh = Math.round(hrs * 10) / 10, f = isFemHero();
+  const tot = r.till + r.bank;
+  let msg = "😴 Spał" + (f ? "aś" : "eś") + " " + String(hh).replace(".", ",") + " h" + (SET.daynight === "cycle" ? " – jest " + clockStr() : "") + ".";
+  if (Object.keys(SAVE.biz).length) msg += " Firmy zarobiły w tym czasie " + fmt(tot) + (r.bank > 1 ? " (" + fmt(r.till) + " w kasach, " + fmt(r.bank) + " od menedżerów na konto)" : " – czeka w kasach") + "." + (r.lost > 1 ? " ⚠️ " + fmt(r.lost) + " przepadło przez pełne kasy." : "");
+  else msg += " Kup firmę, a będzie zarabiać, gdy śpisz!";
+  if (SET.daynight !== "cycle") msg += " (zegar stoi – w ustawieniach jest stała pora dnia)";
+  toast(msg, 5000);
+  return msg;
+}
+const SLEEPOPT = [["⏰ do 6:00", 6], ["⏰ do 8:00", 8], ["⏰ do 10:00", 10], ["⏰ do 12:00", 12], ["😴 drzemka 2 h", 0, 2], ["😴 drzemka 4 h", 0, 4], ["🌙 do 20:00", 20]];
+function sleepPreview(H, nap){
+  const cur = hourNow(); let hrs = nap || ((H - cur) % 24 + 24) % 24; if (hrs < 0.25) hrs += 24;
+  let r = 0; for (const b of BIZ){ const s = SAVE.biz[b.id]; if (s) r += bizRate(b); }
+  return [hrs, r / 60 * hrs * SET.dayLen * 60 / 24];
+}
+function sleepBox(body){
+  const n = Object.keys(SAVE.biz).length;
+  body.appendChild(el("h4", "", "🛏️ Sypialnia – idź spać" + (n ? " (firmy zarabiają, gdy śpisz)" : "")));
+  const sb = el("div", "sleepbox");
+  for (const [lab, H, nap] of SLEEPOPT){
+    const pv = sleepPreview(H, nap), b = el("button", "", lab);
+    const sm = el("small", "", Math.round(pv[0] * 10) / 10 + " h" + (n ? " · ~" + fmt(pv[1]) : "")); b.appendChild(el("br")); b.appendChild(sm);
+    b.addEventListener("click", () => { iStatus = sleepNow(H, nap); buildInterior(); });
+    sb.appendChild(b);
+  }
+  body.appendChild(sb);
+  body.appendChild(el("div", "note", "Zdrowie wraca do 100. Firmy z menedżerem przelewają zysk na konto, reszta zbiera się w kasach (do ich pojemności)."));
+}
+// ---------- marketing i poziomy ----------
+const _bizRateMk = bizRate;
+bizRate = function(b){ let r = _bizRateMk(b); const s = SAVE.biz[b.id]; if (s && s.mkt > 0) r *= 1.5; return r; };
+const bizSaleVal = b => { const s = SAVE.biz[b.id]; return Math.round(b.price * 0.6 * (1 + 0.35 * (s ? s.lvl : 0))); };
+const bizUpCost = (b, s) => Math.round(b.price * 0.5 * (s.lvl + 1));
+const bizFixCost = b => Math.round(b.price * 0.03 / 50) * 50 + 50;
+const bizMktCost = b => Math.round(b.price * 0.06 / 50) * 50 + 100;
+// ---------- nowe miasteczka: duże firmy i ACH ----------
+(function newTownBiz(){
+  const T = n => TOWNS2.find(t => t.name === n);
+  const add = (id, name, icon, price, rate, desc, perk, tn, dx, dy) => { const t = T(tn); if (!t || !t.square || BIZ.some(b => b.id === id)) return; const p = freeNear(t.square[0] + dx, t.square[1] + dy); BIZ.push({ id, name, icon, price, rate, desc, perk, x: p[0], y: p[1], cat: "big" }); pois.push({ icon: "💼", name, x: p[0], y: p[1] }); };
+  add("wierchy_sch", "Schronisko „Pod Szczytem”", "🏔️", 95000, 340, "Górskie schronisko z widokiem na szczyty. Turyści płacą za nocleg i szarlotkę.", "Herbata z rumem: +40 zdrowia", "Wierchy", 0, -150);
+  add("wierchy_ski", "Wypożyczalnia nart „Stok”", "🎿", 60000, 230, "Narty, snowboardy i sanki dla turystów.", "Stały dochód", "Wierchy", 150, 120);
+  add("zalesie_horse", "Stadnina „Zalesie”", "🐎", 75000, 270, "Jazda konna, kuligi i obozy dla dzieci.", "Stały dochód", "Zalesie", -150, 120);
+  add("zatoka_marina", "Marina „Zatoka”", "⛵", 130000, 470, "Port jachtowy we wschodniej zatoce. Opłaty za cumowanie płyną cały rok.", "Duży, stały dochód", "Zatoka", 150, -130);
+  add("zatoka_fish", "Smażalnia ryb „Pod Żaglem”", "🐟", 45000, 180, "Smażona ryba z frytkami prosto z łodzi.", "Ryba z frytkami: +30 zdrowia", "Zatoka", -150, 130);
+  add("brzozow_brew", "Browar „Brzozów”", "🍺", 120000, 440, "Rzemieślniczy browar. Piwo z Brzozowa piją w całym regionie.", "Duży, stały dochód", "Brzozów", 0, -150);
+  add("brzozow_mill", "Młyn „Złote Ziarno”", "🌾", 70000, 250, "Mąka dla wszystkich piekarni w okolicy.", "Stały dochód", "Brzozów", 150, 130);
+  add("sosnowo_saw", "Tartak „Sosnowo”", "🪵", 85000, 310, "Drewno z puszczy – deski dla całego miasta.", "Stały dochód", "Sosnowo", -150, -130);
+  add("sosnowo_spa", "Pensjonat „Pod Sosnami”", "🏡", 65000, 240, "Cichy pensjonat dla zmęczonych miastem.", "Nocleg: pełne zdrowie", "Sosnowo", 150, 130);
+})();
+for (const a of ACH) if (a[0] === "towns") a[3] = "Odwiedź wszystkie miasteczka (" + TOWNS2.length + ")";
+// ---------- LAPTOP ----------
+const LAP = { tab: "desk", page: 0, sort: "rate", mpage: 0, msort: "roi", cat: "all", sell: null, msg: "" };
+(function buildLaptop(){
+  const st = document.createElement("style");
+  st.textContent = `#lapWrap{z-index:45}
+  #lapWrap .panel{width:min(760px,100%);background:#15171c;border-color:#3a4050}
+  #lapWrap .phead{background:linear-gradient(#2b3140,#1d2129)}
+  #lapWrap .phead,.ltabs{flex:0 0 auto}
+  #dSub{white-space:pre-line}
+  .ltabs{display:flex;gap:4px;padding:8px 10px 0;overflow-x:auto;border-bottom:1px solid #2e3138;-webkit-overflow-scrolling:touch}
+  .ltabs button{flex:0 0 auto;font:800 13px system-ui;padding:8px 12px;border:0;border-radius:10px 10px 0 0;background:#232730;color:#bbb}
+  .ltabs button.on{background:#ffb300;color:#111}
+  .lgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:10px 0}
+  .lcard{background:#20242c;border-radius:12px;padding:10px}.lcard small{display:block;color:#9aa;font-size:11px;letter-spacing:1px;text-transform:uppercase}.lcard b{font-size:18px;color:#ffd54f}
+  .lrow{background:#1d2027;border:1px solid #2a2e37;border-radius:12px;padding:9px 10px;margin:7px 0}
+  .lrow .t{display:flex;justify-content:space-between;gap:8px;font-size:14px}.lrow .t b{color:#fff}.lrow .s{font-size:12px;color:#aab;margin-top:3px;line-height:1.45}
+  .lbar{height:6px;border-radius:3px;background:#333;margin-top:5px;overflow:hidden}.lbar i{display:block;height:100%;background:#4caf50}
+  .lbtns{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .lbtns button,.lctl button,.lctl select{font:700 12px system-ui;padding:7px 9px;border-radius:9px;border:0;background:#2e3a4f;color:#fff}
+  .lbtns button.g{background:#2e7d32}.lbtns button.r{background:#8e2b2b}.lbtns button.y{background:#9a6b00}.lbtns button:disabled{opacity:.4}
+  .lctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}.lctl .on{background:#ffb300;color:#111}
+  .lmsg{background:#263238;border-left:4px solid #ffb300;padding:8px 10px;border-radius:8px;margin:8px 0;font-size:13px}
+  .lsw{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.lsw button{min-width:34px;height:34px;border-radius:9px;border:2px solid transparent;font:700 12px system-ui;color:#fff;background:#2e3a4f;padding:0 9px}.lsw button.on{border-color:#ffb300}
+  .sleepbox{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 8px}.sleepbox button{font:800 13px system-ui;padding:8px 10px;border-radius:10px;border:0;background:#2e3a4f;color:#fff;line-height:1.2}.sleepbox small{font-weight:600;opacity:.75;font-size:11px}`;
+  document.head.appendChild(st);
+  const wrap = document.createElement("div"); wrap.className = "wrap"; wrap.id = "lapWrap";
+  wrap.innerHTML = '<div class="panel"><div class="phead"><span>💻 LAPTOP · BIZNES</span><button id="lapX" aria-label="Zamknij">✕</button></div><div class="ltabs" id="lapTabs"></div><div class="pbody" id="lapBody"></div></div>';
+  document.body.appendChild(wrap);
+  const btn = document.createElement("button"); btn.className = "sbtn"; btn.id = "lapBtn"; btn.textContent = "💻"; btn.setAttribute("aria-label", "Laptop");
+  $("top").insertBefore(btn, $("phoneBtn") || $("profBtn") || null);
+  let prevSt = null;
+  const open = tab => { if (tab) LAP.tab = tab; prevSt = state; if (state === "play") state = "pause"; LAP.sell = null; LAP.msg = ""; lapRender(); wrap.classList.add("show"); };
+  const close = () => { wrap.classList.remove("show"); if (!$("pause").classList.contains("show") && state === "pause" && prevSt !== "pause"){ state = "play"; last = performance.now(); } };
+  window.lapOpen = open; window.lapClose = close;
+  btn.addEventListener("click", e => { e.stopPropagation(); uiClick(); if (wrap.classList.contains("show")) close(); else open(); });
+  $("lapX").addEventListener("click", () => { uiClick(); close(); });
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  addEventListener("keydown", e => { if ((e.key === "l" || e.key === "L") && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName)){ if (wrap.classList.contains("show")) close(); else if (state === "play") open(); } });
+  $("lapTabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (!b) return; uiClick(); LAP.tab = b.dataset.tab; LAP.sell = null; LAP.msg = ""; lapRender(); $("lapBody").scrollTop = 0; });
+  $("lapBody").addEventListener("click", e => { const b = e.target.closest("button[data-a]"); if (!b || b.disabled) return; uiClick(); lapAct(b.dataset.a, b.dataset.id, b.dataset.v); });
+  $("lapBody").addEventListener("change", e => { const s = e.target.closest("select[data-a]"); if (!s) return; lapAct(s.dataset.a, null, s.value); });
+})();
+const lapEsc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function bizWhere(b){
+  let r = null; try { r = regionOf(b.x, b.y); } catch (e) {}
+  if (r && typeof r === "object") r = r.name || r.label || null;
+  return r || (inCity2(b.x, b.y) ? "🏙️ Miasto" : "🌄 Okolica");
+}
+function lapStats(){
+  const owned = BIZ.filter(b => SAVE.biz[b.id]);
+  let rate = 0, cash = 0, earned = 0, val = 0, full = 0, broken = 0, mgr = 0;
+  for (const b of owned){ const s = SAVE.biz[b.id]; rate += bizRate(b); if (!s.mgr) cash += s.cash; earned += s.earned || 0; val += bizSaleVal(b); if (!s.mgr && s.cash >= bizCap(b) * 0.95) full++; if (s.broken) broken++; if (s.mgr) mgr++; }
+  return { owned, rate, cash, earned, val, full, broken, mgr };
+}
+function lapRender(){
+  const tabs = [["desk", "📊 Pulpit"], ["mine", "🏢 Moje firmy"], ["market", "🛒 Rynek"], ["bank", "🏦 Bank"], ["hero", "🙋 Postać"]];
+  $("lapTabs").innerHTML = tabs.map(([k, n]) => '<button data-tab="' + k + '" class="' + (LAP.tab === k ? "on" : "") + '">' + n + "</button>").join("");
+  const B = $("lapBody"), S = lapStats();
+  let h = LAP.msg ? '<div class="lmsg">' + lapEsc(LAP.msg) + "</div>" : "";
+  const card = (k, v) => '<div class="lcard"><small>' + k + "</small><b>" + v + "</b></div>";
+  if (LAP.tab === "desk"){
+    h += '<div class="lgrid">' + card("Gotówka", fmt(SAVE.money)) + card("Konto w banku", fmt(SAVE.bank || 0)) + card("Firmy", S.owned.length + " / " + BIZ.length) + card("Dochód", fmt(S.rate) + "/min") + card("W kasach firm", fmt(S.cash)) + card("Wartość firm", fmt(S.val)) + card("Zarobione łącznie", fmt(S.earned)) + card("Majątek", fmt(SAVE.money + (SAVE.bank || 0) + S.val + S.cash)) + "</div>";
+    h += '<div class="lbtns"><button class="g" data-a="collectAll"' + (S.cash < 1 ? " disabled" : "") + ">💰 Zbierz utarg ze wszystkich (" + fmt(S.cash * 0.9) + ", prowizja 10%)</button><button data-a=\"tab\" data-v=\"market\">🛒 Kup nową firmę</button><button data-a=\"tab\" data-v=\"bank\">🏦 Bank</button></div>";
+    const al = [];
+    if (S.broken) al.push("🔧 Awaria w " + S.broken + " firm" + (S.broken === 1 ? "ie" : "ach") + " – nie zarabiają! Napraw w zakładce „Moje firmy”.");
+    if (S.full) al.push("📦 Pełne kasy w " + S.full + " firmach – pieniądze przepadają. Zbierz utarg albo zatrudnij menedżerów.");
+    if (bizState.rob) al.push("🚨 Trwa napad na " + bizState.rob.b.name + "!");
+    if (S.owned.length && S.mgr < S.owned.length) al.push("👔 Menedżer w " + S.mgr + "/" + S.owned.length + " firm – z menedżerem zysk sam wpływa na konto (85%).");
+    if (!S.owned.length) al.push("Nie masz jeszcze firm. Zajrzyj na „Rynek” – zakupy online i GPS do każdej firmy.");
+    if (al.length) h += "<h3>Powiadomienia</h3>" + al.map(a => '<div class="lmsg">' + lapEsc(a) + "</div>").join("");
+    const top = S.owned.slice().sort((a, c) => bizRate(c) - bizRate(a)).slice(0, 5);
+    if (top.length) h += "<h3>Najlepiej zarabiają</h3>" + top.map(b => '<div class="lrow"><div class="t"><b>' + b.icon + " " + lapEsc(b.name) + "</b><span>" + fmt(bizRate(b)) + "/min</span></div><div class=\"s\">" + lapEsc(bizWhere(b)) + " · poziom " + SAVE.biz[b.id].lvl + "/" + BIZMAX + "</div></div>").join("");
+    const cats = {}; for (const b of S.owned) if (b.cat && b.cat !== "big") cats[b.cat] = (cats[b.cat] || 0) + 1;
+    const nets = Object.entries(cats).filter(e => e[1] > 1).sort((a, c) => c[1] - a[1]);
+    if (nets.length) h += "<h3>Twoje sieci (premia za kilka firm tej samej branży)</h3><div class=\"s\" style=\"font-size:13px;color:#ccd\">" + nets.map(([c, n]) => n + " × " + lapEsc(CATN[c] || c)).join(" · ") + "</div>";
+  } else if (LAP.tab === "mine"){
+    const list = S.owned.slice(), SORTS = [["rate", "💵 dochód"], ["cash", "📦 kasa"], ["lvl", "⬆ poziom"], ["name", "🔤 nazwa"], ["dist", "📍 odległość"]];
+    const pp = playerPos();
+    const key = { rate: b => -bizRate(b), cash: b => -(SAVE.biz[b.id].cash || 0), lvl: b => -SAVE.biz[b.id].lvl, name: b => b.name, dist: b => Math.hypot(b.x - pp.x, b.y - pp.y) }[LAP.sort];
+    list.sort((a, c) => { const x = key(a), y = key(c); return typeof x === "string" ? x.localeCompare(y) : x - y; });
+    h += '<div class="lctl">Sortuj: ' + SORTS.map(([k, n]) => '<button data-a="sort" data-v="' + k + '" class="' + (LAP.sort === k ? "on" : "") + '">' + n + "</button>").join("") + "</div>";
+    if (!list.length) h += '<div class="lmsg">Nie masz jeszcze żadnej firmy. Kup coś na „Rynku”!</div>';
+    const per = 12, pages = Math.max(1, Math.ceil(list.length / per)); LAP.page = Math.min(LAP.page, pages - 1);
+    for (const b of list.slice(LAP.page * per, LAP.page * per + per)){
+      const s = SAVE.biz[b.id], cap = bizCap(b), up = s.lvl < BIZMAX ? bizUpCost(b, s) : 0, M = SAVE.money;
+      const flags = [s.mgr ? "👔 menedżer" : "", s.guard ? "🛡️ ochrona" : "", s.mkt > 0 ? "📣 reklama " + Math.ceil(s.mkt / 60) + " min" : "", s.broken ? "🔧 AWARIA" : "", s.staff && s.staff.length ? "👥 " + s.staff.length + "/" + STAFF_MAX : ""].filter(Boolean).join(" · ");
+      h += '<div class="lrow"><div class="t"><b>' + b.icon + " " + lapEsc(b.name) + "</b><span>" + "★".repeat(s.lvl) + "☆".repeat(BIZMAX - s.lvl) + "</span></div>";
+      h += '<div class="s">' + lapEsc(bizWhere(b)) + " · " + fmt(bizRate(b)) + "/min · zarobione " + fmt(s.earned || 0) + (flags ? "<br>" + flags : "") + (s.mgr ? "<br>Zysk idzie na konto (85%)" : "<br>W kasie " + fmt(s.cash) + " / " + fmt(cap)) + "</div>";
+      if (!s.mgr) h += '<div class="lbar"><i style="width:' + Math.min(100, s.cash / cap * 100).toFixed(0) + "%;background:" + (s.cash >= cap * 0.95 ? "#e53935" : "#4caf50") + '"></i></div>';
+      h += '<div class="lbtns">';
+      if (!s.mgr) h += '<button class="g" data-a="collect" data-id="' + b.id + '"' + (s.cash < 1 ? " disabled" : "") + ">💰 Odbierz " + fmt(s.cash * 0.9) + "</button>";
+      if (s.broken) h += '<button class="r" data-a="fix" data-id="' + b.id + '"' + (M < bizFixCost(b) ? " disabled" : "") + ">🔧 Napraw " + fmt(bizFixCost(b)) + "</button>";
+      if (up) h += '<button class="y" data-a="up" data-id="' + b.id + '"' + (M < up ? " disabled" : "") + ">⬆ Rozbuduj do " + (s.lvl + 1) + " (" + fmt(up) + ")</button>";
+      if (!s.mgr) h += '<button data-a="mgr" data-id="' + b.id + '"' + (M < b.price * 0.3 ? " disabled" : "") + ">👔 Menedżer " + fmt(Math.round(b.price * 0.3)) + "</button>";
+      if (!s.guard && !s.mgr) h += '<button data-a="guard" data-id="' + b.id + '"' + (M < b.price * 0.15 ? " disabled" : "") + ">🛡️ Ochrona " + fmt(Math.round(b.price * 0.15)) + "</button>";
+      h += '<button data-a="mkt" data-id="' + b.id + '"' + (M < bizMktCost(b) || s.mkt > 600 ? " disabled" : "") + ">📣 Reklama +50% (" + fmt(bizMktCost(b)) + ")</button>";
+      if (s.staff && s.staff.length) h += '<button data-a="staff" data-id="' + b.id + '">👥 Załoga</button>';
+      h += '<button data-a="gps" data-id="' + b.id + '">🧭 GPS</button>';
+      h += LAP.sell === b.id ? '<button class="r" data-a="sellok" data-id="' + b.id + '">✅ Na pewno sprzedać za ' + fmt(bizSaleVal(b) + Math.floor(s.cash)) + "?</button>" : '<button class="r" data-a="sell" data-id="' + b.id + '">🏷️ Sprzedaj</button>';
+      h += "</div>";
+      if (LAP.staff === b.id && s.staff && s.staff.length) h += '<div class="s">' + s.staff.map((e, i) => lapEsc(e.name) + " – " + lapEsc(e.role) + " (+" + Math.round((e.bonus || 0.2) * 100) + "%) <button data-a=\"fire\" data-id=\"" + b.id + "\" data-v=\"" + i + "\" style=\"font:700 11px system-ui;border:0;border-radius:7px;background:#8e2b2b;color:#fff;padding:3px 7px\">zwolnij</button>").join("<br>") + "<br><small>Nowych pracowników zatrudnisz, rozmawiając z ludźmi na ulicy.</small></div>";
+      h += "</div>";
+    }
+    if (pages > 1) h += '<div class="lctl">' + Array.from({ length: pages }, (_, i) => '<button data-a="page" data-v="' + i + '" class="' + (i === LAP.page ? "on" : "") + '">' + (i + 1) + "</button>").join("") + "</div>";
+  } else if (LAP.tab === "market"){
+    const pp = playerPos();
+    let list = BIZ.filter(b => !SAVE.biz[b.id]);
+    const cats = [...new Set(list.map(b => b.cat || "inne"))].sort();
+    if (LAP.cat !== "all") list = list.filter(b => (b.cat || "inne") === LAP.cat);
+    const key = { roi: b => -(b.rate / b.price), price: b => b.price, rate: b => -b.rate, dist: b => Math.hypot(b.x - pp.x, b.y - pp.y) }[LAP.msort];
+    list.sort((a, c) => key(a) - key(c));
+    h += '<div class="lctl">Sortuj: ' + [["roi", "📈 zwrot"], ["rate", "💵 dochód"], ["price", "💲 cena"], ["dist", "📍 blisko"]].map(([k, n]) => '<button data-a="msort" data-v="' + k + '" class="' + (LAP.msort === k ? "on" : "") + '">' + n + "</button>").join("") +
+      ' <select data-a="cat"><option value="all">Wszystkie branże (' + BIZ.filter(b => !SAVE.biz[b.id]).length + ")</option>" + cats.map(c => '<option value="' + c + '"' + (LAP.cat === c ? " selected" : "") + ">" + lapEsc(c === "big" ? "duże inwestycje" : CATN[c] || c) + "</option>").join("") + "</select></div>";
+    h += '<div class="s" style="font-size:12px;color:#99a">Zakup online kosztuje 5% więcej niż na miejscu. Zwrot = ile procent ceny firma zarabia na minutę gry.</div>';
+    const per = 12, pages = Math.max(1, Math.ceil(list.length / per)); LAP.mpage = Math.min(LAP.mpage, pages - 1);
+    for (const b of list.slice(LAP.mpage * per, LAP.mpage * per + per)){
+      const cost = Math.round(b.price * 1.05), d = Math.hypot(b.x - pp.x, b.y - pp.y) / 10;
+      h += '<div class="lrow"><div class="t"><b>' + b.icon + " " + lapEsc(b.name) + "</b><span>" + fmt(b.price) + "</span></div>";
+      h += '<div class="s">' + lapEsc(bizWhere(b)) + " · " + fmtDist(d) + " stąd · dochód " + fmt(b.rate) + "/min · zwrot " + (b.rate / b.price * 100).toFixed(2).replace(".", ",") + "%/min · zwraca się po ok. " + Math.ceil(b.price / b.rate) + " min<br>🎁 " + lapEsc(b.perk || "") + "</div>";
+      h += '<div class="lbtns"><button class="g" data-a="buy" data-id="' + b.id + '"' + (SAVE.money < cost ? " disabled" : "") + ">💼 Kup online " + fmt(cost) + '</button><button data-a="gps" data-id="' + b.id + '">🧭 Jedź tam (bez prowizji)</button></div></div>';
+    }
+    if (!list.length) h += '<div class="lmsg">Wszystko w tej branży jest już twoje! 🎉</div>';
+    if (pages > 1) h += '<div class="lctl">' + Array.from({ length: pages }, (_, i) => '<button data-a="mpage" data-v="' + i + '" class="' + (i === LAP.mpage ? "on" : "") + '">' + (i + 1) + "</button>").join("") + "</div>";
+  } else if (LAP.tab === "bank"){
+    h += '<div class="lgrid">' + card("Gotówka", fmt(SAVE.money)) + card("Konto", fmt(SAVE.bank || 0)) + card("Wpływy od menedżerów", fmt(S.owned.filter(b => SAVE.biz[b.id].mgr).reduce((t, b) => t + bizRate(b) * 0.85, 0)) + "/min") + "</div>";
+    h += '<div class="s" style="font-size:13px;color:#ccd">Przelewy online: wypłata z konta kosztuje 2% prowizji. Wpłata jest darmowa – pieniądze na koncie są bezpieczne, gdy coś pójdzie nie tak na mieście.</div>';
+    const bk = SAVE.bank || 0;
+    h += "<h3>Wypłać na rękę</h3><div class=\"lbtns\">" + [1000, 10000, 50000].map(v => '<button data-a="wd" data-v="' + v + '"' + (bk < v ? " disabled" : "") + ">💸 " + fmt(v) + "</button>").join("") + '<button class="g" data-a="wd" data-v="all"' + (bk < 1 ? " disabled" : "") + ">💸 Wszystko (" + fmt(bk * 0.98) + ")</button></div>";
+    h += "<h3>Wpłać na konto</h3><div class=\"lbtns\">" + [1000, 10000, 50000].map(v => '<button data-a="dep" data-v="' + v + '"' + (SAVE.money < v ? " disabled" : "") + ">🏦 " + fmt(v) + "</button>").join("") + '<button data-a="dep" data-v="all"' + (SAVE.money < 1 ? " disabled" : "") + ">🏦 Wszystko (" + fmt(SAVE.money) + ")</button></div>";
+  } else if (LAP.tab === "hero"){
+    const H = SAVE.hero || { g: "m", hs: 0, beard: 0, gl: 0, sk: 0, eye: 0 }, fem = H.g === "f", hsl = fem ? HS_F : HS_M;
+    const sw = (a, list, cur, lab) => '<div class="lsw">' + list.map((x, i) => '<button data-a="' + a + '" data-v="' + i + '" class="' + (i === cur ? "on" : "") + '">' + lab(x, i) + "</button>").join("") + "</div>";
+    h += '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px"><canvas id="lapFace" width="112" height="112" style="width:112px;height:112px;border-radius:50%"></canvas><div style="font-size:13px;color:#ccd;max-width:380px">Tak wygląda twoja postać w mieście i w rozmowach. Ludzie zwracają się do ciebie zgodnie z wybraną płcią.<br><small>Kolor ubrania i włosów zmienisz też w garderobie w domu.</small></div></div>';
+    h += "<h3>Płeć</h3>" + sw("hg", [["🙋‍♂️ Mężczyzna"], ["🙋‍♀️ Kobieta"]], fem ? 1 : 0, x => x[0]);
+    h += "<h3>Fryzura</h3>" + sw("hs", hsl, Math.min(hsl.length - 1, H.hs || 0), x => x[0]);
+    if (!fem) h += "<h3>Zarost</h3>" + sw("hb", BEARDS, H.beard || 0, x => x[0]);
+    h += "<h3>Okulary</h3>" + sw("hgl", GLASSES, H.gl || 0, x => x[0]);
+    h += "<h3>Karnacja</h3><div class=\"lsw\">" + SKINS.map((c, i) => '<button data-a="hsk" data-v="' + i + '" class="' + (i === (H.sk || 0) ? "on" : "") + '" style="background:' + c + '"></button>').join("") + "</div>";
+    h += "<h3>Kolor oczu</h3><div class=\"lsw\">" + EYES.map((c, i) => '<button data-a="hey" data-v="' + i + '" class="' + (i === (H.eye || 0) ? "on" : "") + '" style="background:' + c + '"></button>').join("") + "</div>";
+    h += "<h3>Kolor włosów</h3><div class=\"lsw\">" + HAIRCOL.map((c, i) => '<button data-a="hhc" data-v="' + i + '" class="' + (c === SAVE.outfit.hair ? "on" : "") + '" style="background:' + c + '"></button>').join("") + "</div>";
+    h += "<h3>Ubranie</h3><div class=\"lsw\">" + OUTFITS.map((c, i) => '<button data-a="hoc" data-v="' + i + '" class="' + (c === SAVE.outfit.col ? "on" : "") + '" style="background:' + c + '"></button>').join("") + "</div>";
+  }
+  B.innerHTML = h;
+  if (LAP.tab === "hero"){ const c = $("lapFace"); if (c) drawFace(c.getContext("2d"), heroLook(), SAVE.outfit.col); }
+}
+function lapAct(a, id, v){
+  const b = id ? BIZ.find(q => q.id === id) : null, s = b ? SAVE.biz[b.id] : null;
+  const pay = c => { if (SAVE.money < c){ LAP.msg = "Za mało gotówki – brakuje " + fmt(c - SAVE.money) + "."; return false; } SAVE.money -= c; saveDirty = true; cashSound(); return true; };
+  LAP.msg = "";
+  switch (a){
+    case "tab": LAP.tab = v; break;
+    case "sort": LAP.sort = v; LAP.page = 0; break;
+    case "page": LAP.page = +v; $("lapBody").scrollTop = 0; break;
+    case "msort": LAP.msort = v; LAP.mpage = 0; break;
+    case "mpage": LAP.mpage = +v; $("lapBody").scrollTop = 0; break;
+    case "cat": LAP.cat = v; LAP.mpage = 0; break;
+    case "collectAll": { const [t, n] = collectAll(); LAP.msg = t ? "Przelew z " + n + " firm: " + fmt(t) + " (prowizja 10%)." : "Kasy są puste."; break; }
+    case "collect": if (s){ const n = Math.floor(s.cash * 0.9); s.cash = 0; if (n > 0) addMoney(n, "UTARG: " + b.name.toUpperCase()); persist(); LAP.msg = "Odebrano " + fmt(n) + " z " + b.name + "."; } break;
+    case "up": if (s && s.lvl < BIZMAX && pay(bizUpCost(b, s))){ s.lvl++; addXP(Math.round(bizUpCost(b, { lvl: s.lvl - 1 }) / 40)); persist(); LAP.msg = "⬆ Rozbudowa zakończona: " + b.name + " – poziom " + s.lvl + "/" + BIZMAX + ", dochód " + fmt(bizRate(b)) + "/min."; } break;
+    case "mgr": if (s && !s.mgr && pay(Math.round(b.price * 0.3))){ s.mgr = true; persist(); LAP.msg = "👔 Menedżer zatrudniony – 85% zysku " + b.name + " trafi prosto na konto."; } break;
+    case "guard": if (s && !s.guard && pay(Math.round(b.price * 0.15))){ s.guard = true; persist(); LAP.msg = "🛡️ Ochrona pilnuje " + b.name + "."; } break;
+    case "fix": if (s && s.broken && pay(bizFixCost(b))){ s.broken = false; if (NAV && NAV.name && NAV.name.startsWith("Awaria")) NAV = null; persist(); LAP.msg = "🔧 Serwis zdalnie usunął awarię – " + b.name + " znowu zarabia."; } break;
+    case "mkt": if (s && pay(bizMktCost(b))){ s.mkt = Math.min(900, (s.mkt || 0) + 300); persist(); LAP.msg = "📣 Kampania reklamowa " + b.name + ": +50% dochodu przez " + Math.ceil(s.mkt / 60) + " min gry."; } break;
+    case "staff": LAP.staff = LAP.staff === id ? null : id; break;
+    case "fire": if (s && s.staff && s.staff[+v]){ const e = s.staff.splice(+v, 1)[0]; persist(); LAP.msg = e.name + " dostaje wypowiedzenie mailem. Smutny dzień."; } break;
+    case "gps": if (b){ NAV = { x: b.x, y: b.y, name: b.name }; GPS.tgt = null; lapClose(); popup("🧭 GPS: " + b.name, "#5bc0de"); return; } break;
+    case "sell": LAP.sell = id; break;
+    case "sellok": if (s){ const val = bizSaleVal(b) + Math.floor(s.cash); delete SAVE.biz[b.id]; addMoney(val, "SPRZEDAŻ FIRMY"); persist(); LAP.sell = null; LAP.msg = "🏷️ Sprzedano " + b.name + " za " + fmt(val) + "."; } break;
+    case "buy": if (b && !s){ const c = Math.round(b.price * 1.05); if (pay(c)){ SAVE.biz[b.id] = { lvl: 0, cash: 0, mgr: false, guard: false, earned: 0, t: Date.now() }; addXP(Math.round(b.price / 40)); persist(); LAP.msg = "🎉 Kupione! " + b.name + " należy teraz do ciebie. Zarządzanie: zakładka „Moje firmy”."; } } break;
+    case "wd": { const bk = SAVE.bank || 0, n = v === "all" ? bk : Math.min(bk, +v); if (n >= 1){ SAVE.bank = bk - n; SAVE.money += Math.floor(n * 0.98); saveDirty = true; persist(); cashSound(); LAP.msg = "💸 Wypłacono " + fmt(n * 0.98) + " (prowizja " + fmt(n * 0.02) + ")."; } break; }
+    case "dep": { const n = v === "all" ? SAVE.money : Math.min(SAVE.money, +v); if (n >= 1){ SAVE.money -= n; SAVE.bank = (SAVE.bank || 0) + n; saveDirty = true; persist(); LAP.msg = "🏦 Wpłacono " + fmt(n) + " na konto."; } break; }
+    case "hg": setHero(+v ? "f" : "m"); break;
+    case "hs": if (!SAVE.hero) setHero("m"); SAVE.hero.hs = +v; break;
+    case "hb": if (!SAVE.hero) setHero("m"); SAVE.hero.beard = +v; break;
+    case "hgl": if (!SAVE.hero) setHero("m"); SAVE.hero.gl = +v; break;
+    case "hsk": if (!SAVE.hero) setHero("m"); SAVE.hero.sk = +v; break;
+    case "hey": if (!SAVE.hero) setHero("m"); SAVE.hero.eye = +v; break;
+    case "hhc": SAVE.outfit.hair = HAIRCOL[+v]; break;
+    case "hoc": SAVE.outfit.col = OUTFITS[+v]; break;
+  }
+  if (a.charAt(0) === "h" && a !== "hg"){ applyOutfit(); persist(); }
+  lapRender();
+}
+// ---------- GPS: mosty i wszystkie drogi przejezdne ----------
+const _gpsPass30 = gpsPass;
+gpsPass = function(){
+  if (GPS.pass) return GPS.pass;
+  const a = _gpsPass30(), c = GPS.cost;
+  for (const R of ROADS){
+    if (!R.pts) continue;
+    const rr = Math.max(18, (R.hw || 30) - 12);
+    for (const p of R.pts) for (let dy = -rr; dy <= rr; dy += 20) for (let dx = -rr; dx <= rr; dx += 20){
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const tx = Math.floor((p[0] + dx) / T), ty = Math.floor((p[1] + dy) / T);
+      if (tx < 1 || ty < 1 || tx >= MW - 1 || ty >= MW - 1) continue;
+      const i = ty * MW + tx; if (!a[i]){ a[i] = 1; c[i] = 2; }
+    }
+  }
+  return a;
+};
+GPS.pass = null;
+// ---------- aktualizacja ----------
+const _regionsUpdate30 = regionsUpdate;
+regionsUpdate = function(dt){
+  _regionsUpdate30(dt);
+  for (const id in SAVE.biz){ const s = SAVE.biz[id]; if (s.mkt > 0){ s.mkt -= dt; if (s.mkt <= 0){ s.mkt = 0; const b = BIZ.find(q => q.id === id); if (b) popup("📣 Koniec reklamy: " + b.name, "#ffb300"); } } }
+  if (!SAVE.hero && !HERO.asked && state === "play"){ HERO.t = (HERO.t || 0) + dt; if (HERO.t > 1.2 && !mission){ HERO.asked = true; heroPick(); } }
+};
+applyOutfit();
 
 // START
 // =====================================================================
