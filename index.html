@@ -273,6 +273,39 @@ body.rail-driving #ui,body.rail-driving #top,body.rail-driving #mapHit{display:n
 .railLogRow button{margin:3px 0;min-height:28px;font-size:11px}
 @media(max-height:430px){#railMirror{top:82px;left:8px;max-width:33vw}#railGroup{bottom:91px}}
 @media(prefers-reduced-motion:reduce){#railMirrorPeople{animation:none!important}}
+
+#subHUD[hidden],#subHUD [hidden],#subSurface[hidden]{display:none!important}
+#subHUD{position:fixed;inset:0;z-index:10;pointer-events:none;color:#edf5f5;font:700 13px system-ui}
+#subHUD button,#subSurface{border:1px solid #89a2a5;border-radius:8px;background:#1b3039;color:#f1f8f8;font:800 12px system-ui;min-height:44px;padding:7px 12px;pointer-events:auto;touch-action:none}
+#subSurface{position:fixed;z-index:8;left:50%;bottom:max(14px,env(safe-area-inset-bottom));transform:translateX(-50%);background:#202d2e;border-color:#e8c470;white-space:normal;width:max-content;max-width:56vw}
+#subTop{position:absolute;inset:9px 9px auto;display:flex;align-items:center;gap:8px}
+#subHead{background:#11252eee;border:1px solid #607981;border-radius:8px;padding:6px 10px}
+#subCount{color:#b6d5db;display:block;font-size:11px}
+#subMapBtn{margin-left:auto}
+#subNotice,#subTask{position:absolute;left:50%;transform:translateX(-50%);text-align:center;color:#ffe099;background:#102530eb;border-radius:7px;padding:4px 9px;width:max-content;max-width:69vw}
+#subNotice{top:65px}#subTask{top:95px}
+#subNotice:empty,#subTask:empty{display:none}
+#subMove{position:absolute;left:10px;bottom:max(10px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,43px);gap:3px}
+#subMove button{padding:0;font-size:18px}
+#subMove button:first-child{grid-column:2}#subMove button:nth-child(2){grid-column:1}
+#subActions{position:absolute;right:10px;bottom:max(10px,env(safe-area-inset-bottom));display:grid;gap:5px;max-width:47vw}
+#subMetro{position:absolute;inset:0;background:#081823cf;display:grid;place-items:center;pointer-events:auto}
+#subMetro section{border:1px solid #80c5d3;background:#152f3b;border-radius:12px;padding:12px;width:min(85vw,410px);text-align:center}
+#subMetro button{margin:3px}
+#subMetroTitle{margin:4px 0 10px}
+
+#subSurface{z-index:12;min-height:52px;top:calc(64px + env(safe-area-inset-top));bottom:auto;box-shadow:0 3px 16px #06151ab0}
+#subDescent[hidden],#subTalk[hidden]{display:none!important}
+#subDescent{z-index:3;position:absolute;inset:0;display:grid;place-items:center;background:#09151de8;pointer-events:auto}
+#subDescent article{color:#f5db93;text-align:center}
+#subLadder{display:block;width:48px;height:85px;margin:10px auto;border-left:4px solid #c8bb96;border-right:4px solid #c8bb96;background:repeating-linear-gradient(0deg,transparent 0 14px,#c8bb96 14px 17px);position:relative}
+#subLadder b{position:absolute;left:12px;top:0;color:#e6ffec;font-size:21px;animation:subDescend .68s ease-in-out both}
+@keyframes subDescend{to{transform:translateY(63px)}}
+#subTalk{z-index:3;position:absolute;inset:0;display:grid;place-items:center;background:#09151cb8;pointer-events:auto}
+#subTalk section{padding:14px 18px;border:1px solid #d3b879;border-radius:12px;background:#192b31;width:min(81vw,405px)}
+#subTalk h2{margin:0;color:#ffe0a1;font-size:18px}
+#subTalk p{line-height:1.45;margin:7px 0 12px;font-weight:600}
+@media(prefers-reduced-motion:reduce){#subLadder b{animation:none}}
 </style>
 </head>
 <body>
@@ -337,6 +370,16 @@ body.rail-driving #ui,body.rail-driving #top,body.rail-driving #mapHit{display:n
   </section>
 </div>
 <div id="railStopBanner" class="railPanel" role="alert" hidden>RADIO-STOP<span>HAMOWANIE AWARYJNE</span></div>
+<button id="subSurface" type="button" hidden></button>
+<div id="subHUD" hidden>
+  <div id="subDescent" hidden><article><span id="subDescentLabel"></span><span id="subLadder" aria-hidden="true"><b>●</b></span></article></div>
+  <div id="subTalk" hidden><section role="dialog" aria-modal="true" aria-labelledby="subTalkTitle"><h2 id="subTalkTitle">Staszek · bywalec kanałów</h2><p id="subTalkText"></p><button id="subTalkClose" type="button">DALEJ W TUNEL</button></section></div>
+  <div id="subTop"><div id="subHead"><span id="subMode"></span><small id="subCount"></small></div><button id="subMapBtn" type="button">MAPA</button></div>
+  <div id="subNotice" role="status"></div><div id="subTask"></div>
+  <div id="subMove" aria-label="Kierunek ruchu"><button data-move="up" aria-label="Naprzód">▲</button><button data-move="left" aria-label="Lewo">◀</button><button data-move="down" aria-label="Wstecz">▼</button><button data-move="right" aria-label="Prawo">▶</button></div>
+  <div id="subActions"><button id="subJob" type="button" hidden></button><button id="subUse" type="button" hidden></button></div>
+  <div id="subMetro" hidden><section aria-labelledby="subMetroTitle" role="dialog" aria-modal="true"><h2 id="subMetroTitle"></h2><div id="subMetroChoices"></div><button id="subExitStation" type="button">NA ULICĘ</button><button id="subCancelMetro" type="button">WRÓĆ DO TUNELU</button></section></div>
+</div>
 <div id="ui">
   <div id="stick"><div id="knob"></div></div>
   <div class="btn" id="talk">💬</div>
@@ -4238,6 +4281,7 @@ function render(){
   drawBusStops(inV);
   drawWorkWorld(inV);
   drawDoors(inV);
+  drawSubSurface(inV);
   drawLifeWorld(inV);
   drawRaceWorld(inV);
   // znacznik celu zlecenia
@@ -5455,7 +5499,7 @@ function drawMapView(){
   const rq = toM(CORE_WORLD / 2, RA);
   g.fillStyle = "#ffd75a"; g.fillText("OBWODNICA", rq[0], rq[1] - size * 0.02);
   g.font = Math.max(11, size * 0.03).toFixed(0) + "px system-ui, sans-serif";
-  for (const o of pois){ const q = toM(o.x, o.y); g.fillText(o.icon, q[0], q[1]); }
+  for (const o of pois){ if(o.subwayAccess)continue;const q = toM(o.x, o.y); g.fillText(o.icon, q[0], q[1]); }
   for (const k of pickups) if (k.special){ const q = toM(k.x, k.y); g.fillText("🎁", q[0], q[1]); }
   for (const c of QCHARS) if (c.ped && pedIcon(c.ped)){ const q = toM(c.ped.x, c.ped.y); g.fillText("❗", q[0], q[1]); }
   for (const f of raceFlags){ const q = toM(f.x, f.y); g.fillText("🏁", q[0], q[1]); }
@@ -5476,6 +5520,7 @@ function drawMapView(){
   }
   if (mission && mission.target){ const q = toM(mission.target[0], mission.target[1]); g.fillStyle = "#ffb300"; g.beginPath(); g.arc(q[0], q[1], 6, 0, Math.PI * 2); g.fill(); }
   gpsMapDraw(g, toM);
+  drawSubSurfaceMap(g,toM,MG);
   g.fillStyle = "#5cd65c";
   for (const k of pickups){ const q = toM(k.x, k.y); g.fillRect(q[0] - 2, q[1] - 2, 4, 4); }
   const pp = playerPos(), q = toM(pp.x, pp.y), a = player.mode === "car" ? player.veh.a : player.foot.a;
@@ -5489,11 +5534,13 @@ function drawMapView(){
   mapButtons(g, MG);
   g.textAlign = "left"; g.font = "900 15px system-ui, sans-serif"; g.fillStyle = "#fff";
   g.fillText("MAPA", 16, 22);
+  g.font="700 11px system-ui"; g.fillStyle="#f2d581";
+  g.fillText("◎ Studzienka   M Metro   ↗ Rampa",16,38);
   g.font = "600 12px system-ui, sans-serif"; g.fillStyle = "rgba(255,255,255,.65)";
-  const leg = ["🚉 kolej", "🏠 mieszkanie", "🏁 wyścig", "⚓ przystań", "🔑 wypożyczalnia", "🍕 pizzeria", "♻️ MPO", "🚌 zajezdnia", "❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
+  const leg = ["◎ studzienka", "M metro", "↗ rampa", "🚉 kolej", "🏠 mieszkanie", "🏁 wyścig", "⚓ przystań", "🔑 wypożyczalnia", "🍕 pizzeria", "♻️ MPO", "🚌 zajezdnia", "❗ zlecenie", "🎁 znalezisko", "🔧 garaż", "🏥 szpital", "💊 apteka", "⛪ kościół", "⛽ stacja", "🛒 market", "🚉 dworzec", "🏫 szkoła", "🏟️ stadion", "🚒 straż", "🏛️ rynek"];
   const lsp = Math.min(20, (h - 60) / leg.length);
   g.font = "600 " + Math.min(12, lsp * 0.75).toFixed(0) + "px system-ui, sans-serif";
-  if (w - size > 260) leg.forEach((t, i) => g.fillText(t, 16, 48 + i * lsp));
+  if (w - size > 260) leg.forEach((t, i) => g.fillText(t,16,55+i*lsp));
   g.textAlign = "center"; g.fillText("dotknij: cel GPS 📍 · przesuń palcem / rozszczyp: przybliżenie · ✕ powrót", w / 2, h - 12);
 }
 // =====================================================================
@@ -19324,6 +19371,624 @@ applyOutfit();
 respawn();
 layoutControls();
 
+// Podziemia zachowują pozycję własnych pojazdów i oddzielają ruch od ulic na powierzchni.
+const SUB_TILE=76, SUB_W=84, SUB_H=48;
+const SUB_FLOOR=new Uint8Array(SUB_W*SUB_H);
+const sub={x:0,y:0,a:0,v:0,ride:null,metro:null,map:false,job:null,target:null,near:null,entry:null};
+const subPoint=(x,y)=>[(x+.5)*SUB_TILE,(y+.5)*SUB_TILE];
+const subDist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+const subHere=()=>[sub.x,sub.y];
+function subRect(x,y,w,h,floor=1){
+  for(let j=y;j<y+h;j++) for(let i=x;i<x+w;i++)
+    if(i>=0&&i<SUB_W&&j>=0&&j<SUB_H) SUB_FLOOR[j*SUB_W+i]=floor;
+}
+function subTunnel(nodes,r=1,floor=1){
+  for(let k=1;k<nodes.length;k++){
+    const [x,y]=nodes[k-1],[u,v]=nodes[k];
+    subRect(Math.min(x,u)-r,Math.min(y,v)-r,Math.abs(x-u)+r*2+1,Math.abs(y-v)+r*2+1,floor);
+  }
+}
+function subGround(x,y){
+  const i=Math.floor(x/SUB_TILE),j=Math.floor(y/SUB_TILE);
+  return i>=0&&i<SUB_W&&j>=0&&j<SUB_H?SUB_FLOOR[j*SUB_W+i]:0;
+}
+subTunnel([[7,11],[24,11],[24,14],[35,14],[48,14],[48,24],[73,24]],2);
+subTunnel([[8,11],[8,23],[20,23],[20,32],[33,32],[33,14]],1);
+subTunnel([[35,14],[35,7],[63,7],[63,24]],1);
+subTunnel([[48,24],[48,36],[73,36],[73,24]],2,2);
+subTunnel([[33,32],[33,40],[63,40],[63,36]],1,3);
+subTunnel([[20,23],[48,23]],1,3);
+subRect(3,7,10,9);subRect(28,10,13,10);subRect(67,19,12,10);
+subRect(29,29,9,8,2);subRect(57,33,10,8,2);subRect(18,7,7,8);
+// Ganek między salą pod Rynkiem a zachodnim kanałem. Próg jest tylko dla pieszych.
+subTunnel([[11,15],[11,17],[17,17],[17,21],[20,21],[20,22]],0,4);
+subRect(13,17,3,2,4);
+const SUB_ALCOVE=subPoint(14,18);
+const SUB_HOST=subPoint(10,14);
+const SUB_AREAS=[[8,11,"Rynek"],[34,14,"Warsztat"],[73,24,"Portowo"],[61,36,"Przepompownia"],[20,23,"Kanał zachodni"],[15,18,"Ganek pod Rynkiem"],[53,7,"Galeria techniczna"]];
+const SUB_ICON={hatch:"◎",metro:"M",ramp:"↗"};
+const SUB_NAMES={hatch:"STUDZIENKA",metro:"METRO",ramp:"RAMPA"};
+const SUB_COL={hatch:"#efc96d",metro:"#79e0ff",ramp:"#a4e99e"};
+function subStreetSpot(x,y,road){
+  const allowed=road?[G_ROAD,G_LOT,G_PAVE]:[G_WALK,G_PAVE,G_LOT,G_CONC,G_GRASS,G_ROAD];
+  for(let r=0;r<=720;r+=24) for(let k=0;k<16;k++){
+    const a=k*Math.PI/8,px=x+Math.cos(a)*r,py=y+Math.sin(a)*r;
+    if(allowed.includes(getGW(px,py))&&!pointBlocked(px,py,road?19:10))return [px,py];
+  }
+  return [x,y];
+}
+const subPort=REGIONAL.find(r=>r.id==="portowo");
+const SUB_PORTALS=[
+  ["rynek-h","hatch","Rynek",[nodePos(1)+85,nodePos(1)+35],[6,13]],
+  ["park-h","hatch","Park Zachodni",[nodePos(3)-75,nodePos(4)+90],[8,23]],
+  ["central-h","hatch","Śródmieście",[nodePos(6)+80,nodePos(5)+170],[23,10]],
+  ["warsztat-h","hatch","Warsztat",[nodePos(9)+100,nodePos(9)+245],[31,17]],
+  ["port-h","hatch","Portowo",[subPort.x+280,subPort.streetY],[73,36]],
+  ["pomp-h","hatch","Nabrzeże",[subPort.x-680,subPort.streetY+350],[62,37]],
+  ["rynek-m","metro","Rynek",[nodePos(2)-100,nodePos(2)+130],[10,10]],
+  ["warsztat-m","metro","Warsztat",[nodePos(9)-190,nodePos(9)-95],[36,12]],
+  ["port-m","metro","Portowo",[subPort.x+490,subPort.streetY+150],[75,22]],
+  ["warsztat-r","ramp","Warsztat",[nodePos(10),nodePos(10)+320],[34,18]],
+  ["port-r","ramp","Portowo",[subPort.x+880,subPort.streetY],[77,25]]
+].map(([id,type,name,surface,cell])=>{
+  const [x,y]=subStreetSpot(...surface,type==="ramp");
+  const [u,v]=subPoint(...cell);
+  pois.push({icon:SUB_ICON[type],name:SUB_NAMES[type]+" · "+name,x,y,subwayAccess:true});
+  return {id,type,name,x,y,u,v};
+});
+const SUB_STATIONS=SUB_PORTALS.filter(p=>p.type==="metro");
+const subGarage=subPoint(32,15),subCourseStart=subPoint(61,34),subDeliveryEnd=subPoint(8,12);
+const SUB_COURSE=[[70,36],[73,27],[51,24],[48,34],[59,36],[61,34]].map(p=>subPoint(...p));
+const subVehicles=[
+  {kind:"scooter",name:"Skuter",color:"#e2ac5c",x:subPoint(31,15)[0],y:subPoint(31,15)[1],a:0},
+  {kind:"quad",name:"Quad",color:"#79ba84",x:subPoint(35,16)[0],y:subPoint(35,16)[1],a:0},
+  {kind:"quad",name:"Quad",color:"#79ba84",x:subPoint(60,34)[0],y:subPoint(60,34)[1],a:0},
+  {kind:"scooter",name:"Skuter",color:"#e2ac5c",x:subPoint(74,25)[0],y:subPoint(74,25)[1],a:0}
+];
+function subDiscovered(){
+  if(!Array.isArray(SAVE.subExits))SAVE.subExits=[];
+  return SAVE.subExits;
+}
+function discoverSub(p){
+  if(!subDiscovered().includes(p.id)){SAVE.subExits.push(p.id);saveDirty=true;return true;}
+  return false;
+}
+let subAccessLatch=null;
+function nearSurfaceSub(){
+  if(state!=="play"||player.mode!=="foot"&&player.mode!=="car"){subAccessLatch=null;return null;}
+  const pp=playerPos();
+  const car=player.mode==="car";
+  if(car&&Math.hypot(pp.vx,pp.vy)>45){subAccessLatch=null;return null;}
+  if(subAccessLatch && (!car||subAccessLatch.type==="ramp") &&
+    Math.hypot(subAccessLatch.x-pp.x,subAccessLatch.y-pp.y)<(car?154:174)) return subAccessLatch;
+  let near=null,best=car?128:145;
+  for(const p of SUB_PORTALS){
+    if(player.mode==="car"&&p.type!=="ramp")continue;
+    const d=Math.hypot(p.x-pp.x,p.y-pp.y);
+    if(d<best){near=p;best=d;}
+  }
+  subAccessLatch=near;return near;
+}
+function enterSub(portal){
+  if(!portal || state!=="play")return;
+  if(mission||race){toast("Zakończ aktywne zlecenie przed wejściem do podziemi.",2500);return;}
+  if(player.mode==="car"){
+    player.veh.driver=null;player.veh.vx=player.veh.vy=0;player.veh=null;player.mode="foot";
+  }
+  sub.entry=portal;sub.x=portal.u;sub.y=portal.v;sub.a=0;sub.v=0;sub.ride=null;sub.metro=null;sub.map=false;sub.target=null;
+  discoverSub(portal);
+  subAccessLatch=null;sub.talk=false;sub.descent=portal.type==="hatch"?.72:0;
+  $("subTalk").hidden=true;
+  $("subDescent").hidden=!sub.descent;
+  if(sub.descent)$("subDescentLabel").textContent="Zejście po drabinie · "+portal.name;
+  state="underground";
+  $("ui").classList.remove("show");$("top").classList.remove("show");
+  $("subHUD").hidden=false;$("subSurface").hidden=true;
+  subMessage(portal.type==="ramp"?"Podziemia · pojazdy czekają w tunelach":"Podziemia · "+portal.name);
+}
+function exitSub(p){
+  const fresh=discoverSub(p);
+  parkSubVehicle();
+  sub.metro=null;sub.map=false;sub.target=null;
+  if(sub.job){sub.job=null;subMessage("");}
+  $("subHUD").hidden=true;$("subMetro").hidden=true;$("subTalk").hidden=true;$("subDescent").hidden=true;
+  state="play";if(isTouch)$("ui").classList.add("show");$("top").classList.add("show");
+  player.mode="foot";
+  Object.assign(player.foot,{x:p.x,y:p.y,a:sub.a,kvx:0,kvy:0});
+  camX=p.x;camY=p.y;lastMode="";last=performance.now();
+  persist();
+  toast(fresh?"Odkryto wyjście · "+p.name:"Powierzchnia · "+p.name,2200);
+}
+function subMessage(message){$("subNotice").textContent=message;sub.noticeT=4;}
+function parkSubVehicle(){
+  if(!sub.ride)return;
+  Object.assign(sub.ride,{x:sub.x,y:sub.y,a:sub.a});
+  sub.ride=null;sub.v=0;
+}
+function nearestSubObject(list,radius,pos){
+  let best=null,min=radius;
+  for(const obj of list){const d=subDist(subHere(),pos(obj));if(d<min){best=obj;min=d;}}
+  return best;
+}
+function subPortalNear(){return nearestSubObject(SUB_PORTALS,62,p=>[p.u,p.v]);}
+function subJobPrompt(){
+  if(sub.job||sub.metro||sub.map)return "";
+  if(sub.ride?.kind==="scooter"&&subDist(subHere(),subGarage)<150)return "DOSTAWA POD RYNEK";
+  if(sub.ride?.kind==="quad"&&subDist(subHere(),subCourseStart)<160)return "PRÓBA QUADA";
+  return "";
+}
+function startSubJob(){
+  const name=subJobPrompt();if(!name)return;
+  sub.job={kind:sub.ride.kind,t:0,cp:0};
+  sub.target=sub.job.kind==="scooter"?subDeliveryEnd:SUB_COURSE[0];
+  subMessage(sub.job.kind==="scooter"?"Paczka odebrana. Jedź pod Rynek.":"Zalicz znaczniki na pętli przepompowni.");
+}
+function updateSubJob(dt){
+  if(!sub.job)return;
+  const job=sub.job;
+  job.t+=dt;
+  if(sub.ride?.kind!==job.kind||subDist(subHere(),sub.target)>64)return;
+  if(job.kind==="quad"&&++job.cp<SUB_COURSE.length){sub.target=SUB_COURSE[job.cp];return;}
+  const pay=job.kind==="quad"?320:250;
+  addMoney(pay,job.kind==="quad"?"Próba quada":"Dostawa podziemna");
+  subMessage((job.kind==="quad"?"Próba ukończona":"Paczka dostarczona")+" · "+Math.ceil(job.t)+" s · +"+fmt(pay));
+  sub.job=null;sub.target=null;
+}
+function openSubMetro(portal){
+  $("subMetroTitle").textContent="Metro · "+portal.name;
+  const list=$("subMetroChoices");
+  list.textContent="";
+  for(const p of SUB_STATIONS){
+    if(p===portal)continue;
+    const btn=el("button","",p.name);btn.type="button";
+    btn.onclick=()=>boardSubMetro(portal,p);
+    list.appendChild(btn);
+  }
+  sub.choosing=portal;$("subMetro").hidden=false;
+}
+function closeSubMetro(){sub.choosing=null;$("subMetro").hidden=true;}
+function boardSubMetro(from,to){
+  parkSubVehicle();sub.v=0;closeSubMetro();sub.map=false;
+  const stops=SUB_STATIONS;
+  const a=stops.indexOf(from),b=stops.indexOf(to),step=Math.sign(b-a);
+  const points=[];
+  for(let i=a;;i+=step){
+    const stop=stops[i];points.push([stop.u,stop.v]);
+    if(i===b)break;
+    const middle=step>0?i:i-1;
+    const corners=middle===0?[subPoint(24,10),subPoint(24,12)]:[subPoint(48,12),subPoint(48,22)];
+    points.push(...(step>0?corners:corners.reverse()));
+  }
+  const lengths=points.slice(1).map((p,i)=>subDist(points[i],p));
+  sub.metro={to,t:0,points,lengths,total:lengths.reduce((a,b)=>a+b,0)};
+  subMessage("Metro · kierunek "+to.name);
+}
+function nearSubHost(){return !sub.ride && subDist(subHere(),SUB_HOST)<78;}
+function talkSubHost(){
+  sub.talk=true;
+  const lines=[
+    "Do kanału zachodniego? Za mną jest niski ganek. Idź za bursztynowymi lampami aż do niebieskiej wody. Skuter zostaw przy głównym tunelu.",
+    "W Przepompowni najlepiej sprawdza się quad. Na mokrym skuter szybko traci prędkość. W Warsztacie znajdziesz oba.",
+    "Szczury chowają się przy pierwszym hałasie. Jeśli słyszysz coś większego za kratą, to pewnie właśnie jedzie metro."
+  ];
+  const n=sub.hostTalks??0;sub.hostTalks=n+1;
+  $("subTalkText").textContent=lines[n%lines.length];
+  $("subTalk").hidden=false;
+}
+function closeSubTalk(){sub.talk=false;$("subTalk").hidden=true;}
+function useSub(){
+  if(sub.map||sub.metro||sub.descent>0)return;
+  if(sub.talk){closeSubTalk();return;}
+  if(nearSubHost()){talkSubHost();return;}
+  if(sub.choosing){closeSubMetro();return;}
+  const p=subPortalNear();
+  if(p){
+    if(p.type==="metro"){openSubMetro(p);return;}
+    exitSub(p);return;
+  }
+  if(sub.ride){parkSubVehicle();return;}
+  const v=nearestSubObject(subVehicles,61,v=>[v.x,v.y]);
+  if(v){sub.ride=v;sub.x=v.x;sub.y=v.y;sub.a=v.a;sub.v=0;subMessage(v.name);}
+}
+const subKeys=Object.create(null);
+const subTouches=new Map();
+function subDown(...names){return names.some(n=>subKeys[n]||[...subTouches.values()].includes(n));}
+addEventListener("keydown",e=>{
+  if(state!=="underground")return;
+  subKeys[e.code]=true;
+  if(!e.repeat){
+    if(["KeyE","Enter"].includes(e.code)&&e.target?.tagName!=="BUTTON")useSub();
+    if(e.code==="KeyB")startSubJob();
+    if(e.code==="Tab" && !sub.talk && !(sub.descent>0)){sub.map=!sub.map;closeSubMetro();}
+    if(e.code==="Escape"){if(sub.talk)closeSubTalk();else if(sub.choosing)closeSubMetro();else if(!(sub.descent>0))sub.map=!sub.map;}
+  }
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab","Escape"].includes(e.code))e.preventDefault();
+});
+addEventListener("keyup",e=>{subKeys[e.code]=false;});
+addEventListener("blur",()=>{for(const k in subKeys)subKeys[k]=false;subTouches.clear();});
+for(const btn of $("subMove").querySelectorAll("button")){
+  btn.addEventListener("pointerdown",e=>{e.preventDefault();btn.setPointerCapture(e.pointerId);subTouches.set(e.pointerId,btn.dataset.move);});
+  for(const name of ["pointerup","pointercancel","lostpointercapture"])btn.addEventListener(name,e=>subTouches.delete(e.pointerId));
+}
+$("subUse").onclick=useSub;
+$("subJob").onclick=startSubJob;
+$("subMapBtn").onclick=()=>{sub.map=!sub.map;closeSubMetro();};
+$("subExitStation").onclick=()=>{if(sub.choosing)exitSub(sub.choosing);};
+$("subCancelMetro").onclick=closeSubMetro;
+$("subTalkClose").onclick=closeSubTalk;
+$("subSurface").addEventListener("pointerdown",e=>{
+  if(e.button!==0)return;
+  const p=subAccessLatch||nearSurfaceSub();
+  if(p){e.preventDefault();e.stopPropagation();enterSub(p);}
+});
+$("subSurface").onclick=()=>enterSub(subAccessLatch||nearSurfaceSub());
+const citySurfaceAction=actionBtn;
+actionBtn=function(){
+  const p=nearSurfaceSub();
+  if(p){enterSub(p);return;}
+  citySurfaceAction();
+};
+function subPass(x,y,r){
+  for(const [a,b] of [[x-r,y],[x+r,y],[x,y-r],[x,y+r]]){
+    const tile=subGround(a,b);
+    if(!tile || (tile===4 && r>=10))return false;
+  }
+  return true;
+}
+function updateSub(dt){
+  if(sub.noticeT>0){sub.noticeT-=dt;if(sub.noticeT<=0)$("subNotice").textContent="";}
+  if(sub.descent>0){
+    sub.descent=Math.max(0,sub.descent-dt);
+    if(!sub.descent)$("subDescent").hidden=true;
+    return;
+  }
+  if(sub.map||sub.choosing||sub.talk)return;
+  animateSubLife(dt);
+  if(sub.metro){
+    const ride=sub.metro;
+    ride.t+=dt;
+    let distance=ride.t*530,i=0;
+    if(distance>=ride.total){
+      sub.x=ride.to.u;sub.y=ride.to.v;sub.v=0;sub.metro=null;
+      discoverSub(ride.to);subMessage("Peron · "+ride.to.name+". Możesz wyjść schodami na ulicę.");
+      return;
+    }
+    while(distance>ride.lengths[i]){distance-=ride.lengths[i++];}
+    const a=ride.points[i],b=ride.points[i+1],f=distance/ride.lengths[i];
+    sub.x=a[0]+(b[0]-a[0])*f;sub.y=a[1]+(b[1]-a[1])*f;sub.a=Math.atan2(b[1]-a[1],b[0]-a[0]);return;
+  }
+  const lr=Number(subDown("ArrowRight","KeyD","right"))-Number(subDown("ArrowLeft","KeyA","left"));
+  const ud=Number(subDown("ArrowDown","KeyS","down"))-Number(subDown("ArrowUp","KeyW","up"));
+  let dx=0,dy=0,r=9;
+  if(sub.ride){
+    const quad=sub.ride.kind==="quad",ground=subGround(sub.x,sub.y);
+    const cap=(quad?235:295)*(ground===3?(quad?.88:.38):ground===2?(quad?.95:.58):1);
+    const desired=ud<0?cap:ud>0?-cap*.24:0;
+    const gain=(ud?quad?220:285:125)*dt;
+    sub.v+=Math.sign(desired-sub.v)*Math.min(Math.abs(desired-sub.v),gain);
+    sub.a+=lr*dt*(sub.v<0?-1:1)*(1.15+Math.min(1,Math.abs(sub.v)/95));
+    dx=Math.cos(sub.a)*sub.v*dt;dy=Math.sin(sub.a)*sub.v*dt;r=quad?15:10;
+  }else if(lr||ud){
+    const m=Math.hypot(lr,ud),cap=subGround(sub.x,sub.y)===3?117:157;
+    dx=lr/m*cap*dt;dy=ud/m*cap*dt;sub.a=Math.atan2(dy,dx);
+  }
+  if(subPass(sub.x+dx,sub.y,r))sub.x+=dx;else sub.v*=.48;
+  if(subPass(sub.x,sub.y+dy,r))sub.y+=dy;else sub.v*=.48;
+  updateSubJob(dt);
+}
+function drawSubSymbol(g,x,y,type,size=14){
+  g.beginPath();g.arc(x,y,size*.76,0,Math.PI*2);g.fillStyle="#101a20";g.fill();
+  g.lineWidth=2;g.strokeStyle=SUB_COL[type];g.stroke();
+  g.fillStyle=SUB_COL[type];g.textAlign="center";g.textBaseline="middle";g.font="900 "+size+"px system-ui";
+  g.fillText(SUB_ICON[type],x,y+.5);
+}
+function drawSubSurface(inV){
+  for(const p of SUB_PORTALS){
+    if(!inV(p.x,p.y,100))continue;
+    ctx.save();
+    if(p.type==="hatch"){
+      ctx.fillStyle="#31383a";ctx.beginPath();ctx.ellipse(p.x,p.y,17,12,0,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle="#a9a58b";ctx.lineWidth=2;ctx.stroke();
+      for(let n=-7;n<=7;n+=7){ctx.beginPath();ctx.moveTo(p.x-10,p.y+n);ctx.lineTo(p.x+10,p.y+n);ctx.stroke();}
+    }
+    if(subAccessLatch===p){
+      ctx.strokeStyle="#ffd47c";ctx.lineWidth=3;ctx.beginPath();
+      ctx.ellipse(p.x,p.y,25+Math.sin(gameTime*5)*2,17,0,0,Math.PI*2);ctx.stroke();
+    }
+    subLine(ctx,[[p.x,p.y-22],[p.x,p.y-9]],SUB_COL[p.type],2);
+    drawSubSymbol(ctx,p.x,p.y-35,p.type,20);
+    const label=SUB_NAMES[p.type];
+    ctx.font="850 12px system-ui";const tw=ctx.measureText(label).width+12;
+    ctx.fillStyle="#101a20";ctx.fillRect(p.x-tw/2,p.y-70,tw,17);
+    ctx.fillStyle=SUB_COL[p.type];ctx.fillText(label,p.x,p.y-61);
+    ctx.restore();
+  }
+}
+function drawSubSurfaceMap(g,toM,MG){
+  g.save();
+  const marked=[];
+  for(const p of SUB_PORTALS){
+    const [x,y]=toM(p.x,p.y);
+    if(x<MG.ox||y<MG.oy||x>MG.ox+MG.size||y>MG.oy+MG.size)continue;
+    // Na oddalonej mapie rozsuń symbole wejść położonych blisko siebie.
+    let lx=x,ly=y;
+    for(let k=0;k<20 && marked.some(q=>Math.hypot(q[0]-lx,q[1]-ly)<17);k++){
+      const a=k*2.4,r=17+Math.floor(k/5)*8;
+      lx=clamp(x+Math.cos(a)*r,MG.ox+9,MG.ox+MG.size-9);
+      ly=clamp(y+Math.sin(a)*r,MG.oy+9,MG.oy+MG.size-9);
+    }
+    marked.push([lx,ly]);
+    if(Math.hypot(lx-x,ly-y)>2){g.strokeStyle=SUB_COL[p.type];g.lineWidth=1;g.beginPath();g.moveTo(x,y);g.lineTo(lx,ly);g.stroke();}
+    drawSubSymbol(g,lx,ly,p.type,11);
+    if(MG.z>=4){
+      g.font="800 10px system-ui";g.strokeStyle="#0a1319";g.lineWidth=3;
+      g.strokeText(SUB_NAMES[p.type],lx,ly-13);g.fillStyle=SUB_COL[p.type];g.fillText(SUB_NAMES[p.type],lx,ly-13);
+    }
+  }
+  g.restore();
+}
+const SUB_METRO_TRACE=[[10,10],[24,10],[24,12],[36,12],[48,12],[48,22],[75,22]].map(p=>subPoint(...p));
+const subMapBitmap=document.createElement("canvas");
+subMapBitmap.width=SUB_W;subMapBitmap.height=SUB_H;
+const subMapPaint=subMapBitmap.getContext("2d");
+for(let y=0;y<SUB_H;y++)for(let x=0;x<SUB_W;x++){
+  const floor=SUB_FLOOR[y*SUB_W+x];
+  if(!floor)continue;
+  subMapPaint.fillStyle=["","#58646a","#765d46","#306477","#a27b55"][floor];subMapPaint.fillRect(x,y,1,1);
+}
+function subLine(g,points,color,width){
+  g.beginPath();points.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.strokeStyle=color;g.lineWidth=width;g.stroke();
+}
+const subLife={t:0,rats:[],metroAt:-1};
+const SUB_RAT_NESTS=[[7,12],[13,17],[8,22],[19,23],[26,23],[34,15],[47,23],[62,36],[73,24]];
+for(const [x,y] of SUB_RAT_NESTS){
+  const [a,b]=subPoint(x,y);
+  for(let i=0;i<3;i++){
+    const angle=i*2.4+x+y;
+    subLife.rats.push({x:a+Math.cos(angle)*13,y:b+Math.sin(angle)*13,a:angle,base:[a,b],flee:0,hide:0,seed:x*3+i});
+  }
+}
+function animateSubLife(dt){
+  subLife.t+=dt;
+  const radius=sub.metro?0:sub.ride?188:87;
+  for(const rat of subLife.rats){
+    const distance=Math.hypot(sub.x-rat.x,sub.y-rat.y);
+    if(rat.hide>0){
+      rat.hide-=dt;
+      if(rat.hide<=0){[rat.x,rat.y]=rat.base;rat.flee=0;}
+      continue;
+    }
+    if(distance<radius){
+      const away=Math.atan2(rat.y-sub.y,rat.x-sub.x);
+      if(rat.flee<=0)rat.a=away+(rat.seed%3-1)*.44;
+      rat.flee=.8;
+    }else rat.flee=Math.max(0,rat.flee-dt);
+    if(rat.flee<=0){
+      const away=Math.hypot(rat.x-rat.base[0],rat.y-rat.base[1]);
+      if(away>54)rat.a=Math.atan2(rat.base[1]-rat.y,rat.base[0]-rat.x);
+      else rat.a+=Math.sin(subLife.t*2+rat.seed)*dt*1.2;
+    }
+    const speed=(rat.flee>0?155:17+Math.sin(subLife.t*3+rat.seed)*8)*dt;
+    const x=rat.x+Math.cos(rat.a)*speed,y=rat.y+Math.sin(rat.a)*speed;
+    if(subPass(x,y,3)){rat.x=x;rat.y=y;}
+    else{rat.a+=1.34+rat.seed%2;if(rat.flee>0 && rat.seed%3===0)rat.hide=2.3;}
+  }
+  const period=Math.floor(subLife.t/31);
+  if(subLife.t%31<.12 && period!==subLife.metroAt){
+    subLife.metroAt=period;
+    const grate=subPoint(12,10);
+    if(subDist(subHere(),grate)<220 && actx){
+      tone(69,actx.currentTime,1.1,"triangle",.06,sfxBus,37);
+      tone(103,actx.currentTime+.14,.75,"sine",.04,sfxBus,55);
+    }
+  }
+}
+function drawSubTexture(g,x,y,px,py,floor){
+  const time=subLife.t, key=(x*197+y*83)%227;
+  if(floor===3){
+    const fx=(time*14+key)%36;
+    g.fillStyle="#80d5ca19";g.fillRect(px+7,py+7,62,17);
+    for(let j=0;j<3;j++){
+      const yy=py+8+j*21;
+      g.strokeStyle=j===1?"#8de6db67":"#5fb2bd45";g.lineWidth=1.25;g.beginPath();
+      g.moveTo(px+fx,yy);
+      g.quadraticCurveTo(px+fx+9,yy+Math.sin(time*2+j)*4,px+fx+20,yy+2);g.stroke();
+    }
+    const ring=(time*11+key)%15;
+    g.strokeStyle="#94d7c643";g.beginPath();g.ellipse(px+54,py+53,ring+1,ring*.37+1,0,0,7);g.stroke();
+    return;
+  }
+  if(x<22 || floor===4){
+    const brick=floor===4?"#2c2324":"#271f24";g.strokeStyle=brick;g.lineWidth=1;
+    for(let row=0;row<=4;row++){
+      const by=py+row*17;
+      g.beginPath();g.moveTo(px,by);g.lineTo(px+76,by);g.stroke();
+      for(let bx=px+((row+y)%2?9:23);bx<px+76;bx+=26){
+        g.beginPath();g.moveTo(bx,by);g.lineTo(bx,Math.min(py+76,by+17));g.stroke();
+      }
+    }
+  }else{
+    g.strokeStyle="#16262b";g.lineWidth=1;g.strokeRect(px+2,py+2,72,72);
+    g.fillStyle="#9aacaa54";g.fillRect(px+4,py+4,2,2);g.fillRect(px+70,py+70,2,2);
+    if((x+y)%4===1){g.fillStyle="#887a5a35";g.fillRect(px+18,py+33,26,5);}
+  }
+  if(key%4===0){
+    g.fillStyle="#182e3c99";g.beginPath();g.ellipse(px+43,py+45,22,10,key*.1,0,7);g.fill();
+    g.fillStyle="#a3c1aa3b";g.fillRect(px+34+Math.sin(time+key)*4,py+45,23,1.4);
+  }
+  if(key%9===0){
+    const py2=py+12;
+    g.strokeStyle="#232a28";g.lineWidth=12;g.beginPath();g.moveTo(px+4,py2);g.lineTo(px+72,py2);g.stroke();
+    g.strokeStyle=floor===4?"#98765d":"#667571";g.lineWidth=7;g.stroke();
+    g.fillStyle="#b1956e";for(const x0 of [px+12,px+61])g.fillRect(x0,py2-5,4,10);
+    const steam=((time*.7+key*.02)%1);
+    g.fillStyle="rgba(192,221,216,"+(.11*(1-steam))+")";
+    for(let i=0;i<3;i++){g.beginPath();g.arc(px+49+i*5,py2-9-steam*25+i*3,5+steam*7,0,7);g.fill();}
+  }
+  if(floor===4){
+    g.fillStyle="#e6ad66";g.fillRect(px+31,py+31,14,5);
+    g.fillStyle="#291e21";g.fillRect(px+36,py+32,4,3);
+  }
+}
+function drawSubLife(g){
+  const [hx,hy]=SUB_HOST;
+  if(subDist(subHere(),SUB_HOST)<1050){
+    g.save();g.translate(hx,hy);
+    const glow=g.createRadialGradient(0,0,2,0,0,85);glow.addColorStop(0,"#edbd694e");glow.addColorStop(1,"#edbd6900");
+    g.fillStyle=glow;g.fillRect(-85,-85,170,170);
+    g.fillStyle="#241c22";g.fillRect(-27,-17,66,41);
+    g.strokeStyle="#795c5e";g.lineWidth=3;g.strokeRect(-27,-17,66,41);
+    g.fillStyle="#b57c4a";g.fillRect(-33,-12,11,20);g.fillRect(20,18,24,7);
+    g.fillStyle="#ffe79d";g.fillRect(-30,-8,5,7);
+    g.fillStyle="#5e8664";g.beginPath();g.ellipse(0,5,13,15,0,0,7);g.fill();
+    g.fillStyle="#c99b79";g.beginPath();g.arc(0,-6,8,0,7);g.fill();
+    g.fillStyle="#66463b";g.fillRect(-9,-13,18,5);
+    g.fillStyle="#ffe8af";g.font="850 12px system-ui";g.textAlign="center";g.fillText("STASZEK",0,-26);
+    g.restore();
+  }
+  const close=subDist(subHere(),SUB_ALCOVE)<1050;
+  if(close){
+    const [x,y]=SUB_ALCOVE;
+    g.fillStyle="#241f21";g.fillRect(x-27,y-22,29,30);
+    g.strokeStyle="#9a7447";g.strokeRect(x-27,y-22,29,30);
+    g.fillStyle="#dac395";g.font="900 11px system-ui";g.textAlign="center";g.fillText("GANEK • PIESZO",x+35,y-27);
+  }
+  for(const rat of subLife.rats){
+    if(rat.hide>0||subDist(subHere(),[rat.x,rat.y])>1120)continue;
+    g.save();g.translate(rat.x,rat.y);g.rotate(rat.a);
+    g.strokeStyle="#b78781";g.lineWidth=1.3;g.beginPath();g.moveTo(-5,0);g.quadraticCurveTo(-11,Math.sin(subLife.t*17+rat.seed)*4,-15,1);g.stroke();
+    g.fillStyle="#251e22";g.beginPath();g.ellipse(0,0,7.5,4.1,0,0,7);g.fill();
+    g.fillStyle="#766466";g.beginPath();g.arc(5,0,3.2,0,7);g.fill();
+    g.fillStyle="#ed9a80";g.fillRect(5,-2,1.6,1.6);
+    g.restore();
+  }
+  const pump=subPoint(62,35);
+  if(subDist(subHere(),pump)<1100){
+    g.save();g.translate(...pump);
+    g.fillStyle="#263136";g.fillRect(-34,-30,68,60);g.strokeStyle="#718581";g.strokeRect(-34,-30,68,60);
+    g.rotate(subLife.t*2);g.fillStyle="#a6a395";
+    for(let i=0;i<3;i++){g.rotate(Math.PI*2/3);g.fillRect(5,-4,21,8);}
+    g.fillStyle="#3e534d";g.beginPath();g.arc(0,0,7,0,7);g.fill();
+    g.restore();
+  }
+  const grate=subPoint(12,10), phase=subLife.t%31;
+  if(subDist(subHere(),grate)<1050){
+    const [x,y]=grate;g.fillStyle=phase<2.5?"#6cc5d3":"#121720";g.fillRect(x-31,y-15,62,30);
+    if(phase<2.5){g.fillStyle="#dffaff";g.fillRect(x-30+phase*21,y-9,11,17);}
+    g.strokeStyle="#2e3a3b";g.lineWidth=3;
+    for(let i=-30;i<=30;i+=9){g.beginPath();g.moveTo(x+i,y-17);g.lineTo(x+i,y+17);g.stroke();}
+  }
+}
+function drawSubLights(g){
+  if(sub.ride){
+    g.save();g.translate(sub.x,sub.y);g.rotate(sub.a);
+    const beam=g.createLinearGradient(12,0,190,0);beam.addColorStop(0,"#fff5be78");beam.addColorStop(1,"#fff5be00");
+    g.fillStyle=beam;g.beginPath();g.moveTo(12,-6);g.lineTo(205,-54);g.lineTo(205,54);g.lineTo(12,6);g.closePath();g.fill();g.restore();
+  }
+  g.save();g.setTransform(DPR,0,0,DPR,0,0);
+  const vignette=g.createRadialGradient(W/2,H/2,Math.min(W,H)*.18,W/2,H/2,Math.hypot(W,H)*.56);
+  vignette.addColorStop(0,"#0a101c00");vignette.addColorStop(1,"#080e18e3");
+  g.fillStyle=vignette;g.fillRect(0,0,W,H);g.restore();
+}
+
+function drawSubWorld(g){
+  const map=sub.map,ww=SUB_W*SUB_TILE,hh=SUB_H*SUB_TILE;
+  const z=map?Math.min((W-24)/ww,(H-112)/hh):clamp(Math.min(W,H)/500,.62,1.15);
+  const ox=map?(W-ww*z)/2:W/2-sub.x*z,oy=map?(H-hh*z)/2-8:H/2-sub.y*z;
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.fillStyle="#0b141b";g.fillRect(0,0,W,H);
+  g.save();g.translate(ox,oy);g.scale(z,z);
+  if(map){
+    g.imageSmoothingEnabled=false;g.drawImage(subMapBitmap,0,0,ww,hh);g.imageSmoothingEnabled=true;
+  }else{
+    const x0=Math.max(0,Math.floor(-ox/z/SUB_TILE)-1),x1=Math.min(SUB_W,Math.ceil((W-ox)/z/SUB_TILE)+1);
+    const y0=Math.max(0,Math.floor(-oy/z/SUB_TILE)-1),y1=Math.min(SUB_H,Math.ceil((H-oy)/z/SUB_TILE)+1);
+    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+      const floor=SUB_FLOOR[y*SUB_W+x];if(!floor)continue;
+      const px=x*SUB_TILE,py=y*SUB_TILE;
+      const scheme=floor===3?["#153845","#1d4550"]:floor===2?["#4a4038","#55473b"]:floor===4?["#514038","#5c463a"]:x<22?["#41383b","#4b3d40"]:["#35454b","#3b4b51"];
+      g.fillStyle=scheme[(x+y)%2];g.fillRect(px,py,SUB_TILE,SUB_TILE);
+      drawSubTexture(g,x,y,px,py,floor);
+      g.strokeStyle="#182831";g.lineWidth=4;
+      if(!subGround(px-1,py+10))subLine(g,[[px,py],[px,py+SUB_TILE]],"#819197",7);
+      if(!subGround(px+10,py-1))subLine(g,[[px,py],[px+SUB_TILE,py]],"#819197",7);
+      if(!subGround(px+SUB_TILE+1,py+10))subLine(g,[[px+SUB_TILE,py],[px+SUB_TILE,py+SUB_TILE]],"#819197",7);
+      if(!subGround(px+10,py+SUB_TILE+1))subLine(g,[[px,py+SUB_TILE],[px+SUB_TILE,py+SUB_TILE]],"#819197",7);
+      if(floor===3){g.fillStyle="#73b7c050";g.fillRect(px+9,py+17,41,2);g.fillRect(px+29,py+51,32,2);}
+      else if((x+y*2)%9===0){
+        g.fillStyle="#ffdb91";g.fillRect(px+27,py+33,19,6);
+        g.fillStyle="#ffeec429";g.beginPath();g.arc(px+36,py+36,20,0,Math.PI*2);g.fill();
+      }
+    }
+  }
+  g.setLineDash(map?[90,50]:[22,14]);
+  subLine(g,SUB_METRO_TRACE,"#66c8dd",map?2/z:3);
+  g.setLineDash([]);
+  if(sub.target){
+    g.strokeStyle="#ffe082";g.lineWidth=map?2/z:4;g.beginPath();g.arc(...sub.target,map?7/z:30,0,Math.PI*2);g.stroke();
+  }
+  for(const p of SUB_PORTALS){
+    if(map && p.type==="hatch"&&!subDiscovered().includes(p.id)&&p!==sub.entry){g.globalAlpha=.55;}
+    drawSubSymbol(g,p.u,p.v,p.type,map?10/z:20);
+    g.globalAlpha=1;
+  }
+  if(!map){
+    drawSubLife(g);
+    for(const v of subVehicles)if(v!==sub.ride)drawSubRide(g,v.x,v.y,v.a,v);
+    for(const [pos,label] of [[subGarage,"DOSTAWY · SKUTER"],[subCourseStart,"PRÓBA · QUAD"]]){
+      g.fillStyle="#252a29";g.fillRect(pos[0]-69,pos[1]-22,138,15);
+      g.fillStyle="#ffe291";g.font="800 12px system-ui";g.textAlign="center";g.fillText(label,pos[0],pos[1]-12);
+    }
+  }
+  if(sub.metro&&!map)drawSubRide(g,sub.x,sub.y,sub.a,{kind:"metro",color:"#4baac2"});
+  else if(sub.ride&&!map)drawSubRide(g,sub.x,sub.y,sub.a,sub.ride);
+  else{g.fillStyle="#fff";g.beginPath();g.arc(sub.x,sub.y,map?5/z:10,0,Math.PI*2);g.fill();}
+  if(!map) drawSubLights(g);
+  g.restore();
+  if(map){
+    g.fillStyle="#cce5ea";g.font="750 11px system-ui";g.textAlign="center";g.textBaseline="middle";
+    for(const [x,y,name] of SUB_AREAS){const [a,b]=subPoint(x,y);g.fillText(name,ox+a*z,oy+b*z-17);}
+    g.textAlign="center";g.fillStyle="#edf3f4";g.fillText("◎ Studzienka   M Metro   ↗ Rampa   ● Twoja pozycja",W/2,H-66);
+  }else if(sub.target && subDist(subHere(),sub.target)>95){
+    const a=Math.atan2(sub.target[1]-sub.y,sub.target[0]-sub.x),x=clamp(W/2+Math.cos(a)*130,18,W-18),y=clamp(H/2+Math.sin(a)*105,51,H-55);
+    g.save();g.translate(x,y);g.rotate(a);g.fillStyle="#ffdc80";g.beginPath();g.moveTo(12,0);g.lineTo(-8,7);g.lineTo(-8,-7);g.closePath();g.fill();g.restore();
+  }
+}
+function drawSubRide(g,x,y,a,v){
+  g.save();g.translate(x,y);g.rotate(a);
+  const metro=v.kind==="metro",quad=v.kind==="quad",w=metro?130:quad?35:27,h=metro?28:quad?24:12;
+  g.fillStyle="#121919";g.fillRect(-w/2-3,-h/2-3,w+6,h+6);
+  if(quad)for(const i of [-1,1])for(const j of [-1,1])g.fillRect(i*11-5,j*12-4,10,8);
+  g.fillStyle=v.color;g.fillRect(-w/2,-h/2,w,h);
+  g.fillStyle="#d8ebeb";
+  if(metro){for(let i=-4;i<=4;i++)g.fillRect(i*13-3,-h/2+4,6,h-8);}
+  else g.fillRect(-4,-h/2+2,8,h-4);
+  g.fillStyle="#ffe7a3";g.fillRect(w/2-3,-h/2+1,4,h-2);
+  g.restore();
+}
+function drawSubFrame(dt){
+  updateSub(dt);drawSubWorld(ctx);
+  const p=subPortalNear(),v=!sub.ride&&nearestSubObject(subVehicles,61,v=>[v.x,v.y]);
+  const title=sub.map?"Podziemia · mapa":sub.metro?"Metro · do "+sub.metro.to.name:sub.ride?sub.ride.name+" · "+Math.round(Math.abs(sub.v)*.36)+" km/h":"Podziemia · pieszo";
+  railText("subMode",title);
+  railText("subCount","Wejścia "+subDiscovered().length+"/"+SUB_PORTALS.length);
+  const action=nearSubHost()?"POGADAJ ZE STASZKIEM":p?.type==="metro"?"WEJDŹ NA PERON":p?"WYJDŹ · "+p.name:sub.ride?"ZSIĄDŹ":v?"WSIĄDŹ · "+v.name:"";
+  $("subUse").hidden=!action||sub.map||!!sub.metro||!!sub.choosing||sub.talk||sub.descent>0;
+  railText("subUse",action);
+  const task=subJobPrompt();
+  $("subJob").hidden=!task||!!sub.choosing;
+  railText("subJob",task);
+  $("subMove").hidden=sub.map||!!sub.metro||!!sub.choosing;
+  $("subMapBtn").hidden=!!sub.choosing||sub.talk||sub.descent>0;
+  railText("subMapBtn",sub.map?"WRÓĆ":"MAPA");
+  railText("subTask",sub.job?(sub.job.kind==="quad"?"Punkt "+(sub.job.cp+1)+"/"+SUB_COURSE.length:"Dostawa · Rynek")+" · "+Math.floor(sub.job.t)+" s":"");
+}
+function updateSubAccess(){
+  const p=nearSurfaceSub();
+  $("subSurface").hidden=!p;
+  if(p)railText("subSurface",SUB_ICON[p.type]+" "+(p.type==="hatch"?"ZEJDŹ PRZEZ STUDZIENKĘ":p.type==="metro"?"WEJŚCIE DO METRA":"ZEJDŹ RAMPĄ")+" · "+p.name);
+}
+
 let last = performance.now();
 function frame(t){
   try { frameInner(t); } catch (e) { if (!window._errN || window._errN < 3){ window._errN = (window._errN || 0) + 1; console.error(e); try { toast("⚠️ Błąd gry (" + e.message + ") – gra działa dalej", 3000); } catch (e2) {} } requestAnimationFrame(frame); }
@@ -19331,6 +19996,8 @@ function frame(t){
 function frameInner(t){
   const dt = Math.min(0.033, Math.max(0, (t - last) / 1000));
   last = t;
+  if(state==="underground"){drawSubFrame(dt);requestAnimationFrame(frame);return;}
+  updateSubAccess();
   readInput();
   updateRailCabPanel();
   if (!rail.brief && state !== "pause" && state !== "garage" && state !== "map" && state !== "talk" && state !== "inside") update(dt);
